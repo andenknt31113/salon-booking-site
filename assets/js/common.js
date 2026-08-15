@@ -426,7 +426,7 @@ function renderFooter() {
           <div>
             <p class="footer-brand-name">${esc(SALON.name)} ${esc(SALON.nameSub || SALON.branch)}</p>
             <p>${esc(SALON.address)}</p>
-            <p>${esc(SALON.access)}</p>
+            ${SALON.access ? `<p>${esc(SALON.access)}</p>` : ''}
             ${SALON.tel ? `<p style="margin-top:10px;">TEL ${esc(SALON.tel)}</p>` : ''}
             <p>営業時間 ${esc(SALON.business.openTime)}〜${esc(SALON.business.closeTime)}（最終受付 ${esc(SALON.business.lastOrder)}）</p>
             <p>定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・') || 'なし'}</p>

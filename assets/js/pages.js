@@ -149,10 +149,10 @@ function initHome() {
   $('#lead-hours').textContent = SALON.business.minLeadHours;
 
   $('#hero-meta').innerHTML = [
-    `◍ ${SALON.access}`,
-    `◍ ${SALON.business.openTime}〜${SALON.business.closeTime}`,
-    `◍ 定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d]).join('・') || 'なし'}`
-  ].map(t => `<li>${esc(t)}</li>`).join('');
+    SALON.access || SALON.address,
+    `${SALON.business.openTime}〜${SALON.business.closeTime}`,
+    `定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d]).join('・') || 'なし'}`
+  ].filter(Boolean).map(t => `<li>◍ ${esc(t)}</li>`).join('');
 
   $('#home-coupons').innerHTML = SALON.coupons.slice(0, 3).map(couponCard).join('');
   $('#home-styles').innerHTML = SALON.styles.slice(0, 4).map(styleCard).join('');
