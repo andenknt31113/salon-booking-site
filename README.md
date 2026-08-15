@@ -162,8 +162,8 @@ Google ドライブで新しいスプレッドシートを作成します。名�
 先頭の設定を自分のものに変えてください。
 
 ```js
-const NOTIFY_EMAIL = 'salon@example.com';    // 通知を受け取るメールアドレス
-const CALENDAR_ID  = 'primary';              // Googleカレンダーに入れる場合
+const NOTIFY_EMAIL = 'zer01.barber@gmail.com';  // 通知を受け取るメールアドレス
+const CALENDAR_ID  = 'primary';                 // Googleカレンダーに入れる場合
 ```
 
 **3. 「はじめの準備」を実行する**

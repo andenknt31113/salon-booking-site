@@ -72,7 +72,7 @@ function revokeAllAdminTokens() {
   console.log('記憶させた端末をすべて解除しました');
 }
 
-const NOTIFY_EMAIL  = 'salon@example.com';       // 店舗の通知先メール（空にすると通知しません）
+const NOTIFY_EMAIL  = 'zer01.barber@gmail.com';  // 店舗の通知先メール（空にすると通知しません）
 const SALON_NAME    = 'ZER01 barber/lounge';
 const SALON_TEL     = '';                        // ★要確認（未確認のうちは空のまま）
 const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
@@ -844,8 +844,10 @@ function はじめの準備() {
   }
 
   // 3. 残りの手順
-  if (!NOTIFY_EMAIL || NOTIFY_EMAIL === 'salon@example.com') {
-    log.push('⚠️ 通知先メールが初期値のままです。上部の NOTIFY_EMAIL を変更してください。');
+  if (!NOTIFY_EMAIL) {
+    log.push('⚠️ 通知先メールが空です。上部の NOTIFY_EMAIL を設定してください。');
+  } else {
+    log.push('・予約の通知先： ' + NOTIFY_EMAIL + '（違う場合は上部の NOTIFY_EMAIL を直してください）');
   }
   log.push('');
   log.push('--- このあとの手順 ---');
