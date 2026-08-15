@@ -39,7 +39,8 @@ function couponCard(c) {
   const off = c.listPrice && c.listPrice > c.price
     ? `<div class="price-list">通常 ${yen(c.listPrice)}</div>` : '';
   return `
-    <article class="coupon">
+    <article class="coupon${c.image ? ' has-photo' : ''}">
+      ${c.image ? `<img class="coupon-photo ph-photo-opt" src="${esc(c.image)}" alt="" loading="lazy" />` : ''}
       <div>
         <span class="coupon-badge${badgeClass}">${esc(c.badge)}</span>
         <h3>${esc(c.title)}</h3>
@@ -112,7 +113,8 @@ function reviewCard(r) {
 
 function menuGroupHtml(cat) {
   const rows = cat.items.map(m => `
-    <div class="menu-row">
+    <div class="menu-row${m.image ? ' has-photo' : ''}">
+      ${m.image ? `<img class="menu-row-photo ph-photo-opt" src="${esc(m.image)}" alt="" loading="lazy" />` : ''}
       <div>
         <p class="menu-row-name">${esc(m.name)}</p>
         ${m.note ? `<p class="menu-row-note">${esc(m.note)}</p>` : ''}
@@ -219,8 +221,10 @@ function initMenuPage() {
   const draw = catId => {
     const target = catId === 'all' ? cats : cats.filter(c => c.id === catId);
     listHost.innerHTML = target.map(menuGroupHtml).join('');
+    wireImageFallbacks(listHost);
   };
   draw('all');
+  wireImageFallbacks($('#coupon-list'));
 
   tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');

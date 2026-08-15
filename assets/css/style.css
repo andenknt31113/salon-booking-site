@@ -344,8 +344,20 @@ table { border-collapse: collapse; width: 100%; }
   border-bottom: 1px solid var(--accent); margin-bottom: 4px;
 }
 .menu-row {
-  display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: baseline;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: baseline;
   padding: 17px 2px; border-bottom: 1px solid var(--line-2);
+}
+/* 写真を入れたメニューだけ、左に正方形のサムネイルが増える */
+.menu-row.has-photo { grid-template-columns: 68px minmax(0, 1fr) auto; align-items: center; }
+.menu-row-photo {
+  width: 68px; height: 68px; object-fit: cover;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2);
+}
+/* 読み込めなかった画像は消し、写真なしの見た目に戻す（wireImageFallbacks が外す） */
+.coupon.has-photo { grid-template-columns: 96px minmax(0, 1fr) auto; }
+.coupon-photo {
+  width: 96px; height: 96px; object-fit: cover; align-self: start;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2);
 }
 .menu-row-name { font-size: 14.5px; font-weight: 700; }
 .menu-row-note { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
@@ -642,6 +654,10 @@ table { border-collapse: collapse; width: 100%; }
   .hero-inner { padding: 52px 0 46px; }
   .section { padding: 44px 0; }
   .coupon { grid-template-columns: 1fr; gap: 14px; }
+  .coupon.has-photo { grid-template-columns: 1fr; }
+  .coupon-photo { width: 100%; height: 160px; }
+  .menu-row.has-photo { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 12px; }
+  .menu-row-photo { width: 58px; height: 58px; }
   .coupon-price { text-align: left; display: flex; align-items: baseline; gap: 12px; }
   .coupon-price .price-min { margin-bottom: 0; }
   .steps { gap: 2px; }
@@ -672,3 +688,22 @@ table { border-collapse: collapse; width: 100%; }
 @media print {
   .site-header, .site-footer, .sp-cta, .panel-actions, .breadcrumb, .draft-banner { display: none !important; }
 }
+
+/* ============================================================
+   管理ページ：写真の選択と定休曜日
+   ============================================================ */
+.image-picker { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; align-items: start; }
+.image-preview {
+  width: 72px; height: 72px; border: 1px solid var(--line); background: var(--panel-2);
+  display: grid; place-items: center; overflow: hidden;
+}
+.image-preview img { width: 100%; height: 100%; object-fit: cover; }
+.image-preview span { font-size: 10.5px; color: var(--muted); }
+.image-picker-body { min-width: 0; }
+.image-picker-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+/* label を btn として使うので、中身を中央に置き直す */
+.image-picker-actions label.btn { display: inline-flex; align-items: center; }
+.image-picker-note { font-size: 11.5px; margin-top: 7px; line-height: 1.6; }
+
+.weekday-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.weekday-picker .radio-chip { min-width: 46px; justify-content: center; }

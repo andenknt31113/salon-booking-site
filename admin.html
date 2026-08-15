@@ -35,7 +35,15 @@
           <input class="input" type="password" id="passcode" autocomplete="current-password" />
           <p class="field-error" id="gate-error"></p>
         </div>
+        <label class="checkbox-line" style="margin-bottom:14px;">
+          <input type="checkbox" id="remember-me" checked />
+          <span>この端末を記憶する（次からパスワードなしで開けます）</span>
+        </label>
         <button class="btn btn-primary btn-block" type="button" id="gate-btn">ログイン</button>
+        <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.7;">
+          記憶するのはパスワードそのものではなく、この端末用の合鍵です。
+          店舗の端末以外では、チェックを外してお使いください。
+        </p>
       </div>
     </section>
 
@@ -51,6 +59,8 @@
           <button class="tab" type="button" data-pane="menus" aria-selected="false">メニュー</button>
           <button class="tab" type="button" data-pane="coupons" aria-selected="false">クーポン</button>
           <button class="tab" type="button" data-pane="settings" aria-selected="false">店舗情報</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="forget-device"
+                  style="margin-left:auto;">この端末の記憶を消す</button>
         </div>
 
         <!-- 予約一覧 -->

@@ -407,7 +407,18 @@ function applySettings(st) {
   set('営業終了', v => { SALON.business.closeTime = v; });
   set('最終受付', v => { SALON.business.lastOrder = v; });
   set('キャッチコピー', v => { SALON.catch = v; });
+  set('ロゴ画像', v => { SALON.logo = v; });
+  set('スタッフ写真', v => { if (SALON.staff[0]) SALON.staff[0].image = v; });
   if (st['お知らせ'] !== undefined) SALON.notice = String(st['お知らせ']).trim();
+
+  /* 定休曜日。「日,水」「日曜・水曜」どちらの書き方でも読み取ります。
+     指定が無い場合は data.js の設定をそのまま使います（空欄＝変更しない）。 */
+  if (st['定休曜日'] !== undefined) {
+    const raw = String(st['定休曜日']).trim();
+    SALON.business.closedWeekdays = raw
+      ? [...new Set(raw.split(/[,、・\s]+/).map(t => WEEKDAY_JA.indexOf(t.replace(/曜日?$/, ''))).filter(i => i >= 0))]
+      : [];
+  }
 }
 
 /** 予約番号と電話番号でご予約を照会する（ログインの代わり） */
@@ -498,6 +509,16 @@ function wireImageFallbacks(root = document) {
   // 写真：読めなければ取り除き、下のストライプの意匠を見せる
   $$('.ph-photo', root).forEach(img => {
     const drop = () => img.remove();
+    img.addEventListener('error', drop, { once: true });
+    if (img.complete && img.naturalWidth === 0) drop();
+  });
+  // メニュー・クーポンの写真は任意。読めなければ写真なしの並びに戻す
+  $$('.ph-photo-opt', root).forEach(img => {
+    const drop = () => {
+      const box = img.parentElement;
+      img.remove();
+      if (box) box.classList.remove('has-photo');
+    };
     img.addEventListener('error', drop, { once: true });
     if (img.complete && img.naturalWidth === 0) drop();
   });

@@ -8,19 +8,27 @@
  * ============================================================ */
 
 let adminPw = '';          // 入力されたパスワード（この画面を開いている間だけ保持）
+let adminToken = '';       // 「この端末を記憶する」で受け取った合鍵
 let adminData = null;      // 取得した内容
 const edits = { closed: [], menus: [], coupons: [], settings: {} };
 
-const MENU_COLS = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '表示'];
-const COUPON_COLS = ['クーポン名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '表示'];
+/* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
+   合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
+const TOKEN_KEY = 'salon.adminToken.v1';
+
+const MENU_COLS = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
+const COUPON_COLS = ['クーポン名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 const SETTING_KEYS = [
   ['電話番号', 'tel', '例）0297-00-0000。空欄にすると電話ボタンを出しません'],
   ['営業開始', 'time', ''],
   ['営業終了', 'time', ''],
   ['最終受付', 'time', ''],
   ['キャッチコピー', 'text', 'トップの大見出しに出ます'],
-  ['お知らせ', 'text', 'トップの上部に帯で出ます。空欄なら出ません']
+  ['お知らせ', 'text', 'トップの上部に帯で出ます。空欄なら出ません'],
+  ['ロゴ画像', 'image', 'ヘッダーとトップに出るロゴ。写真を選ぶと自動で入ります'],
+  ['スタッフ写真', 'image', 'スタッフ紹介に出る写真']
 ];
+const WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 /* ---------- 受信先とのやりとり ---------- */
 async function adminPost(payload) {
@@ -31,7 +39,7 @@ async function adminPost(payload) {
     const res = await fetch(SALON.reservationEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ ...payload, password: adminPw })
+      body: JSON.stringify({ ...payload, password: adminPw, token: adminToken })
     });
     return await res.json();
   } catch (e) {
@@ -54,7 +62,8 @@ async function login() {
 
   btn.disabled = true;
   btn.textContent = '確認中…';
-  const res = await adminPost({ type: 'adminLogin' });
+  const remember = !!($('#remember-me') || {}).checked;
+  const res = await adminPost({ type: 'adminLogin', remember });
   btn.disabled = false;
   btn.textContent = 'ログイン';
 
@@ -64,7 +73,19 @@ async function login() {
     err.style.display = 'block';
     return;
   }
+  if (res.token) {
+    adminToken = res.token;
+    try { localStorage.setItem(TOKEN_KEY, res.token); } catch (e) { /* 保存できなくても続行 */ }
+  }
   await openDashboard();
+}
+
+/** 記憶した合鍵を捨てて、もう一度パスワードを聞く状態に戻す */
+function forgetDevice() {
+  adminToken = '';
+  adminPw = '';
+  try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* noop */ }
+  location.reload();
 }
 
 async function openDashboard() {
@@ -72,7 +93,7 @@ async function openDashboard() {
   if (!res.ok) {
     $('#gate-error').textContent = res.error || '読み込みに失敗しました。';
     $('#gate-error').style.display = 'block';
-    return;
+    return false;
   }
   adminData = res;
   edits.closed = (res.closedDates || []).map(r => ({ ...r }));
@@ -88,6 +109,7 @@ async function openDashboard() {
   renderRows('menus', MENU_COLS, '#menu-rows');
   renderRows('coupons', COUPON_COLS, '#coupon-rows');
   renderSettings();
+  return true;
 }
 
 /* ---------- 予約一覧 ---------- */
@@ -143,9 +165,108 @@ function renderReservations() {
   }).join('');
 }
 
+/* ---------- 写真 ----------
+   選んだ写真をブラウザ側で長辺1200pxまで縮めてから送ります。
+   スマホの写真はそのままだと数MBあり、Apps Script が受け取りきれないためです。
+   縮めた画像は Apps Script が Google ドライブに保存し、
+   サイトから表示できるURLを返してきます。ファイル名も向こうで付け直します。 */
+const MAX_EDGE = 1200;
+
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('画像を読み込めませんでした。'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('画像として開けませんでした。'));
+      img.onload = () => {
+        const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        // PNG は透過を保つためそのまま、それ以外は JPEG に寄せて軽くする
+        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        resolve({ dataUrl: canvas.toDataURL(mime, 0.85), mimeType: mime });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadImage(file, slot) {
+  if (!file.type || file.type.indexOf('image/') !== 0) {
+    throw new Error('画像ファイルを選んでください。');
+  }
+  const { dataUrl, mimeType } = await shrinkImage(file);
+  const res = await adminPost({ type: 'adminUpload', slot, mimeType, dataBase64: dataUrl });
+  if (!res.ok) throw new Error(res.error || 'アップロードに失敗しました。');
+  return res.url;
+}
+
+/** 画像1つぶんの入力欄。URL欄・選択ボタン・小さな見本 */
+function imageField(label, url, attrs, slot) {
+  const v = url == null ? '' : String(url);
+  return `
+    <div class="form-field" style="margin:0 0 10px;">
+      <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(label)}</span>
+      <div class="image-picker">
+        <div class="image-preview">${v ? `<img src="${esc(v)}" alt="" />` : '<span>写真なし</span>'}</div>
+        <div class="image-picker-body">
+          <input class="input" type="text" value="${esc(v)}" placeholder="写真を選ぶと自動で入ります" ${attrs} />
+          <div class="image-picker-actions">
+            <label class="btn btn-outline btn-sm">
+              写真を選ぶ
+              <input type="file" accept="image/*" hidden data-upload="${esc(slot)}" />
+            </label>
+            ${v ? '<button class="btn btn-ghost btn-sm" type="button" data-clear-image>削除</button>' : ''}
+          </div>
+          <p class="image-picker-note" hidden></p>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* 写真を選んだときの共通処理。どの入力欄に結果を書くかは、
+   同じ .image-picker の中の text 入力を見て決めます。 */
+async function handleUpload(input) {
+  const file = (input.files || [])[0];
+  if (!file) return;
+  const picker = input.closest('.image-picker');
+  const note = picker.querySelector('.image-picker-note');
+  const text = picker.querySelector('input[type="text"]');
+  note.hidden = false;
+  note.style.color = 'var(--muted)';
+  note.textContent = 'アップロード中…';
+
+  try {
+    const url = await uploadImage(file, input.dataset.upload);
+    text.value = url;
+    // 手入力と同じ扱いにして、編集内容に反映させる
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    picker.querySelector('.image-preview').innerHTML = `<img src="${esc(url)}" alt="" />`;
+    note.style.color = 'var(--ok)';
+    note.textContent = '写真を登録しました。保存を押すとサイトに出ます。';
+  } catch (err) {
+    note.style.color = 'var(--danger)';
+    note.textContent = String(err.message || err);
+  } finally {
+    input.value = '';
+  }
+}
+
 /* ---------- 行の編集（休業日 / メニュー / クーポン） ---------- */
 function fieldFor(col, value, target, index) {
   const v = value == null ? '' : value;
+  if (col === '画像') {
+    return imageField('画像',
+      v,
+      `data-target="${target}" data-index="${index}" data-col="画像"`,
+      target + '-' + index);
+  }
   if (col === '表示') {
     return `<label class="checkbox-line" style="margin-top:8px;">
         <input type="checkbox" data-target="${target}" data-index="${index}" data-col="${esc(col)}"
@@ -153,7 +274,8 @@ function fieldFor(col, value, target, index) {
         <span>サイトに表示する</span>
       </label>`;
   }
-  const type = (col === '価格' || col === '通常価格' || col === '所要(分)') ? 'number'
+  // 価格は「4000〜」と書けるようにしたいので number にはしない
+  const type = (col === '通常価格' || col === '所要(分)') ? 'number'
     : col === '休業日' ? 'date' : 'text';
   return `
     <label class="form-field" style="margin:0 0 10px;">
@@ -180,13 +302,43 @@ function renderClosed() {
 }
 
 function renderSettings() {
-  $('#setting-rows').innerHTML = SETTING_KEYS.map(([key, type, hint]) => `
+  const closedRaw = String(edits.settings['定休曜日'] ?? '');
+  const closedSet = new Set(closedRaw.split(/[,、・\s]+/).map(t => t.replace(/曜日?$/, '')).filter(Boolean));
+
+  const weekBox = `
+    <div class="form-field">
+      <span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">定休曜日</span>
+      <div class="weekday-picker">
+        ${WEEK_LABELS.map(w => `
+          <label class="radio-chip">
+            <input type="checkbox" data-weekday="${w}" ${closedSet.has(w) ? 'checked' : ''} />
+            <span>${w}</span>
+          </label>`).join('')}
+      </div>
+      <span style="display:block;font-size:11.5px;color:var(--muted);margin-top:5px;">
+        選んだ曜日は毎週ずっと予約できなくなります。1日だけ休むときは「休業日」タブをお使いください。
+      </span>
+    </div>`;
+
+  $('#setting-rows').innerHTML = SETTING_KEYS.map(([key, type, hint]) => {
+    if (type === 'image') {
+      return imageField(key, edits.settings[key] ?? '', `data-setting="${esc(key)}"`, 'setting-' + key)
+        + (hint ? `<p style="font-size:11.5px;color:var(--muted);margin:-4px 0 12px;">${esc(hint)}</p>` : '');
+    }
+    return `
     <label class="form-field">
       <span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">${esc(key)}</span>
       <input class="input" type="${type === 'time' ? 'time' : 'text'}"
              value="${esc(edits.settings[key] ?? '')}" data-setting="${esc(key)}" />
       ${hint ? `<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:5px;">${esc(hint)}</span>` : ''}
-    </label>`).join('');
+    </label>`;
+  }).join('') + weekBox;
+}
+
+/** 曜日のチェックから「日,水」の形にまとめて設定に入れる */
+function collectWeekdays() {
+  const on = $$('[data-weekday]').filter(el => el.checked).map(el => el.dataset.weekday);
+  edits.settings['定休曜日'] = on.join(',');
 }
 
 /* ---------- 保存 ---------- */
@@ -199,6 +351,8 @@ async function save(target) {
   const btn = document.querySelector(`[data-save="${target}"]`);
   btn.disabled = true;
   btn.textContent = '保存中…';
+
+  if (target === 'settings') collectWeekdays();
 
   const payload = target === 'settings'
     ? { type: 'adminSave', target, rows: edits.settings }
@@ -288,8 +442,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (add) {
       const t = add.dataset.add;
       edits[t].push(t === 'closed' ? { '休業日': '', 'メモ': '' }
-        : t === 'menus' ? { '区分': 'カット', 'メニュー名': '', '価格': '', '所要(分)': 60, '説明': '', '表示': '○' }
-        : { 'クーポン名': '', '価格': '', '通常価格': '', '所要(分)': 60, '説明': '', '条件': '', '対象': '全員', '表示': '○' });
+        : t === 'menus' ? { '区分': 'カット', 'メニュー名': '', '価格': '', '所要(分)': 60, '説明': '', '画像': '', '表示': '○' }
+        : { 'クーポン名': '', '価格': '', '通常価格': '', '所要(分)': 60, '説明': '', '条件': '', '対象': '全員', '画像': '', '表示': '○' });
       if (t === 'closed') renderClosed();
       else renderRows(t, t === 'menus' ? MENU_COLS : COUPON_COLS, t === 'menus' ? '#menu-rows' : '#coupon-rows');
       return;
@@ -318,6 +472,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // 写真の選択
+  document.addEventListener('change', e => {
+    if (e.target.dataset && e.target.dataset.upload !== undefined) handleUpload(e.target);
+  });
+  document.addEventListener('click', e => {
+    const clr = e.target.closest('[data-clear-image]');
+    if (!clr) return;
+    const picker = clr.closest('.image-picker');
+    const text = picker.querySelector('input[type="text"]');
+    text.value = '';
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    picker.querySelector('.image-preview').innerHTML = '<span>写真なし</span>';
+    clr.remove();
+  });
+
+  const forget = $('#forget-device');
+  if (forget) forget.addEventListener('click', forgetDevice);
+
   $('#filter-date').addEventListener('change', renderReservations);
   $('#filter-status').addEventListener('change', renderReservations);
   $('#filter-reset').addEventListener('click', () => {
@@ -326,4 +498,23 @@ document.addEventListener('DOMContentLoaded', () => {
     renderReservations();
   });
   $('#export-csv').addEventListener('click', exportCsv);
+
+  /* 前に「この端末を記憶する」を選んでいれば、合鍵で黙って入る。
+     合鍵が期限切れ・失効していれば、いつもどおりパスワードを聞く画面のままにする。 */
+  let saved = '';
+  try { saved = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { /* noop */ }
+  if (saved) {
+    adminToken = saved;
+    const message = $('#gate-message').textContent;
+    $('#gate-message').textContent = 'この端末は記憶されています。読み込み中…';
+    openDashboard().then(ok => {
+      if (ok) return;
+      // 合鍵が切れていた。捨てて、いつものパスワード入力に戻す
+      adminToken = '';
+      try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* noop */ }
+      $('#gate-message').textContent = message;
+      $('#gate-error').textContent = '記憶した端末の有効期限が切れました。もう一度パスワードを入力してください。';
+      $('#gate-error').style.display = 'block';
+    }).catch(() => { $('#gate-message').textContent = message; });
+  }
 });

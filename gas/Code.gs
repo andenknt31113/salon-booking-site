@@ -30,11 +30,45 @@ function adminPassword_() {
   return PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD') || '';
 }
 
-/** 管理操作の認証。合っていなければ例外を投げる */
+/** 管理操作の認証。合っていなければ例外を投げる。
+    パスワードそのものか、ログイン時に発行した端末トークンのどちらかで通ります。 */
 function requireAdmin_(d) {
   const pw = adminPassword_();
   if (!pw) throw new Error('管理パスワードが未設定です。スクリプトプロパティに ADMIN_PASSWORD を登録してください。');
-  if (String(d.password || '') !== pw) throw new Error('パスワードが違います。');
+  if (String(d.password || '') === pw) return;
+  if (d.token && validToken_(String(d.token))) return;
+  throw new Error('パスワードが違います。');
+}
+
+/* ---- 端末トークン ----
+   「この端末を記憶する」を選ぶと、パスワードの代わりに使える文字列を発行します。
+   パスワード本体を端末に残さずに済み、店側が使うたびに入力しなくてよくなります。
+   スクリプトプロパティに保管し、期限切れは読み出し時に捨てます。 */
+const TOKEN_PROP = 'ADMIN_TOKENS';
+const TOKEN_DAYS = 60;
+
+function readTokens_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(TOKEN_PROP) || '{}'); }
+  catch (e) { return {}; }
+}
+function issueToken_() {
+  const tokens = readTokens_();
+  const now = Date.now();
+  // 期限切れを捨ててから足す（貯まりっぱなしにしない）
+  Object.keys(tokens).forEach(k => { if (tokens[k] < now) delete tokens[k]; });
+  const t = Utilities.getUuid() + '-' + Utilities.getUuid();
+  tokens[t] = now + TOKEN_DAYS * 24 * 60 * 60 * 1000;
+  PropertiesService.getScriptProperties().setProperty(TOKEN_PROP, JSON.stringify(tokens));
+  return t;
+}
+function validToken_(t) {
+  const tokens = readTokens_();
+  return !!tokens[t] && tokens[t] > Date.now();
+}
+/** 端末を全部ログアウトさせたいときに、エディタから手で実行します */
+function revokeAllAdminTokens() {
+  PropertiesService.getScriptProperties().deleteProperty(TOKEN_PROP);
+  console.log('記憶させた端末をすべて解除しました');
 }
 
 const NOTIFY_EMAIL  = 'salon@example.com';       // 店舗の通知先メール（空にすると通知しません）
@@ -83,8 +117,8 @@ const HEADERS = [
   '状態', 'カレンダーID'
 ];
 
-const MENU_HEADERS   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '表示'];
-const COUPON_HEADERS = ['クーポン名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '表示'];
+const MENU_HEADERS   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
+const COUPON_HEADERS = ['クーポン名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 
 /* ============================================================
    受信の入口
@@ -101,6 +135,7 @@ function doPost(e) {
     if (data.type === 'adminLogin')   return json_(doAdminLogin_(data));
     if (data.type === 'adminData')    return json_(doAdminData_(data));
     if (data.type === 'adminSave')    return json_(doAdminSave_(data));
+    if (data.type === 'adminUpload')  return json_(doAdminUpload_(data));
     if (data.type === 'availability') return json_(doAvailability_(getSheet_()));
     if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
     if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
@@ -328,12 +363,15 @@ function readMenuSheet_(ss) {
       group = { id: 'cat' + groups.length, name: catName, items: [] };
       groups.push(group);
     }
+    const p = parsePrice_(r[col('価格')]);
     group.items.push({
       id: 'sm' + i,
       name: name,
-      price: Number(r[col('価格')]) || 0,
+      price: p.value,
+      priceFrom: p.from,
       minutes: Number(r[col('所要(分)')]) || 30,
-      note: String(r[col('説明')] || '')
+      note: String(r[col('説明')] || ''),
+      image: String(r[col('画像')] || '').trim()
     });
   });
 
@@ -354,19 +392,33 @@ function readCouponSheet_(ss) {
     if (!isShown_(r[col('表示')])) return;
 
     const list = Number(r[col('通常価格')]) || null;
+    const p = parsePrice_(r[col('価格')]);
     out.push({
       id: 'sc' + i,
       badge: String(r[col('対象')] || '全員').trim(),
       title: title,
       detail: String(r[col('説明')] || ''),
-      price: Number(r[col('価格')]) || 0,
+      price: p.value,
+      priceFrom: p.from,
       listPrice: list,
       minutes: Number(r[col('所要(分)')]) || 30,
-      terms: String(r[col('条件')] || '')
+      terms: String(r[col('条件')] || ''),
+      image: String(r[col('画像')] || '').trim()
     });
   });
 
   return out.length ? out : null;
+}
+
+/* 価格セルの読み取り。
+   数値のほか「4000〜」「¥4,000〜」のような書き方も受け取ります。
+   「〜」を付けると、サイトでも「¥4,000〜」と出ます。
+   空欄・0 は「カウンセリングでお見積り」として扱われます。 */
+function parsePrice_(v) {
+  const s = String(v == null ? '' : v).trim();
+  const from = /[〜~]/.test(s);
+  const n = Number(s.replace(/[^0-9.]/g, ''));
+  return { value: isNaN(n) ? 0 : n, from: from };
 }
 
 /** 「表示」列の判定。空欄は表示扱い。×・✕・x・非表示・FALSE は非表示 */
@@ -482,7 +534,8 @@ function doCancel_(sheet, d) {
    ============================================================ */
 function doAdminLogin_(d) {
   requireAdmin_(d);
-  return { ok: true };
+  // 「この端末を記憶する」が選ばれたときだけ発行する
+  return d.remember ? { ok: true, token: issueToken_() } : { ok: true };
 }
 
 /** 管理者ページに必要な情報をまとめて返す */
@@ -532,6 +585,50 @@ function doAdminSave_(d) {
   else return { ok: false, error: '不明な保存先です: ' + d.target };
 
   return { ok: true };
+}
+
+/* ============================================================
+   画像のアップロード
+
+   管理者ページで選んだ写真を Google ドライブに保存し、
+   サイトから表示できるURLを返します。
+   写真は「ZER01サイト画像」フォルダに入り、リンクを知っていれば
+   誰でも閲覧できる設定になります（サイトに載せる写真のため）。
+   ============================================================ */
+const IMAGE_FOLDER = 'ZER01サイト画像';
+
+function imageFolder_() {
+  const found = DriveApp.getFoldersByName(IMAGE_FOLDER);
+  return found.hasNext() ? found.next() : DriveApp.createFolder(IMAGE_FOLDER);
+}
+
+function doAdminUpload_(d) {
+  requireAdmin_(d);
+
+  const raw = String(d.dataBase64 || '');
+  if (!raw) return { ok: false, error: '画像が空です。' };
+
+  // "data:image/jpeg;base64,...." の形で来ても受け取れるようにする
+  const body = raw.indexOf(',') >= 0 ? raw.slice(raw.indexOf(',') + 1) : raw;
+  const mime = String(d.mimeType || 'image/jpeg');
+  if (mime.indexOf('image/') !== 0) return { ok: false, error: '画像ファイルを選んでください。' };
+
+  // 元のファイル名は日本語や重複でつまずくので、用途＋日時で付け直す
+  const ext  = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+  const slot = String(d.slot || 'image').replace(/[^A-Za-z0-9_-]/g, '') || 'image';
+  const stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd-HHmmss');
+  const name = slot + '-' + stamp + '.' + ext;
+
+  const blob = Utilities.newBlob(Utilities.base64Decode(body), mime, name);
+  const file = imageFolder_().createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  return {
+    ok: true,
+    name: name,
+    // <img> から直接読める形式。ドライブの共有リンクそのままでは画像として表示できません。
+    url: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1200'
+  };
 }
 
 /** シートを見出し付きの配列として読む */
@@ -689,9 +786,12 @@ function setupMenuSheets() {
     menu.appendRow(MENU_HEADERS);
     menu.getRange(1, 1, 1, MENU_HEADERS.length).setFontWeight('bold').setBackground('#f3efea');
     menu.setFrozenRows(1);
-    menu.appendRow(['カット', 'メンズカット', 4000, 50, 'カット価格はこちらから', '○']);
+    menu.appendRow(['カット', 'メンテナンスカット', '4000〜', 40, 'ツーブロック・刈り上げ・フェードのメンテナンス', '', '○']);
     menu.setColumnWidth(2, 260);
     menu.setColumnWidth(5, 260);
+    menu.setColumnWidth(6, 280);
+    menu.getRange('C2').setNote('「4000〜」と書くと、サイトでも「¥4,000〜」と出ます。空欄はお見積り扱いです。');
+    menu.getRange('F1').setNote('画像のURL。管理者ページから写真を選べば自動で入ります。');
   }
 
   const closed = ss.getSheetByName(CLOSED_SHEET) || ss.insertSheet(CLOSED_SHEET);
@@ -712,7 +812,9 @@ function setupMenuSheets() {
     setting.setColumnWidth(1, 150);
     setting.setColumnWidth(2, 420);
     [['電話番号', ''], ['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00'],
-     ['キャッチコピー', ''], ['お知らせ', '']].forEach(r => setting.appendRow(r));
+     ['キャッチコピー', ''], ['お知らせ', ''], ['定休曜日', ''],
+     ['ロゴ画像', ''], ['スタッフ写真', '']].forEach(r => setting.appendRow(r));
+    setting.getRange('B8').setNote('休みにする曜日を「日,水」のように書きます。毎週その曜日が予約できなくなります。');
   }
 
   const coupon = ss.getSheetByName(COUPON_SHEET) || ss.insertSheet(COUPON_SHEET);
@@ -722,17 +824,17 @@ function setupMenuSheets() {
     coupon.setFrozenRows(1);
     [
       ["【清潔感と品が続く】men's骨格補正カット＋眉カット", 6900, '', 70,
-        '骨格・髪質・雰囲気を見極めた大人メンズカジュアル。眉カットまで整えます。', '', '全員', '○'],
+        '骨格・髪質・雰囲気を見極めた大人メンズカジュアル。眉カットまで整えます。', '', '全員', '', '○'],
       ['【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース', 10000, '', 110,
-        'カットに加え、トリートメントとヘッドスパまで。身だしなみをトータルで整えます。', '', '全員', '○'],
+        'カットに加え、トリートメントとヘッドスパまで。身だしなみをトータルで整えます。', '', '全員', '', '○'],
       ['【毎朝のセット1分】品よく決まるお悩み解決メンズパーマ', 14500, '', 120,
-        '直毛や動きが出にくい髪も、扱いやすく自然なメンズパーマに。', '', '全員', '○'],
+        '直毛や動きが出にくい髪も、扱いやすく自然なメンズパーマに。', '', '全員', '', '○'],
       ['【彩で見せるワンランク上のお洒落を】カット＋カラー', 14500, '', 120,
-        '髪の状態と仕上がりに合わせて薬剤を選び、品のある色味に仕上げます。', '', '全員', '○'],
+        '髪の状態と仕上がりに合わせて薬剤を選び、品のある色味に仕上げます。', '', '全員', '', '○'],
       ["【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ men's", 19800, '', 150,
-        '白髪を隠すのではなく活かす白髪ぼかし。伸びても境目が出にくい仕上がりに。', '', '全員', '○'],
+        '白髪を隠すのではなく活かす白髪ぼかし。伸びても境目が出にくい仕上がりに。', '', '全員', '', '○'],
       ['【地毛より綺麗】自然に柔らかく仕上げるメンズ縮毛矯正', 22000, '', 180,
-        'クセや広がりを抑えつつ、不自然にならない自然な質感に。', '', '全員', '○']
+        'クセや広がりを抑えつつ、不自然にならない自然な質感に。', '', '全員', '', '○']
     ].forEach(r => coupon.appendRow(r));
     coupon.setColumnWidth(1, 320);
     coupon.setColumnWidth(5, 300);
