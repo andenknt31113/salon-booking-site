@@ -35,6 +35,17 @@ const MAIL_TO_CUSTOMER = true;
    設定画面の「カレンダーの統合」にあるカレンダーIDを貼ってください。 */
 const CALENDAR_ID = '';
 
+/* LINE公式アカウントに通知を送る場合のみ設定します。
+   LINE Developers の Messaging API チャネルで発行する
+   「チャネルアクセストークン（長期）」を入れてください。
+   空のままなら何もしません。
+
+   LINE_TO には送信先のユーザーIDまたはグループIDを入れます。
+   自分（店舗）宛に届けるだけなら、公式アカウントを友だち追加したうえで
+   Webhookで取得したユーザーIDを入れてください。 */
+const LINE_TOKEN = '';
+const LINE_TO    = '';
+
 /* ============================================================
    シートの列（順番を変えるとスクリプトも直す必要があります）
    ============================================================ */
@@ -124,6 +135,16 @@ function doReserve_(sheet, d) {
       `ご要望　：${c.request || 'なし'}`
     ].join('\n')
   );
+
+  notifyLine_([
+    '【新規予約】',
+    `${d.date} ${d.time}〜${d.endTime}`,
+    `${c.name} 様（${c.visit}）`,
+    menuText,
+    `${Number(d.totalPrice).toLocaleString()}円`,
+    `TEL ${c.tel}`,
+    c.request ? `ご要望：${c.request}` : ''
+  ].filter(Boolean).join('\n'));
 
   mailCustomer_(c.email, `ご予約を承りました（${d.date} ${d.time}）`, [
     `${c.name} 様`,
@@ -392,6 +413,13 @@ function doCancel_(sheet, d) {
     SALON_TEL ? `TEL ${SALON_TEL}` : ''
   ].filter(Boolean).join('\n'));
 
+  notifyLine_([
+    '【キャンセル】',
+    `${d.date} ${d.time}〜`,
+    `${name} 様`,
+    '枠が空きました。'
+  ].join('\n'));
+
   notify_(
     `【キャンセル】${d.date} ${d.time} ${name}様`,
     [
@@ -437,6 +465,26 @@ function notify_(subject, body) {
     MailApp.sendEmail(NOTIFY_EMAIL, `${SALON_NAME} ${subject}`, body);
   } catch (err) {
     console.warn('メール送信に失敗しました', err);
+  }
+}
+
+/** LINE公式アカウントへ通知を送る（LINE_TOKEN が空なら何もしない） */
+function notifyLine_(text) {
+  if (!LINE_TOKEN || !LINE_TO) return;
+  try {
+    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + LINE_TOKEN },
+      payload: JSON.stringify({
+        to: LINE_TO,
+        messages: [{ type: 'text', text: text.slice(0, 4900) }]
+      }),
+      muteHttpExceptions: true
+    });
+  } catch (err) {
+    // 通知の失敗で予約の記録まで止めない
+    console.warn('LINE通知に失敗しました', err);
   }
 }
 

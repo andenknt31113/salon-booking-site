@@ -503,6 +503,7 @@ function renderFooter() {
               <li><a href="reserve.html">空席状況・ネット予約</a></li>
               <li><a href="mypage.html">ご予約の確認・キャンセル</a></li>
               <li><a href="index.html#faq">よくあるご質問</a></li>
+              <li><a href="privacy.html">プライバシーポリシー</a></li>
               <li><a href="admin.html">スタッフ用 予約管理</a></li>
             </ul>
           </div>
@@ -516,6 +517,55 @@ function renderFooter() {
     </div>`;
 }
 
+/* ============================================================
+ *  構造化データ（Google検索・マップ向け）
+ *  店舗情報を data.js から組み立てて埋め込みます。
+ * ============================================================ */
+function injectStructuredData() {
+  if (currentPage() !== 'index.html') return;
+
+  const b = SALON.business;
+  const prices = SALON.coupons.map(c => c.price)
+    .concat(allMenuItems().map(m => m.price))
+    .filter(Boolean);
+
+  const data = {
+    '@context': 'https://schema.org',
+    '@type': 'HairSalon',
+    name: SALON.fullName || `${SALON.name} ${SALON.nameSub || ''}`.trim(),
+    alternateName: SALON.nameJa,
+    description: SALON.description,
+    address: {
+      '@type': 'PostalAddress',
+      addressCountry: 'JP',
+      addressRegion: '茨城県',
+      addressLocality: '龍ケ崎市',
+      streetAddress: SALON.address.replace(/^茨城県龍ケ崎市/, '')
+    },
+    openingHours: `Mo-Su ${b.openTime}-${b.closeTime}`,
+    url: location.origin + location.pathname.replace(/index\.html$/, ''),
+    image: location.origin + location.pathname.replace(/index\.html$/, '') + 'assets/ogp.png'
+  };
+
+  if (SALON.tel) data.telephone = SALON.tel;
+  if (prices.length) {
+    data.priceRange = `¥${Math.min(...prices).toLocaleString()}〜¥${Math.max(...prices).toLocaleString()}`;
+  }
+  if (SALON.rating && SALON.reviewCount) {
+    data.aggregateRating = {
+      '@type': 'AggregateRating',
+      ratingValue: SALON.rating,
+      reviewCount: SALON.reviewCount,
+      bestRating: 5
+    };
+  }
+
+  const tag = document.createElement('script');
+  tag.type = 'application/ld+json';
+  tag.textContent = JSON.stringify(data);
+  document.head.appendChild(tag);
+}
+
 /* ページタイトルを設定ファイルから補完 */
 function applyDocumentTitle() {
   const base = `${SALON.name} ${SALON.nameSub || SALON.branch}`.trim();
@@ -526,4 +576,5 @@ document.addEventListener('DOMContentLoaded', () => {
   renderHeader();
   renderFooter();
   applyDocumentTitle();
+  injectStructuredData();
 });

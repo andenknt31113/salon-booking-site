@@ -62,7 +62,15 @@ GitHub Pages の有効化は、リポジトリ所有者が画面から1回だけ
 | `assets/js/reserve.js` | 予約フローの制御 |
 | `assets/js/mypage.js` | 予約確認・キャンセル |
 | `assets/js/admin.js` | 予約管理・CSV出力 |
+| `assets/js/privacy.js` | プライバシーポリシーの連絡先描画 |
 | `gas/Code.gs` | Google Apps Script（予約の受信先） |
+
+その他のドキュメント：
+
+| ファイル | 内容 |
+| --- | --- |
+| [DECISIONS.md](DECISIONS.md) | 方針と「作らないと決めたもの」の記録 |
+| [アカウント準備.md](アカウント準備.md) | 必要なアカウントと名義についての整理 |
 
 ## 予約フロー
 
@@ -266,6 +274,17 @@ const CALENDAR_ID = 'primary';   // 自分のメインカレンダーに入れ�
 1人で運営される場合、これが実質的に一番使いやすい管理画面になります。
 
 ---
+
+## LINE公式アカウントへの通知
+
+`gas/Code.gs` の `LINE_TOKEN` と `LINE_TO` を設定すると、
+予約とキャンセルがLINEに届きます。空のままなら何もしません。
+
+- `LINE_TOKEN` … LINE Developers の Messaging API チャネルで発行する
+  「チャネルアクセストークン（長期）」
+- `LINE_TO` … 送信先のユーザーIDまたはグループID
+
+メールは開かれにくいため、実運用ではLINEのほうが確実です。
 
 ## ご予約の確認（ログインなし）
 

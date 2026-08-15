@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+
+Sitemap: https://andenknt31113.github.io/salon-booking-site/sitemap.xml
