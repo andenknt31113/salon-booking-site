@@ -10,6 +10,9 @@
 let adminPw = '';          // 入力されたパスワード（この画面を開いている間だけ保持）
 let adminToken = '';       // 「この端末を記憶する」で受け取った合鍵
 let adminData = null;      // 取得した内容
+/* 読み込んだ時点のシートの印。保存時に送って、
+   そのあいだに別の端末から保存されていないかを見てもらう。 */
+let stamps = {};
 const edits = { closed: [], menus: [], coupons: [], styles: [], reviews: [], settings: {} };
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
@@ -106,6 +109,7 @@ async function openDashboard() {
   edits.styles = (res.styles || []).map(r => ({ ...r }));
   edits.reviews = (res.reviews || []).map(r => ({ ...r }));
   edits.settings = { ...(res.settings || {}) };
+  stamps = { ...(res.stamps || {}) };
 
   $('#gate').hidden = true;
   $('#dashboard').hidden = false;
@@ -424,8 +428,8 @@ async function save(target) {
   if (target === 'settings') collectWeekdays();
 
   const payload = target === 'settings'
-    ? { type: 'adminSave', target, rows: edits.settings }
-    : { type: 'adminSave', target, rows: edits[target] };
+    ? { type: 'adminSave', target, rows: edits.settings, stamp: stamps[target] }
+    : { type: 'adminSave', target, rows: edits[target], stamp: stamps[target] };
 
   const res = await adminPost(payload);
   btn.disabled = false;
@@ -434,8 +438,16 @@ async function save(target) {
   if (!res.ok) {
     err.textContent = res.error || '保存に失敗しました。';
     err.style.display = 'block';
+    // 別の端末で変更されていた場合は、読み込み直す手段をその場に出す
+    if (res.stale) {
+      err.insertAdjacentHTML('beforeend',
+        ' <button class="btn btn-outline btn-sm" type="button" id="reload-admin">読み込み直す</button>');
+      const reload = $('#reload-admin');
+      if (reload) reload.addEventListener('click', () => location.reload());
+    }
     return;
   }
+  if (res.stamps) stamps = { ...res.stamps };
   ok.textContent = '保存しました。サイトに反映されています。';
   ok.style.display = 'block';
 }

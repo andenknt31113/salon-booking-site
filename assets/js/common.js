@@ -478,6 +478,14 @@ const Catalog = {
   }
 };
 
+/* 設定シートが読めなかったときに戻す先。
+   applySettings が書き換える前の値を、最初に控えておきます。 */
+const SALON_DEFAULT_HOURS = {
+  openTime: SALON.business.openTime,
+  closeTime: SALON.business.closeTime,
+  lastOrder: SALON.business.lastOrder
+};
+
 /** 管理ページ（設定シート）の内容をサイトに反映する。
  *  空欄の項目は data.js の値をそのまま使います。 */
 function applySettings(st) {
@@ -486,9 +494,45 @@ function applySettings(st) {
     if (v !== undefined && String(v).trim() !== '') apply(String(v).trim());
   };
   set('電話番号', v => { SALON.tel = v; });
-  set('営業開始', v => { SALON.business.openTime = v; });
-  set('営業終了', v => { SALON.business.closeTime = v; });
-  set('最終受付', v => { SALON.business.lastOrder = v; });
+
+  /* 営業時間は「09:00」の形でないと枠が1つも作れず、
+     予約カレンダーが黙って空になります。
+     シートは手で書く場所なので「9時」「9:00〜」なども来ます。
+     読めない値は無視して、data.js の値をそのまま使います。 */
+  const time = v => {
+    const m = String(v).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
+    if (!m) return null;
+    const h = Number(m[1]);
+    const mi = Number(m[2] || 0);
+    if (h > 23 || mi > 59) return null;
+    return `${pad2(h)}:${pad2(mi)}`;
+  };
+  const setTime = (key, apply) => {
+    const raw = st[key];
+    if (raw === undefined || String(raw).trim() === '') return;
+    const v = time(raw);
+    if (v) apply(v);
+    else console.warn(`設定シートの「${key}」を読み取れませんでした（${raw}）。09:00 の形式で入力してください。`);
+  };
+  setTime('営業開始', v => { SALON.business.openTime = v; });
+  setTime('営業終了', v => { SALON.business.closeTime = v; });
+  setTime('最終受付', v => { SALON.business.lastOrder = v; });
+
+  // 前後関係が壊れていると枠が作れないので、その場合も data.js の値に戻す
+  const b = SALON.business;
+  if (toMinutes(b.closeTime) <= toMinutes(b.openTime)) {
+    console.warn('営業終了が営業開始より前になっています。掲載中の営業時間を使います。');
+    b.openTime = SALON_DEFAULT_HOURS.openTime;
+    b.closeTime = SALON_DEFAULT_HOURS.closeTime;
+    b.lastOrder = SALON_DEFAULT_HOURS.lastOrder;
+  }
+  // 最終受付が営業終了より後だと、押せない枠が並ぶだけになる
+  if (toMinutes(b.lastOrder) > toMinutes(b.closeTime)) {
+    b.lastOrder = b.closeTime;
+  }
+  if (toMinutes(b.lastOrder) < toMinutes(b.openTime)) {
+    b.lastOrder = b.closeTime;
+  }
   set('キャッチコピー', v => { SALON.catch = v; });
   set('ロゴ画像', v => { SALON.logo = v; });
   set('スタッフ写真', v => { if (SALON.staff[0]) SALON.staff[0].image = v; });

@@ -865,14 +865,54 @@ function doAdminData_(d) {
     styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS),
     reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ']),
-    settings: readSettings_(ss)
+    settings: readSettings_(ss),
+    stamps: allStamps_(ss)
   };
+}
+
+/* シートの中身から短い印を作る。
+   読み込んだときと保存するときで違っていれば、
+   そのあいだに誰かが別の端末から保存したということ。 */
+function sheetStamp_(ss, name) {
+  const sheet = ss.getSheetByName(name);
+  if (!sheet || sheet.getLastRow() === 0) return '0';
+  const text = JSON.stringify(sheet.getDataRange().getValues());
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text, Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ((b & 0xFF) + 0x100).toString(16).slice(1); }).join('').slice(0, 12);
+}
+
+const SAVE_TARGETS = {
+  menus:    MENU_SHEET,
+  coupons:  COUPON_SHEET,
+  styles:   STYLE_SHEET,
+  reviews:  REVIEW_SHEET,
+  closed:   CLOSED_SHEET,
+  settings: SETTING_SHEET
+};
+
+function allStamps_(ss) {
+  const out = {};
+  Object.keys(SAVE_TARGETS).forEach(function (k) { out[k] = sheetStamp_(ss, SAVE_TARGETS[k]); });
+  return out;
 }
 
 /** 管理者ページからの保存。シートまるごと書き換える */
 function doAdminSave_(d) {
   requireAdmin_(d);
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  /* 開いてから保存するまでのあいだに、別の端末から保存されていないか。
+     このページはシートをまるごと書き換えるため、確認せずに保存すると
+     相手の変更が黙って消えます。 */
+  const sheetName = SAVE_TARGETS[d.target];
+  if (sheetName && d.stamp && d.stamp !== sheetStamp_(ss, sheetName)) {
+    return {
+      ok: false,
+      stale: true,
+      error: 'この内容は、別の端末から変更されています。'
+        + '上書きすると相手の変更が消えてしまうため、いったん読み込み直してください。'
+    };
+  }
 
   if (d.target === 'menus')   writeSheetRows_(ss, MENU_SHEET, MENU_HEADERS, d.rows);
   else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
@@ -882,7 +922,8 @@ function doAdminSave_(d) {
   else if (d.target === 'settings') writeSettings_(ss, d.rows);
   else return { ok: false, error: '不明な保存先です: ' + d.target };
 
-  return { ok: true };
+  // 保存後の印を返す。続けて保存しても弾かれないように。
+  return { ok: true, stamps: allStamps_(ss) };
 }
 
 /* ============================================================
