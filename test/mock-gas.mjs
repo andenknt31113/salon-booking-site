@@ -121,6 +121,17 @@ function buildCoupons() {
   return out.length ? out : null;
 }
 
+/* 本物の GAS と同じ、休業日・受けない時間帯の判定 */
+function hitsClosed(dateKey, time, minutes) {
+  const toMin = t => { const m = String(t||'').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1]*60 + +m[2] : 0; };
+  const start = toMin(time), end = start + (Number(minutes) || 30);
+  return SHEET_CLOSED.some(c => {
+    if (typeof c === 'string') return c === dateKey;
+    if (c.date !== dateKey) return false;
+    return start < toMin(c.end) && toMin(c.start) < end;
+  });
+}
+
 http.createServer((req, res) => {
   if (req.url.startsWith('/mock-image.svg')) {
     res.writeHead(200, { 'Content-Type':'image/svg+xml', 'Access-Control-Allow-Origin':'*' });
@@ -175,14 +186,18 @@ http.createServer((req, res) => {
             visit:r.customer?.visit||'', request:r.customer?.request||'',
             status: r.cancelled ? 'キャンセル' : '予約確定' })),
           menus: SHEET_MENU, coupons: SHEET_COUPON, styles: SHEET_STYLE, reviews: SHEET_REVIEW,
-          closedDates: SHEET_CLOSED.map(d=>({ '休業日': d, 'メモ':'' })),
+          closedDates: SHEET_CLOSED.map(c=> typeof c==='string' ? { '休業日': c, '開始':'', '終了':'', 'メモ':'' } : { '休業日': c.date, '開始': c.start, '終了': c.end, 'メモ':'' }),
           settings: SHEET_SETTINGS });
         if (d.type === 'adminSave') {
           if (d.stamp && d.stamp !== stampOf(d.target)) {
             return reply(res, { ok:false, stale:true,
               error:'この内容は、別の端末から変更されています。いったん読み込み直してください。' });
           }
-          if (d.target === 'closed') { SHEET_CLOSED.length = 0; (d.rows||[]).forEach(r=>{ if(r['休業日']) SHEET_CLOSED.push(r['休業日']); }); }
+          if (d.target === 'closed') { SHEET_CLOSED.length = 0; (d.rows||[]).forEach(r=>{
+            if (!r['休業日']) return;
+            if (r['開始'] && r['終了']) SHEET_CLOSED.push({ date:r['休業日'], start:r['開始'], end:r['終了'] });
+            else SHEET_CLOSED.push(r['休業日']);
+          }); }
           if (d.target === 'menus') { SHEET_MENU.length = 0; (d.rows||[]).forEach(r=>SHEET_MENU.push(r)); }
           if (d.target === 'coupons') { SHEET_COUPON.length = 0; (d.rows||[]).forEach(r=>SHEET_COUPON.push(r)); }
           if (d.target === 'styles') { SHEET_STYLE.length = 0; (d.rows||[]).forEach(r=>SHEET_STYLE.push(r)); }
@@ -249,6 +264,10 @@ http.createServer((req, res) => {
           && x.date === d.date && (x.staffId||null) === (r.staffId||null)
           && start < toMin(x.endTime) && toMin(x.time) < end);
         if (taken) return reply(res, { ok:false, error:'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' });
+        if (hitsClosed(d.date, d.time, d.minutes)) {
+          return reply(res, { ok:false,
+            error:'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' });
+        }
 
         r.changedFrom = { date: r.date, time: r.time };
         r.date = d.date; r.time = d.time; r.endTime = d.endTime;
@@ -283,6 +302,12 @@ http.createServer((req, res) => {
         if (!withinDeadline(t.date)) return reply(res, { ok:false, deadline:true, error:deadlineMsg() });
         t.cancelled = true;
         return reply(res, { ok: true });
+      }
+
+      // 休業日・受けない時間帯（画面を通さず送られてきた場合の砦）
+      if (hitsClosed(d.date, d.time, d.totalMinutes)) {
+        return reply(res, { ok:false,
+          error:'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' });
       }
 
       // 本物と同じ枠の最終確認（同時に押された場合は片方を弾く）

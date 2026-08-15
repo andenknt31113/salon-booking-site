@@ -82,7 +82,7 @@ const CANCEL_DEADLINE_HOUR = 18;
 
 const NOTIFY_EMAIL  = 'zer01.barber@gmail.com';  // 店舗の通知先メール（空にすると通知しません）
 const SALON_NAME    = 'ZER01 barber/lounge';
-const SALON_TEL     = '';                        // ★要確認（未確認のうちは空のまま）
+const SALON_TEL     = '080-4498-7036';           // メールの署名に入ります
 const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
 const SITE_URL      = 'https://andenknt31113.github.io/salon-booking-site/';
 /* LINE公式アカウントの友だち追加URL（https://lin.ee/xxxxxxx の形）。
@@ -201,6 +201,12 @@ function doReserve_(sheet, d) {
      画面側でも送信直前に見ていますが、2人がほぼ同時に押した場合は
      どちらも「空いている」と判断してしまいます。
      ここは doPost が順番待ちしたあとなので、ここで見れば必ず片方が弾かれます。 */
+  /* 休業日・受けない時間帯に入っていないか。
+     画面側でも×にしていますが、そこを通さずに送られてくることがあります。 */
+  if (hitsClosed_(sheet, normalizeDate_(d.date), normalizeTime_(d.time), Number(d.totalMinutes) || 30)) {
+    return { ok: false, error: 'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' };
+  }
+
   if (isTaken_(sheet, normalizeDate_(d.date), normalizeTime_(d.time),
                Number(d.totalMinutes) || 30, d.staffId || '', d.code)) {
     return {
@@ -406,13 +412,37 @@ function doMenu_() {
 
 /* 「休業日」シートに書いた日付を、予約できない日としてサイトに渡します。
    出張や臨時休業はここに1行足すだけで塞げます。 */
+/* 休業日シート。時間の指定が無ければ終日、あればその帯だけ止めます。
+   サイト側は文字列（終日）とオブジェクト（時間帯）の両方を受け取れます。 */
 function readClosedSheet_(ss) {
   const sheet = ss.getSheetByName(CLOSED_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues()
-    .map(r => normalizeDate_(r[0]))
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues()
+    .map(function (r) {
+      const date = normalizeDate_(r[0]);
+      if (!date) return null;
+      const start = normalizeTime_(r[1]);
+      const end = normalizeTime_(r[2]);
+      if (!start || !end || toMin_(end) <= toMin_(start)) return date;   // 終日
+      return { date: date, start: start, end: end };
+    })
     .filter(Boolean);
+}
+
+/* その日時が「受けない」帯にかかるか。
+   サイト側で止めていても、直接送られてくる場合があるのでここでも見ます。 */
+function hitsClosed_(sheet, dateKey, time, minutes) {
+  let ss;
+  try { ss = sheet.getParent(); } catch (e) { return false; }
+  if (!ss) return false;
+  const start = toMin_(time);
+  const end = start + (Number(minutes) || 30);
+  return readClosedSheet_(ss).some(function (c) {
+    if (typeof c === 'string') return c === dateKey;      // 終日休み
+    if (c.date !== dateKey) return false;
+    return start < toMin_(c.end) && toMin_(c.start) < end;
+  });
 }
 
 function readMenuSheet_(ss) {
@@ -713,6 +743,9 @@ function doChange_(sheet, d) {
   // 画面側でも確認していますが、送信までのあいだに埋まることがあります。
   const staffId = String(before[col('担当ID')] || '');
   const minutes = Number(d.minutes) || 30;
+  if (hitsClosed_(sheet, newDate, newTime, minutes)) {
+    return { ok: false, error: 'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' };
+  }
   if (isTaken_(sheet, newDate, newTime, minutes, staffId, d.code)) {
     return { ok: false, error: 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' };
   }
@@ -931,7 +964,7 @@ function doAdminData_(d) {
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS),
     styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS),
     reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS),
-    closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ']),
+    closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', '開始', '終了', 'メモ']),
     settings: readSettings_(ss),
     stamps: allStamps_(ss)
   };
@@ -985,7 +1018,7 @@ function doAdminSave_(d) {
   else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
   else if (d.target === 'styles')  writeSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, d.rows);
   else if (d.target === 'reviews') writeSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, d.rows);
-  else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ'], d.rows);
+  else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', '開始', '終了', 'メモ'], d.rows);
   else if (d.target === 'settings') writeSettings_(ss, d.rows);
   else return { ok: false, error: '不明な保存先です: ' + d.target };
 
@@ -1287,12 +1320,16 @@ function setupMenuSheets() {
 
   const closed = ss.getSheetByName(CLOSED_SHEET) || ss.insertSheet(CLOSED_SHEET);
   if (closed.getLastRow() === 0) {
-    closed.appendRow(['休業日', 'メモ']);
-    closed.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#f3efea');
+    closed.appendRow(['休業日', '開始', '終了', 'メモ']);
+    closed.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#f3efea');
     closed.setFrozenRows(1);
     closed.setColumnWidth(1, 130);
-    closed.setColumnWidth(2, 260);
+    closed.setColumnWidth(2, 80);
+    closed.setColumnWidth(3, 80);
+    closed.setColumnWidth(4, 240);
     closed.getRange('A2').setNote('日付を入れるとその日は予約できなくなります（例 2026-09-15）');
+    closed.getRange('B2').setNote('開始と終了を入れると、その時間帯だけ予約を止めます（例 14:00〜16:00）。'
+      + '空欄のままなら、その日は終日お休みになります。');
   }
 
   const setting = ss.getSheetByName(SETTING_SHEET) || ss.insertSheet(SETTING_SHEET);

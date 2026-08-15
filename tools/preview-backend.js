@@ -152,7 +152,10 @@
       return {
         ok: true, categories: buildMenu(), coupons: buildCoupons(),
         styles: buildStyles(), reviews: buildReviews(),
-        closedDates: db.closed.map(r => r['休業日']).filter(Boolean),
+        closedDates: db.closed.filter(r => r['休業日']).map(r => (
+          r['開始'] && r['終了']
+            ? { date: r['休業日'], start: r['開始'], end: r['終了'] }
+            : r['休業日'])),
         settings: db.settings
       };
     }

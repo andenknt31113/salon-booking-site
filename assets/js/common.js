@@ -177,11 +177,36 @@ const Availability = {
     return out;
   },
 
-  /** 休業日か */
+  /* 休業日の指定は2通りあります。
+       '2026-08-20'                              … その日を丸ごと休みにする
+       { date:'2026-08-20', start:'14:00', end:'16:00' } … その時間帯だけ止める
+     外部の仕事や仕入れで「この時間だけ受けたくない」があるので、
+     1日単位だけだと丸ごと閉めることになり、取れたはずの予約まで消えます。 */
+  closedEntries(dateKey) {
+    return (SALON.business.closedDates || [])
+      .map(c => (typeof c === 'string' ? { date: c } : c))
+      .filter(c => c && c.date === dateKey);
+  },
+
+  /** その日が丸ごと休みか */
   isClosed(dateKey) {
     const d = fromKey(dateKey);
-    return SALON.business.closedWeekdays.includes(d.getDay())
-      || SALON.business.closedDates.includes(dateKey);
+    if (SALON.business.closedWeekdays.includes(d.getDay())) return true;
+    // 時間の指定が無い行が1つでもあれば、その日は終日休み
+    return this.closedEntries(dateKey).some(c => !c.start || !c.end);
+  },
+
+  /** その日の「この時間は受けない」帯（分に直したもの） */
+  closedRanges(dateKey) {
+    return this.closedEntries(dateKey)
+      .filter(c => c.start && c.end)
+      .map(c => ({ from: toMinutes(c.start), to: toMinutes(c.end) }))
+      .filter(r => Number.isFinite(r.from) && Number.isFinite(r.to) && r.to > r.from);
+  },
+
+  /** 開始 start（分）から length 分の施術が、休みの帯にかかるか */
+  hitsClosedRange(dateKey, start, length) {
+    return this.closedRanges(dateKey).some(r => start < r.to && start + length > r.from);
   },
 
   /** 受付可能な日付か（過去・休業日・予約可能期間外を除く） */
@@ -286,6 +311,10 @@ const Availability = {
     const start = toMinutes(time);
     if (start + durationMin > toMinutes(closeTime)) {
       return { symbol: '×', free: 0, available: false, reason: 'over-close' };
+    }
+    // 「この時間は受けない」帯にかかる施術は取れない
+    if (this.hitsClosedRange(dateKey, start, durationMin)) {
+      return { symbol: '×', free: 0, available: false, reason: 'closed-range' };
     }
 
     const targets = staffId ? [findStaff(staffId)].filter(Boolean) : SALON.staff;

@@ -433,6 +433,57 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
 }
 
 /* ============================================================
+   UC15 「この日のこの時間だけ受けたくない」を止める
+   ============================================================ */
+console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める');
+{
+  const day = key(new Date(Date.now() + 9 * 864e5));
+
+  // 店が 14:00〜16:00 だけ止める
+  const a = await newPhone('UC15-店');
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  await a.locator('.tab', { hasText: '休業日' }).first().click(); await a.waitForTimeout(500);
+  await a.locator('[data-add="closed"]').click(); await a.waitForTimeout(300);
+  const row = a.locator('#closed-rows .booking-card').last();
+  await row.locator('[data-col="休業日"]').fill(day);
+  await row.locator('[data-col="開始"]').fill('14:00');
+  await row.locator('[data-col="終了"]').fill('16:00');
+  await a.locator('[data-save="closed"]').click(); await a.waitForTimeout(1800);
+  check('UC15', '時間帯つきで保存できる',
+    ((await post({ type: 'adminData', password: PW })).closedDates || [])
+      .some(r => r['休業日'] === day && r['開始'] === '14:00'), true);
+  await a.context().close();
+
+  // お客様側のカレンダーで、その帯だけ押せなくなる
+  const p = await newPhone('UC15-客');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  const state = async t => p.evaluate(
+    ([d, tm]) => Availability.slotInfo(d, tm, null, 60).reason, [day, t]);
+  check('UC15', '13:00 は取れる', await state('13:00') === '' , true);
+  check('UC15', '14:00 は止まる', await state('14:00'), 'closed-range');
+  check('UC15', '15:30 は止まる', await state('15:30'), 'closed-range');
+  check('UC15', '13:30開始も止まる（施術が帯に食い込む）', await state('13:30'), 'closed-range');
+  check('UC15', '16:00 からは取れる', await state('16:00') === '', true);
+  check('UC15', 'その日全体は休みにならない', await p.evaluate(
+    d => Availability.isClosed(d), day), false);
+
+  // 受信先に直接送っても弾かれる
+  const direct = await post({
+    type: 'reserve', code: 'LM-CLOS1', createdAt: new Date().toISOString(),
+    date: day, time: '14:30', endTime: '15:30', totalMinutes: 60,
+    menus: [{ name: 'カット' }], staffName: 'MATTEO', staffId: 'st01',
+    totalPrice: 4000, customer: { name: '直接 送信', tel: '09000000001' }
+  });
+  check('UC15', '画面を通さず送っても断られる', direct.ok, false);
+  await p.context().close();
+
+  // あと片付け
+  await post({ type: 'adminSave', password: PW, target: 'closed', rows: [] });
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

@@ -42,7 +42,12 @@ try {
     check('LD', 'URLが絶対パス', /^https?:\/\//.test(ld.url || ''), true);
     check('LD', '評価は口コミが無いあいだ出さない', 'aggregateRating' in ld, false);
     check('LD', '価格帯が壊れていない', /^¥[\d,]+〜¥[\d,]+$/.test(ld.priceRange || ''), true);
-    check('LD', '未確定の電話番号を出していない', 'telephone' in ld, false);
+    /* 電話番号は「設定してあれば出す・無ければ出さない」。
+       持っていない番号を書くと検索結果に嘘が載り、
+       持っている番号を書かないとマップから電話できません。 */
+    const telSet = await p.evaluate(() => !!SALON.tel);
+    check('LD', telSet ? '電話番号を出している' : '未設定の電話番号を出していない',
+      'telephone' in ld, telSet);
   }
 
   /* ---------- OGP ---------- */

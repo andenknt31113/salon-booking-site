@@ -19,6 +19,9 @@ const edits = { closed: [], menus: [], coupons: [], styles: [], reviews: [], set
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
 const TOKEN_KEY = 'salon.adminToken.v1';
 
+/* 休業日は「終日」と「この時間帯だけ」の両方を扱います。
+   開始・終了が空なら終日、入っていればその帯だけ止まります。 */
+const CLOSED_COLS = ['休業日', '開始', '終了', 'メモ'];
 const MENU_COLS = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_COLS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 const STYLE_COLS = ['タイトル', '分類', 'タグ', '画像', '表示'];
@@ -410,10 +413,14 @@ function fieldFor(col, value, target, index) {
   }
   // 価格は「4000〜」と書けるようにしたいので number にはしない
   const type = (col === '通常価格' || col === '所要(分)') ? 'number'
-    : col === '休業日' ? 'date' : 'text';
+    : col === '休業日' ? 'date'
+      : (col === '開始' || col === '終了') ? 'time' : 'text';
+  const hint = col === '開始' ? '空欄なら終日お休みになります'
+    : col === '終了' ? '例）14:00〜16:00 だけ止める' : '';
   return `
     <label class="form-field" style="margin:0 0 10px;">
-      <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(col)}</span>
+      <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(col)}${
+        hint ? `<small style="margin-left:8px;font-weight:400;">${esc(hint)}</small>` : ''}</span>
       <input class="input" type="${type}" value="${esc(v)}"
              data-target="${target}" data-index="${index}" data-col="${esc(col)}" />
     </label>`;
@@ -432,12 +439,12 @@ function renderRows(target, cols, host) {
 }
 
 function renderClosed() {
-  renderRows('closed', ['休業日', 'メモ'], '#closed-rows');
+  renderRows('closed', CLOSED_COLS, '#closed-rows');
 }
 
 /* 追加ボタンで作られる空の行 */
 const BLANK_ROW = {
-  closed:  { '休業日': '', 'メモ': '' },
+  closed:  { '休業日': '', '開始': '', '終了': '', 'メモ': '' },
   menus:   { '区分': 'カット', 'メニュー名': '', '価格': '', '所要(分)': 60, '説明': '', '画像': '', '表示': '○' },
   coupons: { 'メニュー名': '', '価格': '', '通常価格': '', '所要(分)': 60, '説明': '', '条件': '', '対象': '全員', '画像': '', '表示': '○' },
   styles:  { 'タイトル': '', '分類': 'ショート', 'タグ': '', '画像': '', '表示': '○' }
@@ -445,7 +452,7 @@ const BLANK_ROW = {
 
 /* どのタブの一覧を描き直すか */
 const PANE = {
-  closed:  [['休業日', 'メモ'], '#closed-rows'],
+  closed:  [CLOSED_COLS, '#closed-rows'],
   menus:   [MENU_COLS, '#menu-rows'],
   coupons: [COUPON_COLS, '#coupon-rows'],
   styles:  [STYLE_COLS, '#style-rows']
