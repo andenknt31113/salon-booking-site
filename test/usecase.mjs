@@ -1,0 +1,344 @@
+/* ユースケース試験
+   実際の使われ方をそのまま順に再現する。
+   1シナリオ = 1つの「誰が・何をして・どうなってほしいか」 */
+/* Playwright の場所。
+   ふつうは npm i -D playwright で入れた 'playwright' を使います。
+   別の場所にある場合は PLAYWRIGHT に読み込み先を指定してください。 */
+const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
+
+const B = process.env.BASE || 'http://127.0.0.1:8820';
+const PW = 'test1234';
+const post = b => fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b) }).then(r => r.json());
+const key = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const br = await chromium.launch(
+  process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const jsErrors = [];
+const results = [];
+
+function check(uc, label, actual, expected) {
+  const ok = String(actual) === String(expected);
+  results.push({ uc, label, ok, actual, expected });
+  console.log(`   ${ok ? '✅' : '❌'} ${label}` + (ok ? '' : `  期待=${expected} 実際=${actual}`));
+  return ok;
+}
+
+async function newPhone(label) {
+  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const p = await ctx.newPage();
+  p.on('pageerror', e => jsErrors.push(`[${label}] ${e.message}`));
+  return p;
+}
+
+/* お客様が1件予約する。使い回すのでまとめておく */
+async function book(p, { name, tel, menuIndex = 0, slotIndex = 0 }) {
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
+  await p.locator('#coupon-choices .selectable').nth(menuIndex).click(); await p.waitForTimeout(400);
+  await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(700);
+  await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(900);
+  const slots = p.locator('button[data-date][data-time]:not([disabled])');
+  const slot = slots.nth(slotIndex);
+  const date = await slot.getAttribute('data-date');
+  const time = await slot.getAttribute('data-time');
+  await slot.click(); await p.waitForTimeout(400);
+  await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(400);
+  await p.fill('#f-name', name); await p.fill('#f-kana', 'テスト');
+  await p.fill('#f-tel', tel); await p.fill('#f-email', 'test@example.com');
+  await p.locator('label.radio-chip:has-text("初めて")').first().click();
+  const ag = p.locator('#f-agree'); if (await ag.count()) await ag.check({ force: true });
+  await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(600);
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(1800);
+
+  const code = (await p.locator('#done-code').innerText()).trim();
+  if (!code) {
+    // 予約が完了していない。原因が分かるように、その時点の画面を出す。
+    const step = await p.evaluate(() =>
+      [...document.querySelectorAll('.reserve-panel.is-active')].map(x => x.dataset.panel).join());
+    throw new Error(`予約が完了しませんでした（${name} / ${date} ${time} / 表示中のSTEP=${step}）`);
+  }
+  return { code, date, time };
+}
+
+try {
+/* ============================================================
+   UC1 はじめてのお客様が、料金を見てから予約する
+   ============================================================ */
+console.log('\n【UC1】はじめてのお客様が、料金を見てから予約する');
+{
+  const p = await newPhone('UC1');
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1400);
+  check('UC1', 'トップから「メニュー」へ行ける', await p.locator('a[href="menu.html"]').count() > 0, true);
+  await p.goto(B + '/menu.html'); await p.waitForTimeout(1400);
+  check('UC1', '料金が読める', (await p.locator('.price-now').first().innerText()).includes('¥'), true);
+  check('UC1', '所要時間が出ている', (await p.locator('.price-min').first().innerText()).includes('所要'), true);
+
+  const r = await book(p, { name: '初回 太郎', tel: '09011110001' });
+  check('UC1', '予約番号が発行される', /^LM-[A-Z0-9]{5}$/.test(r.code), true);
+  check('UC1', '警告は出ていない', await p.locator('#done-warning').isVisible(), false);
+  check('UC1', 'カレンダーに追加できる', await p.locator('#add-to-calendar').isVisible(), true);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC2 予約したことを、あとで同じ端末から確認する
+   ============================================================ */
+console.log('\n【UC2】予約したことを、あとで同じ端末から確認する');
+{
+  const p = await newPhone('UC2');
+  const r = await book(p, { name: '確認 花子', tel: '09011110002', slotIndex: 3 });
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1300);
+  check('UC2', '予約が1件出ている', await p.locator('.booking-card').count(), 1);
+  check('UC2', '予約番号が一致する', (await p.locator('.booking-code').first().innerText()).includes(r.code), true);
+  check('UC2', '変更ボタンがある', await p.locator('[data-change]').count(), 1);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC3 機種変更したので、別の端末から予約を確認する
+   ============================================================ */
+console.log('\n【UC3】別の端末から、予約番号と電話番号で確認する');
+{
+  const old = await newPhone('UC3-旧');
+  const r = await book(old, { name: '機種 変更', tel: '09011110003', slotIndex: 6 });
+  await old.context().close();
+
+  const now = await newPhone('UC3-新');
+  await now.goto(B + '/mypage.html'); await now.waitForTimeout(1300);
+  check('UC3', 'この端末には何も残っていない', await now.locator('.booking-card').count(), 0);
+  await now.fill('#lookup-code', r.code);
+  await now.fill('#lookup-tel', '09011110003');
+  await now.click('#lookup-btn'); await now.waitForTimeout(1600);
+  check('UC3', '照会できる', await now.locator('#lookup-result .booking-card').count(), 1);
+
+  // 電話番号が違えば見えない
+  await now.fill('#lookup-tel', '09099999999');
+  await now.click('#lookup-btn'); await now.waitForTimeout(1600);
+  check('UC3', '電話番号が違うと見えない', await now.locator('#lookup-result .booking-card').count(), 0);
+  await now.context().close();
+}
+
+/* ============================================================
+   UC4 予定が変わったので日時だけ変更する
+   ============================================================ */
+console.log('\n【UC4】予定が変わったので日時だけ変更する');
+{
+  const p = await newPhone('UC4');
+  const r = await book(p, { name: '変更 次郎', tel: '09011110004', slotIndex: 9 });
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1300);
+  await p.locator('[data-change]').first().click(); await p.waitForTimeout(1700);
+
+  const slots = p.locator('button[data-date][data-time]:not([disabled])');
+  let picked = null;
+  for (let i = 0; i < await slots.count(); i++) {
+    const d = await slots.nth(i).getAttribute('data-date');
+    const t = await slots.nth(i).getAttribute('data-time');
+    if (d !== r.date || t !== r.time) { picked = { d, t }; await slots.nth(i).click(); break; }
+  }
+  await p.waitForTimeout(400);
+  await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(700);
+  check('UC4', 'お客様情報の入力を求められない', await p.locator('[data-panel="5"].is-active').count(), 1);
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(1800);
+  check('UC4', '予約番号は変わらない', (await p.locator('#done-code').innerText()).trim(), r.code);
+
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1300);
+  check('UC4', '新しい日時になっている',
+    (await p.locator('.booking-when').first().innerText()).includes(picked.t), true);
+  check('UC4', '予約は1件のまま（増えていない）', await p.locator('.booking-card').count(), 1);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC5 行けなくなったのでキャンセルする
+   ============================================================ */
+console.log('\n【UC5】行けなくなったのでキャンセルする');
+{
+  const p = await newPhone('UC5');
+  p.on('dialog', d => d.accept());
+  const r = await book(p, { name: 'キャンセル 三郎', tel: '09011110005', slotIndex: 12 });
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1300);
+  await p.locator('[data-cancel]').first().click(); await p.waitForTimeout(1800);
+  check('UC5', 'キャンセル済みになる',
+    (await p.locator('.status-chip').first().innerText()).includes('キャンセル'), true);
+
+  const info = await post({ type: 'adminData', password: PW });
+  const row = info.reservations.find(x => x.code === r.code);
+  check('UC5', '台帳もキャンセルになっている', row && row.status, 'キャンセル');
+
+  // 空いた枠がまた予約できる
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
+  const free = await p.evaluate(async ([d, t]) => {
+    await Remote.load(true);
+    return Availability.slotInfo(d, t, 'st01', 70).available;
+  }, [r.date, r.time]);
+  check('UC5', '空いた枠がまた予約できる', free, true);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC6 来店後に感想を書き、店が承認して掲載される
+   ============================================================ */
+console.log('\n【UC6】来店後に感想を書き、店が承認して掲載される');
+{
+  const p = await newPhone('UC6');
+  const r = await book(p, { name: '感想 四郎', tel: '09011110006', slotIndex: 15 });
+  await post({ type: 'backdate', code: r.code });   // 来店済みにする
+
+  await p.goto(B + '/reviews.html'); await p.waitForTimeout(1400);
+  await p.fill('#rv-code', r.code);
+  await p.fill('#rv-tel', '09011110006');
+  await p.fill('#rv-nickname', 'S.Y');
+  const MARK = 'UC6-' + Math.random().toString(36).slice(2, 8);
+  await p.fill('#rv-body', `丁寧に切ってもらえました。（${MARK}）`);
+  await p.click('#rv-submit'); await p.waitForTimeout(1700);
+  check('UC6', 'お礼が出る', await p.locator('#review-thanks').isVisible(), true);
+
+  await p.goto(B + '/reviews.html'); await p.waitForTimeout(1400);
+  check('UC6', '承認前はサイトに出ない',
+    (await p.locator('.review-body').allInnerTexts()).some(t => t.includes(MARK)), false);
+
+  const a = await newPhone('UC6-店');
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  await a.locator('.tab[data-pane="reviews"]').click(); await a.waitForTimeout(600);
+  check('UC6', '店に届いている', await a.locator('#review-rows .booking-card').count() > 0, true);
+  await a.locator('#review-rows .booking-card').last().locator('label:has-text("掲載中")').click();
+  await a.locator('[data-save="reviews"]').click(); await a.waitForTimeout(1600);
+
+  await p.goto(B + '/reviews.html'); await p.waitForTimeout(1500);
+  check('UC6', '承認後はサイトに出る',
+    (await p.locator('.review-body').allInnerTexts()).some(t => t.includes(MARK)), true);
+  await p.context().close(); await a.context().close();
+}
+
+/* ============================================================
+   UC7 店主が、急に明日を休みにする
+   ============================================================ */
+console.log('\n【UC7】店主が、急に明日を休みにする');
+{
+  const t = new Date(); t.setDate(t.getDate() + 5);
+  const day = key(t);
+  const a = await newPhone('UC7-店');
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  await a.locator('.tab[data-pane="closed"]').click(); await a.waitForTimeout(500);
+  await a.locator('[data-add="closed"]').click(); await a.waitForTimeout(400);
+  await a.locator('#closed-rows input[data-col="休業日"]').last().fill(day);
+  await a.locator('[data-save="closed"]').click(); await a.waitForTimeout(1600);
+  check('UC7', '保存できた', (await a.locator('#save-ok').innerText()).includes('保存'), true);
+
+  const p = await newPhone('UC7-客');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  const closed = await p.evaluate(d => !Availability.isBookableDate(d), day);
+  check('UC7', 'その日は予約できなくなる', closed, true);
+  await a.context().close(); await p.context().close();
+}
+
+/* ============================================================
+   UC8 店主が、メニューの値段を変える
+   ============================================================ */
+console.log('\n【UC8】店主が、メニューの値段を変える');
+{
+  const a = await newPhone('UC8-店');
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  await a.locator('.tab[data-pane="menus"]').click(); await a.waitForTimeout(500);
+  await a.locator('#menu-rows input[data-col="価格"]').first().fill('5500');
+  await a.locator('[data-save="menus"]').click(); await a.waitForTimeout(1600);
+
+  const p = await newPhone('UC8-客');
+  await p.goto(B + '/menu.html'); await p.waitForTimeout(1500);
+  check('UC8', 'サイトの値段が変わる',
+    (await p.locator('.menu-row-price').allInnerTexts()).some(t => t.includes('5,500')), true);
+  await a.context().close(); await p.context().close();
+}
+
+/* ============================================================
+   UC9 2人が同時に同じ枠を取ろうとする
+   ============================================================ */
+console.log('\n【UC9】2人が同時に同じ枠を取ろうとする');
+{
+  const t = new Date(); t.setDate(t.getDate() + 30);
+  const mk = (code, tel) => ({
+    type: 'reserve', code, date: key(t), time: '15:00', endTime: '16:10', totalMinutes: 70,
+    menus: [{ name: 'テスト' }], staffId: 'st01', staffName: 'MATTEO', nominationFee: 0,
+    totalPrice: 6900, createdAt: new Date().toISOString(),
+    customer: { name: '同時', kana: 'ドウジ', tel, email: 'a@b.c', visit: '初めて', request: '' }
+  });
+  const [x, y] = await Promise.all([post(mk('LM-UC901', '09011110009')), post(mk('LM-UC902', '09011110010'))]);
+  check('UC9', '通るのは1件だけ', [x, y].filter(v => v.ok).length, 1);
+  check('UC9', '断られた側に理由が返る', [x, y].find(v => !v.ok).taken, true);
+}
+
+/* ============================================================
+   UC10 期限を過ぎてからキャンセルしようとする
+   ============================================================ */
+console.log('\n【UC10】期限を過ぎてからキャンセルしようとする');
+{
+  const today = key(new Date());
+  await post({
+    type: 'reserve', code: 'LM-UC910', date: today, time: '23:30', endTime: '23:59', totalMinutes: 20,
+    menus: [{ name: 'テスト' }], staffId: 'stUC10', staffName: 'MATTEO', nominationFee: 0,
+    totalPrice: 4000, createdAt: new Date().toISOString(),
+    customer: { name: '期限 五郎', kana: 'キゲン', tel: '09011110011', email: 'a@b.c', visit: '初めて', request: '' }
+  });
+  const res = await post({ type: 'cancel', code: 'LM-UC910', tel: '09011110011' });
+  check('UC10', 'キャンセルは断られる', res.ok, false);
+  check('UC10', '電話するよう案内される', String(res.error).includes('店舗までご連絡'), true);
+}
+
+/* ============================================================
+   UC11 店が予約一覧を見て、電話で受けた分をキャンセルにする
+   ============================================================ */
+console.log('\n【UC11】店が予約一覧を見て、キャンセル扱いにする');
+{
+  const p = await newPhone('UC11-客');
+  const r = await book(p, { name: '電話 六郎', tel: '09011110012', slotIndex: 18 });
+  await p.context().close();
+
+  const a = await newPhone('UC11-店');
+  a.on('dialog', d => d.accept());
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  check('UC11', '予約一覧に出ている',
+    !!r.code && (await a.locator('#admin-rows').innerText()).includes(r.code), true);
+  await a.locator(`[data-admin-cancel="${r.code}"]`).click(); await a.waitForTimeout(2000);
+  const info = await post({ type: 'adminData', password: PW });
+  check('UC11', '台帳がキャンセルになる',
+    (info.reservations.find(x => x.code === r.code) || {}).status, 'キャンセル');
+  await a.context().close();
+}
+
+/* ============================================================
+   UC12 通信が切れて、店に届かなかった
+   ============================================================ */
+console.log('\n【UC12】通信が切れて、店に届かなかった');
+{
+  await post({ type: 'failmode', on: true });
+  const p = await newPhone('UC12');
+  const r = await book(p, { name: '不通 七郎', tel: '09011110013', slotIndex: 21 });
+  check('UC12', '「完了しました」で終わらせない', await p.locator('#done-warning').isVisible(), true);
+  check('UC12', '連絡するよう案内される',
+    (await p.locator('#done-warning').innerText()).includes('ご連絡'), true);
+  check('UC12', '予約番号は控えられる', /^LM-/.test(r.code), true);
+  await post({ type: 'failmode', on: false });
+  await p.context().close();
+}
+
+/* ============================================================
+   まとめ
+   ============================================================ */
+const ng = results.filter(r => !r.ok);
+console.log('\n' + '='.repeat(52));
+console.log(`確認 ${results.length} 項目 / 失敗 ${ng.length} 件`);
+if (ng.length) ng.forEach(r => console.log(`  ❌ [${r.uc}] ${r.label}（期待=${r.expected} 実際=${r.actual}）`));
+console.log('JSエラー:', jsErrors.length ? jsErrors : 'なし');
+} finally {
+  await br.close();
+}
+
+// 1件でも失敗したら、終了コードで知らせる（CIやスクリプトから使えるように）
+if (results.some(r => !r.ok) || jsErrors.length) process.exitCode = 1;
