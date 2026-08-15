@@ -737,3 +737,9 @@ table { border-collapse: collapse; width: 100%; }
 .map-actions { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
 .map-actions .btn { flex: 1 1 200px; text-align: center; }
 .map-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* 予約カードの操作ボタン（日時変更・キャンセル） */
+.booking-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+/* 日時変更のときに通らないステップ */
+.step.is-skipped { opacity: .35; pointer-events: none; }

@@ -141,6 +141,7 @@ function doPost(e) {
     if (data.type === 'availability') return json_(doAvailability_(getSheet_()));
     if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
     if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
+    if (data.type === 'change')       return json_(doChange_(getSheet_(), data));
     return json_(doReserve_(getSheet_(), data));
 
   } catch (err) {
@@ -503,6 +504,121 @@ function digits_(v) {
 /* ============================================================
    キャンセルの反映
    ============================================================ */
+/* ============================================================
+   日時の変更
+
+   予約番号はそのままに、来店日時だけ書き換えます。
+   キャンセルして取り直すのと違い、そのあいだに枠を他のお客様に
+   取られる心配がありません。
+   ============================================================ */
+function doChange_(sheet, d) {
+  const row = findRowByCode_(sheet, d.code);
+  if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };
+
+  const col = n => HEADERS.indexOf(n);
+  const before = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
+
+  // 照会経由の変更は電話番号の一致を確認する
+  if (d.tel && digits_(before[col('電話番号')]) !== digits_(d.tel)) {
+    return { ok: false, error: 'ご予約が確認できませんでした。' };
+  }
+  if (String(before[col('状態')] || '') === 'キャンセル') {
+    return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
+  }
+
+  const newDate = normalizeDate_(d.date);
+  const newTime = normalizeTime_(d.time);
+  if (!newDate || !newTime) return { ok: false, error: '日時が正しくありません。' };
+
+  // 同じ担当の同じ時間に別の予約が入っていないか確認する。
+  // 画面側でも確認していますが、送信までのあいだに埋まることがあります。
+  const staffId = String(before[col('担当ID')] || '');
+  const minutes = Number(d.minutes) || 30;
+  if (isTaken_(sheet, newDate, newTime, minutes, staffId, d.code)) {
+    return { ok: false, error: 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' };
+  }
+
+  const oldDate = normalizeDate_(before[col('来店日')]);
+  const oldTime = normalizeTime_(before[col('開始')]);
+  const name = String(before[col('お名前')] || '');
+  const email = String(before[col('メール')] || '');
+  const menuText = String(before[col('メニュー')] || '');
+
+  sheet.getRange(row, col('来店日') + 1).setValue(newDate);
+  sheet.getRange(row, col('開始') + 1).setValue(newTime);
+  sheet.getRange(row, col('終了') + 1).setValue(normalizeTime_(d.endTime));
+
+  // カレンダーの予定も入れ直す
+  removeFromCalendar_(String(before[col('カレンダーID')] || ''));
+  const eventId = addToCalendar_(
+    { date: newDate, time: newTime, endTime: d.endTime, customer: { name: name, tel: String(before[col('電話番号')] || '') } },
+    d.code, menuText);
+  if (eventId) sheet.getRange(row, col('カレンダーID') + 1).setValue(eventId);
+
+  mailCustomer_(email, `ご予約の日時を変更しました（${newDate} ${newTime}）`, [
+    `${name} 様`,
+    '',
+    'ご予約の日時を変更いたしました。',
+    '',
+    `ご予約番号：${d.code}（変更ありません）`,
+    `変更前　　：${oldDate} ${oldTime}〜`,
+    `変更後　　：${newDate} ${newTime}〜`,
+    `メニュー　：${menuText}`,
+    '',
+    'お気をつけてお越しくださいませ。',
+    `ご予約の確認： ${SITE_URL}mypage.html`,
+    '',
+    `${SALON_NAME}`,
+    SALON_TEL ? `TEL ${SALON_TEL}` : ''
+  ].filter(Boolean).join('\n'));
+
+  notifyLine_([
+    '【日時変更】',
+    `${oldDate} ${oldTime}〜 → ${newDate} ${newTime}〜`,
+    `${name} 様`,
+    menuText
+  ].join('\n'));
+
+  notify_(
+    `【日時変更】${newDate} ${newTime} ${name}様`,
+    [
+      `予約番号：${d.code}`,
+      `変更前　：${oldDate} ${oldTime}〜`,
+      `変更後　：${newDate} ${newTime}〜`,
+      `お名前　：${name} 様`,
+      `メニュー：${menuText}`
+    ].join('\n')
+  );
+
+  return { ok: true };
+}
+
+/* その枠が既に埋まっているか（自分自身の予約は除く） */
+function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
+  const last = sheet.getLastRow();
+  if (last < 2) return false;
+  const col = n => HEADERS.indexOf(n);
+  const rows = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+
+  const start = toMin_(time);
+  const end = start + minutes;
+
+  return rows.some(r => {
+    if (String(r[col('予約番号')]) === ownCode) return false;
+    if (String(r[col('状態')] || '') === 'キャンセル') return false;
+    if (normalizeDate_(r[col('来店日')]) !== dateKey) return false;
+    if (String(r[col('担当ID')] || '') !== String(staffId || '')) return false;
+    const s2 = toMin_(normalizeTime_(r[col('開始')]));
+    const e2 = toMin_(normalizeTime_(r[col('終了')])) || (s2 + 30);
+    return start < e2 && s2 < end;   // 重なっていれば埋まっている
+  });
+}
+
+function toMin_(hhmm) {
+  const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+}
+
 function doCancel_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
   if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };

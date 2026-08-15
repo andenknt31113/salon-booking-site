@@ -3,6 +3,11 @@
  * ============================================================ */
 
 const DRAFT_KEY = 'salon.reserveDraft.v1';
+const CHANGE_KEY = 'salon.changeTarget.v1';
+
+/* 日時変更モード。予約確認ページから渡された予約が入ります。
+   null なら通常の新規予約です。 */
+let changing = null;
 
 const state = {
   step: 1,
@@ -67,10 +72,13 @@ function totalPrice() {
   return selectedMenus().reduce((sum, m) => sum + m.price, 0) + nominationFee();
 }
 function totalMinutes() {
+  const fromChange = changeMinutes();
+  if (fromChange) return fromChange;
   return selectedMenus().reduce((sum, m) => sum + m.minutes, 0) || SALON.business.slotMinutes;
 }
 function hasMenu() {
-  return selectedMenus().length > 0;
+  // 変更モードでは、メニューは元の予約のものが確定している
+  return !!changing || selectedMenus().length > 0;
 }
 
 /* 1件ぶんの金額表示。
@@ -345,6 +353,7 @@ function initStep4() {
  *  STEP5: 確認 → 送信
  * ============================================================ */
 function reservationSummaryRows() {
+  if (changing) return changeSummaryRows();
   const menus = selectedMenus();
   const end = toHHMM(toMinutes(state.time) + totalMinutes());
   const fee = nominationFee();
@@ -358,6 +367,22 @@ function reservationSummaryRows() {
     ['メールアドレス', esc(state.customer.email)],
     ['ご来店回数', esc(state.customer.visit)],
     ['ご要望', state.customer.request ? esc(state.customer.request).replace(/\n/g, '<br />') : '—']
+  ];
+}
+
+/* 変更モードの確認画面。変更前後が並ぶようにする。 */
+function changeSummaryRows() {
+  const end = toHHMM(toMinutes(state.time) + totalMinutes());
+  const menuText = changing.menus
+    ? changing.menus.map(m => m.name).join(' ／ ')
+    : (changing.menuText || '');
+  return [
+    ['ご予約番号', esc(changing.code) + '（変更ありません）'],
+    ['変更前', `${formatDateJa(changing.date)} ${esc(changing.time)}〜`],
+    ['変更後', `<strong style="color:var(--accent);">${formatDateJa(state.date)} ${esc(state.time)} 〜 ${end}</strong>（約${formatDuration(totalMinutes())}）`],
+    ['ご担当', esc(changing.staffName || staffLabel(state.staffId))],
+    ['メニュー', esc(menuText)],
+    ['合計金額', esc(changing.totalLabel || yen(changing.totalPrice || 0)) + '（変更ありません）']
   ];
 }
 
@@ -463,7 +488,7 @@ async function submitReservation() {
   await Remote.load(true);
   if (!Availability.slotInfo(state.date, state.time, state.staffId, totalMinutes()).available) {
     btn.disabled = false;
-    btn.textContent = 'この内容で予約する';
+    btn.textContent = changing ? 'この日時に変更する' : 'この内容で予約する';
     alert(
       '申し訳ありません。ご選択の時間は、ちょうど他のお客様のご予約が入りました。\n' +
       '別の日時をお選びください。'
@@ -473,16 +498,42 @@ async function submitReservation() {
     return;
   }
 
-  const reservation = buildReservation();
-  // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
-  reservation.delivered = await sendToEndpoint({ type: 'reserve', ...reservation });
-  Store.add(reservation);
+  let reservation;
+  if (changing) {
+    // 予約番号はそのまま。日時だけ差し替える。
+    reservation = { ...changing, date: state.date, time: state.time,
+      endTime: toHHMM(toMinutes(state.time) + totalMinutes()) };
+    reservation.delivered = await sendToEndpoint({
+      type: 'change',
+      code: changing.code,
+      date: state.date,
+      time: state.time,
+      endTime: reservation.endTime,
+      minutes: totalMinutes(),
+      // 別端末から照会して変更する場合の本人確認
+      tel: changing.lookupTel || (changing.customer && changing.customer.tel) || ''
+    });
+    Store.reschedule(changing.code, reservation);
+  } else {
+    reservation = buildReservation();
+    // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
+    reservation.delivered = await sendToEndpoint({ type: 'reserve', ...reservation });
+    Store.add(reservation);
+  }
+
+  if (changing) {
+    $('#h-done').textContent = '日時を変更しました';
+    const desc = $('#h-done').nextElementSibling;
+    if (desc) desc.textContent = '予約番号は変わりません。変更後の内容はこちらです。';
+  }
 
   $('#done-code').textContent = reservation.code;
   $('#done-body').innerHTML = [
     ['ご来店日時', `${formatDateJa(reservation.date)} ${reservation.time}〜`],
     ['ご担当', reservation.staffName],
-    ['メニュー', reservation.menus.map(m => esc(m.name)).join('<br />')],
+    ['メニュー', reservation.menus
+      ? reservation.menus.map(m => esc(m.name)).join('<br />')
+      : esc(reservation.menuText || '')],
     ['合計金額', `${reservation.totalLabel || yen(reservation.totalPrice)}${reservation.totalPrice ? '（税込）' : ''}`]
   ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
 
@@ -494,7 +545,7 @@ async function submitReservation() {
   state.step = 6;
   renderStep();
   btn.disabled = false;
-  btn.textContent = 'この内容で予約する';
+  btn.textContent = changing ? 'この日時に変更する' : 'この内容で予約する';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -537,6 +588,8 @@ function renderStep() {
     const n = Number(s.dataset.step);
     s.classList.toggle('is-current', n === state.step);
     s.classList.toggle('is-done', n < state.step);
+    // 変更モードで通らないステップは、押せないことが分かるように薄くする
+    s.classList.toggle('is-skipped', !!changing && (n === 1 || n === 2 || n === 4));
   });
   $('#steps').style.display = state.step === 6 ? 'none' : '';
   $('#summary').style.display = state.step === 6 ? 'none' : '';
@@ -545,6 +598,13 @@ function renderStep() {
 }
 
 function goTo(step) {
+  /* 変更モードでは、メニュー・担当・お客様情報は元の予約のまま。
+     日時（STEP3）から確認（STEP5）へ直行させる。 */
+  if (changing) {
+    if (step === 4) step = 5;
+    if (step === 1 || step === 2) return;
+  }
+
   // 前に進むときだけ入力チェック
   if (step > state.step) {
     if (state.step === 1 && !hasMenu()) {
@@ -559,7 +619,7 @@ function goTo(step) {
       alert('ご来店日時をお選びください。');
       return;
     }
-    if (state.step === 4 && !validateForm()) return;
+    if (state.step === 4 && !changing && !validateForm()) return;
   }
 
   state.step = step;
@@ -568,6 +628,59 @@ function goTo(step) {
   saveDraft();
   renderStep();
   window.scrollTo({ top: $('#steps').offsetTop - 130, behavior: 'smooth' });
+}
+
+/* ---------- 日時の変更 ----------
+   予約確認ページで「日時を変更する」を押すと、対象の予約が
+   sessionStorage に置かれた状態でこのページに来ます。
+   メニュー・担当・お客様情報はそのまま、日時だけ選び直してもらいます。 */
+function loadChangeTarget() {
+  let raw = null;
+  try { raw = sessionStorage.getItem(CHANGE_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  // 一度読んだら消す。戻る操作で変更モードに入り直してしまわないように。
+  try { sessionStorage.removeItem(CHANGE_KEY); } catch (e) { /* noop */ }
+
+  let target;
+  try { target = JSON.parse(raw); } catch (e) { return false; }
+  if (!target || !target.code) return false;
+
+  changing = target;
+
+  // メニューの選択を復元する。IDが分かるのはこの端末で取った予約だけ。
+  state.couponId = null;
+  state.menuIds = [];
+  (target.menus || []).forEach(m => {
+    if (SALON.coupons.some(c => c.id === m.id)) state.couponId = m.id;
+    else if (allMenuItems().some(x => x.id === m.id)) state.menuIds.push(m.id);
+  });
+
+  const staff = SALON.staff.find(x => x.name === target.staffName);
+  state.staffId = staff ? staff.id : null;
+  state.staffChosen = true;
+  state.date = null;
+  state.time = null;
+  return true;
+}
+
+/* 変更モードのとき、所要時間は元の予約のものを使う。
+   別端末から照会した予約はメニューIDが分からないため、
+   合計時間だけは台帳の値を信用します。 */
+function changeMinutes() {
+  return (changing && changing.totalMinutes) || null;
+}
+
+function renderChangeBanner() {
+  if (!changing) return;
+  const host = $('#change-notice');
+  if (!host) return;
+  host.hidden = false;
+  host.innerHTML = `
+    <b>日時の変更</b>
+    <span>
+      予約番号 ${esc(changing.code)}（${formatDateJa(changing.date)} ${esc(changing.time)}〜）の日時を変更します。
+      メニュー・ご担当・お客様情報はそのままです。新しい日時をお選びください。
+    </span>`;
 }
 
 /* ---------- URLパラメータからの事前選択 ----------
@@ -598,9 +711,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   loadDraft();
   dropUnknownSelections();
-  applyQueryParams();
-  if (state.step === 6) state.step = 1;
-  if (!hasMenu()) state.step = 1;   // 選択が消えた場合は最初から
+
+  /* 日時変更で来た場合は、下書きより変更対象を優先する。
+     変更中の予約自身は空き枠の判定から除いておく（元の時間の前後を選べるように）。 */
+  if (loadChangeTarget()) {
+    Availability.ignoreCode = changing.code;
+    Availability.ignoreSlot = { date: changing.date, time: changing.time, staffId: state.staffId };
+    clearDraft();
+    renderChangeBanner();
+    state.step = 3;
+    // ボタンの文言も「予約」ではなく「変更」にする
+    $('#submit-reservation').textContent = 'この日時に変更する';
+    const lead = $('#confirm-lead');
+    if (lead) lead.textContent = '変更後の内容をご確認のうえ、「この日時に変更する」を押してください。';
+  } else {
+    applyQueryParams();
+    if (state.step === 6) state.step = 1;
+    if (!hasMenu()) state.step = 1;   // 選択が消えた場合は最初から
+  }
 
   // スタイリストが1名なら、その人を初めから選んでおく
   if (SALON.staff.length === 1 && !state.staffChosen) {

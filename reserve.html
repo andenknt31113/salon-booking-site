@@ -38,6 +38,7 @@
     <section class="section">
       <div class="container">
         <!-- ステップ表示 -->
+        <div class="notice" id="change-notice" hidden></div>
         <ol class="steps" id="steps">
           <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
           <li class="step" data-step="2"><b>STEP 2</b>スタッフ</li>
@@ -173,7 +174,7 @@
               <h2 class="section-title" id="h-step5" style="font-size:19px;margin-bottom:20px;">ご予約内容の確認</h2>
               <div class="notice">
                 <b>ご確認</b>
-                <span>内容に間違いがないかご確認のうえ、「この内容で予約する」ボタンを押してください。</span>
+                <span id="confirm-lead">内容に間違いがないかご確認のうえ、「この内容で予約する」ボタンを押してください。</span>
               </div>
               <table class="confirm-table"><tbody id="confirm-body"></tbody></table>
               <div class="panel-actions">

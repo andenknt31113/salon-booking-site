@@ -109,6 +109,15 @@ const Store = {
   find(code) {
     return this.all().find(r => r.code === code) || null;
   },
+  /** 日時の変更。予約番号はそのままに、日時だけ差し替える */
+  reschedule(code, next) {
+    const list = this.all();
+    const i = list.findIndex(r => r.code === code);
+    if (i < 0) return false;
+    list[i] = { ...list[i], ...next, changedAt: new Date().toISOString() };
+    this.save(list);
+    return true;
+  },
   cancel(code) {
     const list = this.all();
     const target = list.find(r => r.code === code);
@@ -183,6 +192,22 @@ const Availability = {
 
   /** 既存予約でそのスタッフの枠が埋まっているか（指名なし予約は特定スタッフを塞がない）
    *  この端末の予約と、受信先から取得した他のお客様の予約の両方を見ます。 */
+  /* 日時変更のとき、変更しようとしている予約自身は「埋まっている」とみなさない。
+     そうしないと、元の時間の前後が自分の予約で塞がれて選べなくなります。
+
+     台帳から返ってくる他のお客様の予約には予約番号が含まれません
+     （公開する情報を最小限にしているため）。そのため日時と担当の一致で判定します。
+     同じ担当・同じ時間の予約は二重には取れないので、これで一意に決まります。 */
+  ignoreCode: null,
+  ignoreSlot: null,
+  isIgnoredSlot(b) {
+    const ig = this.ignoreSlot;
+    return !!ig
+      && b.date === ig.date
+      && b.time === ig.time
+      && (b.staffId || null) === (ig.staffId || null);
+  },
+
   isBooked(staffId, dateKey, time) {
     const slotStart = toMinutes(time);
     const overlaps = (date, start, minutes) =>
@@ -191,7 +216,8 @@ const Availability = {
       && slotStart < toMinutes(start) + (minutes || SALON.business.slotMinutes);
 
     const mine = Store.active().some(r =>
-      r.staffId === staffId && overlaps(r.date, r.time, r.totalMinutes));
+      r.code !== this.ignoreCode
+      && r.staffId === staffId && overlaps(r.date, r.time, r.totalMinutes));
 
     return mine || Remote.isBusy(staffId, dateKey, time);
   },
@@ -337,7 +363,8 @@ const Remote = {
     if (!this.booked) return false;
     const t = toMinutes(time);
     return this.booked.some(b =>
-      b.date === dateKey
+      !Availability.isIgnoredSlot(b)
+      && b.date === dateKey
       && b.staffId === staffId
       && t >= toMinutes(b.time)
       && t < toMinutes(b.time) + (b.minutes || SALON.business.slotMinutes));

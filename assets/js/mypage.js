@@ -3,6 +3,8 @@
  * ============================================================ */
 
 let filterCode = '';
+/* 直前に照会したご予約。別端末から日時変更するときに使います */
+let lastLookup = null;
 
 /** 予約が過去のものか */
 function isPast(r) {
@@ -20,6 +22,25 @@ function isCancellable(r) {
   return Date.now() < deadline.getTime();
 }
 
+/* 日時変更の受け渡し。
+   予約内容をURLに載せるとお名前や電話番号が履歴に残るため、
+   この端末の中だけで渡します。 */
+const CHANGE_KEY = 'salon.changeTarget.v1';
+
+function startChange(reservation) {
+  try {
+    sessionStorage.setItem(CHANGE_KEY, JSON.stringify(reservation));
+  } catch (e) {
+    alert('この設定では日時変更をご利用いただけません。お手数ですが店舗までご連絡ください。');
+    return;
+  }
+  location.href = 'reserve.html?change=1';
+}
+
+function changeBtn(code) {
+  return `<button class="btn btn-outline btn-sm" type="button" data-change="${esc(code)}">日時を変更する</button>`;
+}
+
 function bookingCard(r) {
   const cancelled = r.status === 'cancelled';
   const past = isPast(r);
@@ -29,10 +50,11 @@ function bookingCard(r) {
       ? '<span class="status-chip is-past">ご来店済み</span>'
       : '<span class="status-chip">予約確定</span>';
 
-  const cancelBtn = isCancellable(r)
-    ? `<button class="btn btn-ghost btn-sm" type="button" data-cancel="${esc(r.code)}">この予約をキャンセルする</button>`
+  const actions = isCancellable(r)
+    ? changeBtn(r.code)
+      + `<button class="btn btn-ghost btn-sm" type="button" data-cancel="${esc(r.code)}">この予約をキャンセルする</button>`
     : (!cancelled && !past)
-      ? '<p style="font-size:12px;color:var(--ink-3);">※キャンセル受付期限を過ぎています。お電話でご連絡ください。</p>'
+      ? '<p style="font-size:12px;color:var(--ink-3);">※変更・キャンセルの受付期限を過ぎています。お手数ですが店舗までご連絡ください。</p>'
       : '';
 
   return `
@@ -46,7 +68,7 @@ function bookingCard(r) {
       <p class="booking-detail">メニュー：${r.menus.map(m => esc(m.name)).join(' ／ ')}</p>
       <p class="booking-detail">合計：<strong>${r.totalLabel || yen(r.totalPrice)}</strong>（${r.totalPrice ? '税込・' : ''}約${formatDuration(r.totalMinutes)}）</p>
       ${r.customer.request ? `<p class="booking-detail">ご要望：${esc(r.customer.request)}</p>` : ''}
-      <div style="margin-top:14px;">${cancelBtn}</div>
+      <div class="booking-actions">${actions}</div>
     </article>`;
 }
 
@@ -104,11 +126,12 @@ function renderLookupResult(r) {
       <p class="booking-detail">ご担当：${esc(r.staffName)}</p>
       <p class="booking-detail">合計：<strong>${r.totalLabel || yen(r.totalPrice)}</strong>（${r.totalPrice ? '税込・' : ''}約${formatDuration(r.totalMinutes)}）</p>
       ${canCancel
-        ? `<div style="margin-top:14px;">
+        ? `<div class="booking-actions">
+             ${changeBtn(r.code)}
              <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>
            </div>`
         : (!cancelled && !past)
-          ? '<p style="font-size:12px;color:var(--muted);margin-top:12px;">※キャンセル受付期限を過ぎています。店舗までご連絡ください。</p>'
+          ? '<p style="font-size:12px;color:var(--muted);margin-top:12px;">※変更・キャンセルの受付期限を過ぎています。店舗までご連絡ください。</p>'
           : ''}
     </article>`;
 }
@@ -139,6 +162,7 @@ async function doLookup() {
     err.style.display = 'block';
     return;
   }
+  lastLookup = res.reservation;
   renderLookupResult(res.reservation);
 }
 
@@ -191,6 +215,38 @@ document.addEventListener('DOMContentLoaded', () => {
     Store.cancel(code); // この端末にも記録があれば同期する
     await doLookup();
     render();
+  });
+
+  /* 日時の変更。
+     予約の中身（メニュー・担当・お客様情報）はそのままに、
+     日時だけ選び直してもらいます。予約番号も変わりません。 */
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-change]');
+    if (!btn) return;
+    const code = btn.dataset.change;
+
+    // この端末で取った予約
+    const mine = Store.find(code);
+    if (mine) { startChange(mine); return; }
+
+    // 予約番号＋電話番号で照会した予約
+    if (lastLookup && lastLookup.code === code) {
+      startChange({
+        code: lastLookup.code,
+        date: lastLookup.date,
+        time: lastLookup.time,
+        endTime: lastLookup.endTime,
+        totalMinutes: lastLookup.totalMinutes,
+        staffName: lastLookup.staffName,
+        menuText: lastLookup.menuText,
+        totalPrice: lastLookup.totalPrice,
+        totalLabel: lastLookup.totalLabel,
+        // 照会では個人情報を返していないので、変更時に電話番号で本人確認する
+        lookupTel: $('#lookup-tel').value.trim()
+      });
+      return;
+    }
+    alert('ご予約が見つかりませんでした。お手数ですが、もう一度照会してください。');
   });
 
   document.addEventListener('click', e => {
