@@ -181,15 +181,19 @@ const Availability = {
     return staff.workdays.includes(fromKey(dateKey).getDay());
   },
 
-  /** 既存予約でそのスタッフの枠が埋まっているか（指名なし予約は特定スタッフを塞がない） */
+  /** 既存予約でそのスタッフの枠が埋まっているか（指名なし予約は特定スタッフを塞がない）
+   *  この端末の予約と、受信先から取得した他のお客様の予約の両方を見ます。 */
   isBooked(staffId, dateKey, time) {
     const slotStart = toMinutes(time);
-    return Store.active().some(r => {
-      if (r.date !== dateKey || r.staffId !== staffId) return false;
-      const start = toMinutes(r.time);
-      const end = start + (r.totalMinutes || SALON.business.slotMinutes);
-      return slotStart >= start && slotStart < end;
-    });
+    const overlaps = (date, start, minutes) =>
+      date === dateKey
+      && slotStart >= toMinutes(start)
+      && slotStart < toMinutes(start) + (minutes || SALON.business.slotMinutes);
+
+    const mine = Store.active().some(r =>
+      r.staffId === staffId && overlaps(r.date, r.time, r.totalMinutes));
+
+    return mine || Remote.isBusy(staffId, dateKey, time);
   },
 
   /* サンプルの「先約」を作る。実運用では予約管理システムの空き状況に差し替えてください。
@@ -288,6 +292,57 @@ async function sendToEndpoint(payload) {
     return false;
   }
 }
+
+/* ============================================================
+ *  他のお客様の予約状況（ダブルブッキング防止）
+ *  受信先から「埋まっている枠」だけを取得します。
+ *  氏名・電話番号などは一切受け取りません。
+ * ============================================================ */
+const Remote = {
+  booked: null,       // null = 未取得または取得失敗
+  loaded: false,
+  loading: null,
+
+  /** 受信先から予約済み枠を取得する（多重呼び出しは1回にまとめる） */
+  load(force = false) {
+    if (!SALON.reservationEndpoint) { this.loaded = true; return Promise.resolve(false); }
+    if (this.loading) return this.loading;
+    if (this.loaded && !force) return Promise.resolve(this.booked !== null);
+
+    this.loading = (async () => {
+      try {
+        const res = await fetch(SALON.reservationEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ type: 'availability' })
+        });
+        const data = await res.json();
+        this.booked = Array.isArray(data.booked) ? data.booked : [];
+        return true;
+      } catch (e) {
+        // 取得できないときはこの端末の予約だけで判定する（予約自体は続行できる）
+        console.warn('空席状況を取得できませんでした。', e);
+        this.booked = null;
+        return false;
+      } finally {
+        this.loaded = true;
+        this.loading = null;
+      }
+    })();
+    return this.loading;
+  },
+
+  /** 他のお客様の予約でその枠が埋まっているか */
+  isBusy(staffId, dateKey, time) {
+    if (!this.booked) return false;
+    const t = toMinutes(time);
+    return this.booked.some(b =>
+      b.date === dateKey
+      && b.staffId === staffId
+      && t >= toMinutes(b.time)
+      && t < toMinutes(b.time) + (b.minutes || SALON.business.slotMinutes));
+  }
+};
 
 /** キャンセルを受信先へ通知する（予約台帳の状態を更新するため） */
 function sendCancellation(reservation) {

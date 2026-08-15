@@ -359,6 +359,20 @@ async function submitReservation() {
   btn.disabled = true;
   btn.textContent = '送信中…';
 
+  // 選択中に他のお客様が同じ枠を押さえていないか、最新の状況で確認する
+  await Remote.load(true);
+  if (!Availability.slotInfo(state.date, state.time, state.staffId, totalMinutes()).available) {
+    btn.disabled = false;
+    btn.textContent = 'この内容で予約する';
+    alert(
+      '申し訳ありません。ご選択の時間は、ちょうど他のお客様のご予約が入りました。\n' +
+      '別の日時をお選びください。'
+    );
+    state.time = null;
+    goTo(3);
+    return;
+  }
+
   const reservation = buildReservation();
   // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
   reservation.delivered = await sendToEndpoint({ type: 'reserve', ...reservation });
@@ -487,6 +501,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#submit-reservation').addEventListener('click', submitReservation);
+
+  // 他のお客様の予約状況を取得し、届いたらカレンダーを描き直す
+  Remote.load().then(ok => {
+    if (ok && state.step === 3) renderCalendar();
+  });
 
   // ステップ表示をクリックして戻れるように
   $('#steps').addEventListener('click', e => {
