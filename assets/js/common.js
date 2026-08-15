@@ -429,6 +429,29 @@ function currentPage() {
   return path === '' ? 'index.html' : path;
 }
 
+/* ============================================================
+ *  ロゴ表示
+ *  SALON.logo に画像パスが入っていればその画像を、
+ *  無ければ店名から文字ロゴ（ワードマーク）を組み立てます。
+ *  ZER01 は「ZERO + 1」なので、数字部分だけ色を変えて意味を見せています。
+ * ============================================================ */
+function wordmarkHtml() {
+  return esc(SALON.name);
+}
+
+function brandLockup(opt = {}) {
+  const size = opt.size || 'sm';
+  if (SALON.logo) {
+    return `<img class="brand-logo" src="${esc(SALON.logo)}" alt="${esc(SALON.name)}"
+              style="height:${opt.height || SALON.logoHeight || 34}px" />`;
+  }
+  return `
+    <span class="wordmark wordmark-${size}">
+      <span class="wm-name">${wordmarkHtml()}</span>
+      ${SALON.nameSub ? `<span class="wm-sub">${esc(SALON.nameSub)}</span>` : ''}
+    </span>`;
+}
+
 function renderHeader() {
   const host = $('#site-header');
   if (!host) return;
@@ -449,12 +472,9 @@ function renderHeader() {
     ${draft}
     <header class="site-header">
       <div class="container header-top">
-        <a class="brand" href="index.html">
-          <span class="brand-mark" aria-hidden="true">${esc(initials)}</span>
-          <span class="brand-text">
-            <span class="brand-name">${esc(SALON.name)}</span>
-            <span class="brand-sub">${esc(SALON.nameSub || SALON.branch)}</span>
-          </span>
+        <a class="brand" href="index.html" aria-label="${esc(SALON.name)} ${esc(SALON.nameSub || '')}">
+          ${SALON.logo ? '' : `<span class="brand-mark" aria-hidden="true">${esc(initials)}</span>`}
+          ${brandLockup({ size: 'sm' })}
         </a>
         <div class="header-actions">
           ${SALON.tel ? `
@@ -480,7 +500,7 @@ function renderFooter() {
       <div class="container">
         <div class="footer-grid">
           <div>
-            <p class="footer-brand-name">${esc(SALON.name)} ${esc(SALON.nameSub || SALON.branch)}</p>
+            <div class="footer-brand">${brandLockup({ size: 'md', height: 40 })}</div>
             <p>${esc(SALON.address)}</p>
             ${SALON.access ? `<p>${esc(SALON.access)}</p>` : ''}
             ${SALON.tel ? `<p style="margin-top:10px;">TEL ${esc(SALON.tel)}</p>` : ''}

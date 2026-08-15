@@ -3,8 +3,22 @@
  * ============================================================ */
 
 /* ---------- 共通パーツ ---------- */
-function gradientStyle(hue, from = 58, to = 34) {
-  return `background:linear-gradient(150deg, hsl(${hue} 42% ${from}%), hsl(${(hue + 28) % 360} 38% ${to}%));`;
+
+/* 写真が用意できていない箇所は、バーバーポールを思わせる斜めのストライプで埋めます。
+   「画像が抜けている」ではなく、意図した意匠に見せるためです。
+   写真（image）が指定されていれば、そちらを優先します。 */
+function placeholder(hue, label, cls) {
+  return `
+    <div class="${cls} ph" style="--ph-hue:${hue};">
+      <span class="ph-stripes" aria-hidden="true"></span>
+      ${label ? `<span class="ph-label">${esc(label)}</span>` : ''}
+    </div>`;
+}
+
+function photoOrPlaceholder(item, label, cls, alt) {
+  return item.image
+    ? `<div class="${cls}"><img src="${esc(item.image)}" alt="${esc(alt)}" loading="lazy" /></div>`
+    : placeholder(item.hue, label, cls);
 }
 
 function couponCard(c) {
@@ -32,18 +46,25 @@ function couponCard(c) {
 
 function staffCard(s) {
   const fee = s.nominationFee > 0 ? `指名料 ${yen(s.nominationFee)}` : '指名料なし';
+  const meta = [s.kana, s.years ? `経験${s.years}年` : ''].filter(Boolean).join('／');
+  // 在籍1名のサロンでは、グリッドに1枚だけ置くと寂しいので横並びの大きめカードにする
+  const solo = SALON.staff.length === 1 ? ' staff-card-solo' : '';
+
   return `
-    <article class="staff-card">
-      <div class="avatar" style="${gradientStyle(s.hue)}">
-        <span class="avatar-initial">${esc(s.name.slice(0, 1))}</span>
-      </div>
+    <article class="staff-card${solo}">
+      ${s.image
+        ? `<div class="avatar"><img src="${esc(s.image)}" alt="${esc(s.name)}" loading="lazy" /></div>`
+        : `<div class="avatar ph" style="--ph-hue:${s.hue};">
+             <span class="ph-stripes" aria-hidden="true"></span>
+             <span class="avatar-initial">${esc(s.name.slice(0, 1))}</span>
+           </div>`}
       <div class="staff-body">
         <p class="staff-role">${esc(s.role)}</p>
         <h3 class="staff-name">${esc(s.name)}</h3>
-        <p class="staff-kana">${esc(s.kana)}／経験${s.years}年</p>
+        ${meta ? `<p class="staff-kana">${esc(meta)}</p>` : ''}
         <ul class="tag-list">${s.tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>
         <p class="staff-message">${esc(s.message)}</p>
-        <p class="staff-fee">${esc(fee)}／出勤：${s.workdays.map(d => WEEKDAY_JA[d]).join('・')}</p>
+        <p class="staff-fee">${esc(fee)}</p>
         <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${esc(s.name)}を指名して予約</a>
       </div>
     </article>`;
@@ -53,12 +74,10 @@ function styleCard(sy) {
   const st = findStaff(sy.staffId);
   return `
     <article class="style-card">
-      <div class="style-thumb" style="${gradientStyle(sy.hue, 62, 38)}">
-        <span>${esc(sy.length.toUpperCase())}</span>
-      </div>
+      ${photoOrPlaceholder(sy, sy.length, 'style-thumb', sy.title)}
       <div class="style-body">
         <h3 class="style-title">${esc(sy.title)}</h3>
-        <p class="style-meta">${esc(sy.length)}／${esc(st ? st.name : '')}</p>
+        <p class="style-meta">${esc(sy.length)}${st ? '／' + esc(st.name) : ''}</p>
         <p class="style-meta">${sy.tags.map(t => `#${esc(t)}`).join(' ')}</p>
       </div>
     </article>`;
@@ -151,6 +170,8 @@ function initHome() {
   } else {
     $('.hero-rating').hidden = true;
   }
+  const heroBrand = $('#hero-brand');
+  if (heroBrand) heroBrand.innerHTML = brandLockup({ size: 'lg', height: 120 });
   $('#hero-catch').textContent = SALON.catch;
   $('#hero-desc').textContent = SALON.description;
   $('#lead-hours').textContent = SALON.business.minLeadHours;

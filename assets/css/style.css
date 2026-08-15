@@ -7,26 +7,29 @@
    色を変えたいときは下の :root だけ触れば全体に反映されます。
    ============================================================ */
 :root {
-  --ground: #100E0C;      /* 一番下の地 */
-  --panel: #191614;       /* カード・パネル */
-  --panel-2: #221E19;     /* 一段明るい面（見出し行など） */
-  --line: #302A23;        /* 罫線 */
-  --line-2: #241F1A;      /* 弱い罫線 */
-  --text: #ECE6DC;        /* 本文 */
-  --text-2: #B8B0A4;      /* 副次テキスト */
-  --muted: #8B8377;       /* 補足・注釈 */
-  --accent: #C9A227;      /* 真鍮 */
-  --accent-hi: #E0BC4A;   /* 真鍮のハイライト */
-  --accent-dim: #7A6318;
-  --accent-soft: rgba(201, 162, 39, .12);
-  --ok: #74A98A;          /* 空きあり */
-  --warn: #D2913F;        /* 残りわずか */
-  --off: #4C453C;         /* 予約不可 */
-  --danger: #C2604E;
+  /* ロゴ（クリーム地に黒のヴィンテージ意匠）に合わせた配色 */
+  --ground: #F1ECE0;      /* 地：ロゴの下地と同じクリーム */
+  --panel: #FBF8F1;       /* カード */
+  --panel-2: #E8E1D1;     /* 一段沈めた面（見出し行など） */
+  --line: #D6CCB8;        /* 罫線 */
+  --line-2: #E3DBC9;      /* 弱い罫線 */
+  --ink: #17140F;         /* ロゴの黒 */
+  --text: #17140F;
+  --text-2: #4B443A;
+  --muted: #857C6D;
+  --accent: #7B2B22;      /* オックスブラッド：理容店の伝統色 */
+  --accent-hi: #9A382D;
+  --accent-dim: #C3A79F;
+  --accent-soft: rgba(123, 43, 34, .07);
+  --on-ink: #F1ECE0;      /* 黒地に乗せる文字 */
+  --ok: #3F6B4E;          /* 空きあり */
+  --warn: #A5702A;        /* 残りわずか */
+  --off: #B3AA98;         /* 予約不可 */
+  --danger: #A3352A;
   --radius: 2px;
   --radius-lg: 3px;
-  --shadow: 0 1px 0 rgba(255, 255, 255, .03), 0 12px 32px rgba(0, 0, 0, .45);
-  --shadow-sm: 0 1px 0 rgba(255, 255, 255, .03), 0 2px 10px rgba(0, 0, 0, .3);
+  --shadow: 0 1px 2px rgba(23, 20, 15, .06), 0 10px 28px rgba(23, 20, 15, .08);
+  --shadow-sm: 0 1px 2px rgba(23, 20, 15, .06);
   --font: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", "Yu Gothic",
           "Noto Sans JP", Meiryo, system-ui, -apple-system, sans-serif;
   --font-en: "Helvetica Neue", "Arial Narrow", Arial, sans-serif;
@@ -54,7 +57,7 @@ h1, h2, h3, h4 { margin: 0; line-height: 1.45; font-weight: 700; }
 p { margin: 0; }
 ul, ol { margin: 0; padding: 0; list-style: none; }
 table { border-collapse: collapse; width: 100%; }
-::selection { background: var(--accent); color: #100E0C; }
+::selection { background: var(--accent); color: var(--on-ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .container { width: min(1080px, 100% - 32px); margin-inline: auto; }
@@ -74,8 +77,8 @@ table { border-collapse: collapse; width: 100%; }
    準備中バー（仮の内容が残っている間だけ出る）
    ============================================================ */
 .draft-banner {
-  background: var(--accent);
-  color: #100E0C;
+  background: var(--ink);
+  color: var(--on-ink);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: .04em;
@@ -84,23 +87,84 @@ table { border-collapse: collapse; width: 100%; }
 }
 
 /* ============================================================
+   ロゴ（ワードマーク）
+   ZER01 は「ZERO + 1」。数字側を真鍮色にして名前の成り立ちを見せる。
+   ============================================================ */
+.wordmark { display: block; line-height: 1; }
+.wm-name {
+  display: block;
+  font-family: Georgia, "Times New Roman", "Yu Mincho", serif;
+  font-weight: 700; letter-spacing: .06em; color: var(--ink); white-space: nowrap;
+}
+.wm-num { color: inherit; }
+.wm-sub {
+  display: block; font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+/* ロゴと同じく、店名の下に細い罫を引く */
+.wordmark .wm-sub::before,
+.wordmark .wm-sub::after {
+  content: ""; display: inline-block; vertical-align: middle;
+  height: 1px; background: currentColor; opacity: .55;
+}
+.wordmark-sm .wm-name { font-size: 23px; }
+.wordmark-sm .wm-sub  { font-size: 9px; letter-spacing: .28em; margin-top: 5px; }
+.wordmark-sm .wm-sub::before, .wordmark-sm .wm-sub::after { width: 12px; margin: 0 7px; }
+.wordmark-md .wm-name { font-size: 32px; }
+.wordmark-md .wm-sub  { font-size: 10px; letter-spacing: .3em; margin-top: 9px; }
+.wordmark-md .wm-sub::before, .wordmark-md .wm-sub::after { width: 18px; margin: 0 9px; }
+.wordmark-lg .wm-name { font-size: clamp(52px, 15vw, 88px); letter-spacing: .04em; }
+.wordmark-lg .wm-sub  { font-size: clamp(11px, 2.6vw, 14px); letter-spacing: .4em; margin-top: 16px; }
+.wordmark-lg .wm-sub::before, .wordmark-lg .wm-sub::after { width: clamp(28px, 9vw, 70px); margin: 0 14px; }
+.brand-logo { display: block; width: auto; }
+
+/* ============================================================
+   写真が未設定のときの意匠
+   バーバーポールを思わせる斜めのストライプ。
+   image が指定されればこの箱の中が <img> に置き換わる。
+   ============================================================ */
+.ph { position: relative; overflow: hidden; background: var(--panel-2); }
+.ph-stripes {
+  position: absolute; inset: -25%;
+  background: repeating-linear-gradient(
+    -58deg,
+    hsl(var(--ph-hue, 38) 30% 32% / .18) 0 8px,
+    transparent 8px 26px
+  );
+}
+.ph::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(23, 20, 15, .16), transparent 62%);
+}
+.ph-label {
+  position: absolute; left: 14px; bottom: 12px; z-index: 1;
+  font-family: var(--font-en); font-size: 10.5px; letter-spacing: .3em;
+  text-transform: uppercase; color: var(--accent);
+}
+.avatar img, .style-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ============================================================
    ヘッダー
    ============================================================ */
 .site-header {
   position: sticky; top: 0; z-index: 100;
-  background: rgba(16, 14, 12, .94);
+  background: rgba(241, 236, 224, .94);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
 }
 .header-top { display: flex; align-items: center; gap: 20px; padding: 14px 0; }
 .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .brand-mark {
-  width: 40px; height: 40px; flex: none;
-  border: 1px solid var(--accent);
-  color: var(--accent);
+  width: 40px; height: 40px; flex: none; position: relative;
+  border: 2px solid var(--ink); color: var(--ink);
   display: grid; place-items: center;
-  font-family: var(--font-en); font-weight: 700; font-size: 15px; letter-spacing: .06em;
+  font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 16px;
 }
+.brand-mark::after {
+  content: ""; position: absolute; inset: 3px; border: 1px solid var(--ink); opacity: .45;
+}
+.brand > .wordmark { min-width: 0; }
 .brand-text { min-width: 0; }
 .brand-name {
   display: block;
@@ -131,7 +195,7 @@ table { border-collapse: collapse; width: 100%; }
   display: block; padding: 13px 18px; font-size: 13px; white-space: nowrap;
   color: var(--text-2); border-bottom: 2px solid transparent; transition: .15s;
 }
-.site-nav a:hover { color: var(--accent); background: rgba(255, 255, 255, .02); }
+.site-nav a:hover { color: var(--accent); background: rgba(23, 20, 15, .04); }
 .site-nav a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
 
 /* ============================================================
@@ -143,8 +207,8 @@ table { border-collapse: collapse; width: 100%; }
   font-size: 14px; font-weight: 700; letter-spacing: .06em;
   border: 1px solid transparent; transition: .18s; text-align: center; line-height: 1.4;
 }
-.btn-primary { background: var(--accent); color: #100E0C; }
-.btn-primary:hover { background: var(--accent-hi); }
+.btn-primary { background: var(--ink); color: var(--on-ink); }
+.btn-primary:hover { background: var(--accent); }
 .btn-outline { border-color: var(--accent); color: var(--accent); background: transparent; }
 .btn-outline:hover { background: var(--accent-soft); }
 .btn-ghost { border-color: var(--line); color: var(--text-2); background: transparent; }
@@ -157,23 +221,29 @@ table { border-collapse: collapse; width: 100%; }
 /* ============================================================
    ヒーロー（バーバーポールを抽象化した斜線を薄く敷く）
    ============================================================ */
-.hero { position: relative; background: #0B0A09; overflow: hidden; border-bottom: 1px solid var(--line); }
+.hero { position: relative; background: var(--panel-2); overflow: hidden; border-bottom: 1px solid var(--line); }
 .hero::before {
   content: ""; position: absolute; inset: 0;
   background: repeating-linear-gradient(
-    -60deg,
-    rgba(201, 162, 39, .05) 0 2px,
+    -58deg,
+    rgba(23, 20, 15, .045) 0 2px,
     transparent 2px 26px
   );
 }
 .hero::after {
   content: ""; position: absolute; inset: 0;
-  background: radial-gradient(70% 90% at 82% 8%, rgba(201, 162, 39, .13), transparent 62%);
+  background: radial-gradient(70% 90% at 82% 8%, rgba(123, 43, 34, .07), transparent 62%);
 }
-.hero-inner { position: relative; z-index: 1; padding: 78px 0 68px; }
+.hero-inner { position: relative; z-index: 1; padding: 66px 0 62px; }
+.hero-brand { margin-bottom: 22px; }
+.hero-brand .wm-sub { color: var(--accent); }
+/* ロゴ画像を入れた場合は上限を決めて収める */
+.hero-brand .brand-logo { max-width: min(420px, 82vw); height: auto !important; }
 .hero-label {
   font-family: var(--font-en); font-size: 10px; letter-spacing: .42em;
-  color: var(--accent); margin-bottom: 22px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 26px; text-transform: uppercase;
+  padding-top: 14px; border-top: 1px solid var(--line);
+  display: inline-block;
 }
 .hero h1 {
   font-size: clamp(25px, 4.4vw, 40px); letter-spacing: .06em; margin-bottom: 20px;
@@ -195,7 +265,7 @@ table { border-collapse: collapse; width: 100%; }
    セクション
    ============================================================ */
 .section { padding: 62px 0; }
-.section-alt { background: #0B0A09; border-block: 1px solid var(--line-2); }
+.section-alt { background: var(--panel-2); border-block: 1px solid var(--line); }
 .section-head { text-align: center; margin-bottom: 36px; }
 .section-head.is-left { text-align: left; }
 .section-label {
@@ -204,7 +274,7 @@ table { border-collapse: collapse; width: 100%; }
 }
 .section-title { font-size: clamp(19px, 2.8vw, 25px); letter-spacing: .12em; }
 .section-desc { margin-top: 14px; color: var(--text-2); font-size: 13.5px; }
-.page-head { background: #0B0A09; border-bottom: 1px solid var(--line); padding: 38px 0; }
+.page-head { background: var(--panel-2); border-bottom: 1px solid var(--line); padding: 38px 0; }
 .page-head h1 { font-size: clamp(20px, 3.2vw, 27px); letter-spacing: .12em; }
 .page-head p { margin-top: 10px; color: var(--text-2); font-size: 13.5px; }
 .breadcrumb { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11.5px; color: var(--muted); margin-bottom: 14px; }
@@ -244,7 +314,7 @@ table { border-collapse: collapse; width: 100%; }
   background: transparent; font-size: 13px; color: var(--text-2); transition: .15s;
 }
 .tab:hover { border-color: var(--accent); color: var(--accent); }
-.tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #100E0C; font-weight: 700; }
+.tab[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); font-weight: 700; }
 
 .menu-group { margin-bottom: 40px; }
 .menu-group h3 {
@@ -271,15 +341,18 @@ table { border-collapse: collapse; width: 100%; }
 }
 .staff-card:hover { border-color: var(--accent-dim); }
 .avatar { aspect-ratio: 4 / 5; display: grid; place-items: center; position: relative; }
-.avatar::after {
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(to top, rgba(16, 14, 12, .55), transparent 55%);
-}
 .avatar-initial {
   font-family: var(--font-en); font-size: 44px; font-weight: 700;
-  color: rgba(255, 255, 255, .92); letter-spacing: .06em; position: relative; z-index: 1;
+  color: rgba(23, 20, 15, .34); letter-spacing: .06em; position: relative; z-index: 1;
 }
 .staff-body { padding: 18px 17px 20px; flex: 1; display: flex; flex-direction: column; }
+
+/* 在籍1名のサロン向け：グリッドいっぱいに広げ、写真と本文を横並びにする */
+.staff-card-solo { grid-column: 1 / -1; flex-direction: row; }
+.staff-card-solo .avatar { width: 40%; max-width: 260px; aspect-ratio: 3 / 4; flex: none; }
+.staff-card-solo .staff-body { padding: 26px 28px; justify-content: center; }
+.staff-card-solo .staff-name { font-size: 24px; letter-spacing: .12em; }
+.staff-card-solo .staff-message { font-size: 13.5px; }
 .staff-role { font-size: 10.5px; color: var(--accent); font-weight: 700; letter-spacing: .14em; }
 .staff-name { font-size: 17px; margin: 6px 0 3px; }
 .staff-kana { font-size: 11.5px; color: var(--muted); }
@@ -294,15 +367,7 @@ table { border-collapse: collapse; width: 100%; }
    ============================================================ */
 .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; }
 .style-card { border-radius: var(--radius); overflow: hidden; background: var(--panel); border: 1px solid var(--line); }
-.style-thumb { aspect-ratio: 3 / 4; display: grid; place-items: center; position: relative; }
-.style-thumb::after {
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(to top, rgba(16, 14, 12, .6), transparent 60%);
-}
-.style-thumb span {
-  font-family: var(--font-en); font-size: 11px; letter-spacing: .34em;
-  color: rgba(255, 255, 255, .95); position: relative; z-index: 1; text-transform: uppercase;
-}
+.style-thumb { aspect-ratio: 3 / 4; position: relative; }
 .style-body { padding: 13px 14px 16px; }
 .style-title { font-size: 13.5px; font-weight: 700; }
 .style-meta { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
@@ -348,7 +413,7 @@ table { border-collapse: collapse; width: 100%; }
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
 }
 .step b { display: block; font-family: var(--font-en); font-size: 10px; letter-spacing: .16em; }
-.step.is-current { background: var(--accent); border-color: var(--accent); color: #100E0C; font-weight: 700; }
+.step.is-current { background: var(--ink); border-color: var(--ink); color: var(--on-ink); font-weight: 700; }
 .step.is-done { border-color: var(--accent-dim); color: var(--accent); }
 
 .reserve-layout { display: grid; grid-template-columns: 1fr 300px; gap: 28px; align-items: start; }
@@ -398,7 +463,7 @@ table { border-collapse: collapse; width: 100%; }
 .slot.is-few { color: var(--warn); }
 /* 選択中はホバー指定より優先させる */
 .slot.is-selected,
-.slot.is-selected:hover:not(:disabled) { background: var(--accent); color: #100E0C; font-weight: 700; }
+.slot.is-selected:hover:not(:disabled) { background: var(--ink); color: var(--on-ink); font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11.5px; color: var(--muted); margin-top: 14px; }
 .legend b { color: var(--ok); }
 .legend .few { color: var(--warn); }
@@ -424,13 +489,13 @@ table { border-collapse: collapse; width: 100%; }
 /* フォーム */
 .form-field { margin-bottom: 22px; }
 .form-field > label, .field-label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
-.required { color: #100E0C; background: var(--accent); font-size: 10px; padding: 2px 7px; margin-left: 8px; vertical-align: 2px; }
+.required { color: var(--on-ink); background: var(--accent); font-size: 10px; padding: 2px 7px; margin-left: 8px; vertical-align: 2px; }
 .optional { color: var(--muted); border: 1px solid var(--line); font-size: 10px; padding: 2px 7px; margin-left: 8px; vertical-align: 2px; }
 .input, .select, .textarea {
   width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: #0B0A09; color: var(--text); transition: .15s; font-size: 16px; /* iOSの自動ズーム防止 */
+  background: #FFFDF8; color: var(--text); transition: .15s; font-size: 16px; /* iOSの自動ズーム防止 */
 }
-.input::placeholder, .textarea::placeholder { color: #5C554C; }
+.input::placeholder, .textarea::placeholder { color: #A69C8B; }
 .input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .textarea { min-height: 110px; resize: vertical; }
 .radio-row { display: flex; flex-wrap: wrap; gap: 9px; }
@@ -513,21 +578,20 @@ table { border-collapse: collapse; width: 100%; }
    フッター
    ============================================================ */
 .site-footer {
-  background: #0B0A09; color: var(--text-2); padding: 52px 0 100px;
+  background: var(--ink); color: rgba(241, 236, 224, .72); padding: 52px 0 100px;
   font-size: 13px; margin-top: 70px; border-top: 1px solid var(--line);
 }
 .footer-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 34px; }
 .footer-grid h4 {
-  color: var(--accent); font-family: var(--font-en); font-size: 10px;
+  color: #D8B98A; font-family: var(--font-en); font-size: 10px;
   letter-spacing: .28em; margin-bottom: 15px; text-transform: uppercase;
 }
 .footer-grid li { margin-bottom: 9px; }
-.footer-grid a:hover { color: var(--accent); }
-.footer-brand-name {
-  color: var(--text); font-family: var(--font-en); font-size: 19px;
-  letter-spacing: .2em; margin-bottom: 12px; font-weight: 700;
-}
-.copyright { margin-top: 38px; padding-top: 22px; border-top: 1px solid var(--line-2); font-size: 11px; color: var(--muted); }
+.footer-grid a:hover { color: #F1ECE0; }
+.footer-brand { margin-bottom: 16px; }
+.site-footer .wm-name { color: var(--on-ink); }
+.site-footer .wm-sub { color: rgba(241, 236, 224, .55); }
+.copyright { margin-top: 38px; padding-top: 22px; border-top: 1px solid rgba(241, 236, 224, .18); font-size: 11px; color: rgba(241, 236, 224, .5); }
 
 /* スマホ固定CTA */
 .sp-cta { display: none; }
@@ -546,6 +610,12 @@ table { border-collapse: collapse; width: 100%; }
   .header-actions .btn { padding: 10px 16px; font-size: 12.5px; }
   .brand-mark { width: 34px; height: 34px; font-size: 13px; }
   .brand-name { font-size: 18px; letter-spacing: .18em; }
+  .wordmark-sm .wm-name { font-size: 19px; letter-spacing: .17em; }
+  .wordmark-sm .wm-sub { font-size: 8.5px; letter-spacing: .2em; }
+  .staff-card-solo { flex-direction: column; }
+  .staff-card-solo .avatar { width: 100%; max-width: none; aspect-ratio: 4 / 3; }
+  .staff-card-solo .staff-body { padding: 20px 17px 22px; }
+  .staff-card-solo .staff-name { font-size: 21px; }
   .site-nav a { padding: 12px 13px; font-size: 12.5px; }
   .hero-inner { padding: 52px 0 46px; }
   .section { padding: 44px 0; }
@@ -565,7 +635,7 @@ table { border-collapse: collapse; width: 100%; }
   .sp-cta {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 90; gap: 10px;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-    background: rgba(11, 10, 9, .96); border-top: 1px solid var(--line);
+    background: rgba(241, 236, 224, .96); border-top: 1px solid var(--line);
     backdrop-filter: blur(10px);
   }
   .sp-cta .btn { flex: 1; padding: 14px 10px; }
