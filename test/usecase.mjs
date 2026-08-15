@@ -488,7 +488,16 @@ console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める'
    ============================================================ */
 console.log('\n【UC16】電話で受けた予約を台帳に入れる');
 {
-  const day = key(new Date(Date.now() + 11 * 864e5));
+  /* ここまでの試験で埋まった日を避けます。
+     先に予約が入っている日で試すと、確かめたいこと
+     （電話予約でその枠が埋まる）が見えなくなります。 */
+  const used = new Set(((await post({ type: 'availability' })).booked || []).map(b => b.date));
+  let day = '';
+  for (let i = 11; i < 40 && !day; i++) {
+    const d = key(new Date(Date.now() + i * 864e5));
+    if (!used.has(d)) day = d;
+  }
+  check('UC16', '予約の無い日が見つかる', !!day, true);
 
   const a = await newPhone('UC16-店');
   a.on('dialog', d => d.accept());

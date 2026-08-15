@@ -691,10 +691,15 @@ async function lookupReservation(code, tel) {
 }
 
 /** キャンセルを受信先へ通知する（予約台帳の状態を更新するため） */
+/* 電話番号も必ず添えます。
+   受け口は公開されているので、これが無いと
+   「予約番号を知っているだけの人」がキャンセルできてしまいます。 */
 function sendCancellation(reservation) {
   return sendToEndpoint({
     type: 'cancel',
     code: reservation.code,
+    tel: (reservation.customer && reservation.customer.tel)
+      || reservation.lookupTel || '',
     date: reservation.date,
     time: reservation.time,
     name: reservation.customer ? reservation.customer.name : ''

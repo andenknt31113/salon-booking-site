@@ -16,8 +16,8 @@ const src = readFileSync(join(R, 'gas', 'Code.gs'), 'utf8');
 const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
               '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','ご要望','状態','カレンダーID'];
 
-function makeSheet() {
-  const data = [];
+function makeSheet(rows = []) {
+  const data = rows.map(r => HEAD.map(h => (r[h] !== undefined ? r[h] : '')));
   const sheet = {
     getLastRow: () => data.length + 1,
     appendRow: r => data.push(r),
@@ -39,7 +39,7 @@ function makeSheet() {
   return sheet;
 }
 
-function run(sheet, payload) {
+function run(fnName, sheet, payload) {
   const mails = [];
   const ctx = {
     console: { log() {}, warn() {}, error() {} },
@@ -67,7 +67,7 @@ function run(sheet, payload) {
     }
   };
   vm.createContext(ctx);
-  vm.runInContext(src + ';globalThis.__r = doReserve_;', ctx);
+  vm.runInContext(src + `;globalThis.__r = ${fnName};`, ctx);
   return { out: ctx.__r(sheet, payload), mails };
 }
 
@@ -99,7 +99,7 @@ const col = n => HEAD.indexOf(n);
 
 function tryOne(label, payload, judge) {
   const sheet = makeSheet();
-  const { out, mails } = run(sheet, payload);
+  const { out, mails } = run('doReserve_', sheet, payload);
   judge(out, sheet._data[0], mails, label);
 }
 
@@ -166,6 +166,87 @@ tryOne('数式に見えるご要望 =HYPERLINK(..)', base({ customer: { name: '�
     const v = String(row && row[col('ご要望')]);
     v.startsWith('=') ? note(l, `台帳に「${v.slice(0,24)}…」がそのまま入る`) : ok(l + 'は無害化される');
   });
+
+const row = (over={}) => ({
+  予約番号:'LM-AAAAA', 来店日: day(20), 開始:'10:00', 終了:'11:00', '所要(分)':60,
+  メニュー:'カット', 担当:'MATTEO', 担当ID:'st01', 合計金額:6900,
+  お名前:'照会 太郎', 電話番号:"'09011112222", メール:'a@b.co', 状態:'予約確定', ...over });
+
+console.log('\n【照会】');
+{
+  let r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222' });
+  r.out.ok ? ok('正しい電話番号で照会できる') : note('照会', '正しくても照会できない: ' + JSON.stringify(r.out));
+
+  r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09099999999' });
+  r.out.ok ? note('照会', '電話番号が違っても見える') : ok('電話番号が違えば見えない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA' });
+  r.out.ok ? note('照会', '電話番号なしで見える') : ok('電話番号なしでは見えない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'090-1111-2222' });
+  r.out.ok ? ok('ハイフン付きでも照会できる') : note('照会', 'ハイフン付きだと照会できない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'lm-aaaaa', tel:'09011112222' });
+  console.log(`  小文字の予約番号 → ${r.out.ok ? '照会できる' : '照会できない'}`);
+
+  const res = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222' }).out;
+  const keys = res.reservation ? Object.keys(res.reservation) : [];
+  console.log('  返ってくる項目:', keys.join(',') || '（なし）');
+}
+
+console.log('\n【キャンセル】');
+{
+  let r = run('doCancel_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09099999999' });
+  r.out.ok ? note('キャンセル', '他人の電話番号でもキャンセルできる') : ok('電話番号が違えばキャンセルできない');
+
+  r = run('doCancel_', makeSheet([row()]), { code:'LM-AAAAA' });
+  r.out.ok ? note('キャンセル', '電話番号なしでキャンセルできる') : ok('電話番号なしではキャンセルできない');
+
+  const sheet = makeSheet([row()]);
+  r = run('doCancel_', sheet, { code:'LM-AAAAA', tel:'09011112222' });
+  r.out.ok ? ok('本人ならキャンセルできる') : note('キャンセル', '本人でもできない: ' + JSON.stringify(r.out));
+}
+
+console.log('\n【日時変更】');
+{
+  let r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09099999999', date: day(21), time:'10:00', minutes:60 });
+  r.out.ok ? note('日時変更', '他人の電話番号でも変更できる') : ok('電話番号が違えば変更できない');
+
+  r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222', date: day(-5), time:'10:00', minutes:60 });
+  r.out.ok ? note('日時変更', '過去の日付に変更できる') : ok('過去の日付には変更できない');
+
+  r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222', date: day(300), time:'10:00', minutes:60 });
+  r.out.ok ? note('日時変更', '受付範囲外に変更できる') : ok('受付範囲外には変更できない');
+
+  r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222', date: day(21), time:'03:00', minutes:60 });
+  r.out.ok ? note('日時変更', '営業時間外に変更できる') : ok('営業時間外には変更できない');
+
+  r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222', date: day(21), time:'10:00', minutes:60 });
+  r.out.ok ? ok('本人なら変更できる') : note('日時変更', '本人でもできない: ' + JSON.stringify(r.out));
+}
+
+console.log('\n【口コミ】');
+{
+  const past = row({ 来店日: day(-3), 予約番号:'LM-RV001' });
+  let r = run('doReview_', makeSheet([past]), { code:'LM-RV001', tel:'09099999999', body:'よかった', score:5 });
+  r.out.ok ? note('口コミ', '他人の電話番号でも投稿できる') : ok('電話番号が違えば投稿できない');
+
+  r = run('doReview_', makeSheet([past]), { code:'LM-RV001', tel:'09011112222', body:'', score:5 });
+  r.out.ok ? note('口コミ', '本文が空でも投稿できる') : ok('本文が空だと投稿できない');
+
+  r = run('doReview_', makeSheet([past]), { code:'LM-RV001', tel:'09011112222', body:'よかった', score:999 });
+  console.log(`  評価999 → ${r.out.ok ? '受け付ける（値を確認）' : '断られる'}`);
+
+  const future = row({ 来店日: day(20), 予約番号:'LM-RV002' });
+  r = run('doReview_', makeSheet([future]), { code:'LM-RV002', tel:'09011112222', body:'まだ来てない', score:5 });
+  r.out.ok ? note('口コミ', '**来店前でも投稿できる**') : ok('来店前は投稿できない');
+
+  const many = makeSheet([past]);
+  run('doReview_', many, { code:'LM-RV001', tel:'09011112222', body:'1回目', score:5 });
+  r = run('doReview_', many, { code:'LM-RV001', tel:'09011112222', body:'2回目', score:1 });
+  r.out.ok ? note('口コミ', '同じ予約から何度でも投稿できる') : ok('同じ予約からは1回だけ');
+}
+
 
 console.log('\n' + '='.repeat(52));
 if (found.length) {

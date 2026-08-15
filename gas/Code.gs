@@ -42,6 +42,19 @@ function requireAdmin_(d) {
   throw new Error('パスワードが違います。');
 }
 
+/** 管理者として通っているか（例外は投げない）。
+    店が電話で受けたキャンセルを台帳に反映するときに使います。
+    お客様は電話番号で本人確認しますが、店にお客様の番号を
+    打たせるのは筋が違うので、こちらは認証で通します。 */
+function isAdmin_(d) {
+  try {
+    const pw = adminPassword_();
+    if (!pw) return false;
+    if (String(d.password || '') === pw) return true;
+    return !!(d.token && validToken_(String(d.token)));
+  } catch (e) { return false; }
+}
+
 /* ---- 端末トークン ----
    「この端末を記憶する」を選ぶと、パスワードの代わりに使える文字列を発行します。
    パスワード本体を端末に残さずに済み、店側が使うたびに入力しなくてよくなります。
@@ -943,6 +956,28 @@ function doChange_(sheet, d) {
   // 画面側でも確認していますが、送信までのあいだに埋まることがあります。
   const staffId = String(before[col('担当ID')] || '');
   const minutes = Number(d.minutes) || 30;
+  /* 変更先も、新規予約と同じ条件で確かめます。
+     ここを見ていないと「予約は今日以降しか取れないのに、
+     変更なら過去や営業時間外に動かせる」という抜け道になります。 */
+  const dayNo = k => {
+    const q = String(k).split('-').map(Number);
+    return Date.UTC(q[0], q[1] - 1, q[2]) / 86400000;
+  };
+  const ahead = dayNo(newDate) - dayNo(todayKey_());
+  if (ahead < 0) return { ok: false, error: 'すでに過ぎた日付には変更できません。' };
+  if (ahead > BOOKABLE_DAYS) {
+    return { ok: false, error: `ご予約は${BOOKABLE_DAYS}日先まで承っております。` };
+  }
+  const startMin = timeToMin_(newTime);
+  if (startMin == null) return { ok: false, error: '開始時刻が正しくありません。' };
+  if (minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
+    return { ok: false, error: '所要時間が正しくありません。' };
+  }
+  const hrs = openHours_(sheet);
+  if (startMin < hrs.open || startMin + minutes > hrs.close) {
+    return { ok: false, error: '営業時間外のご予約は承れません。' };
+  }
+
   if (hitsClosed_(sheet, newDate, newTime, minutes)) {
     return { ok: false, error: 'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' };
   }
@@ -1060,9 +1095,17 @@ function doCancel_(sheet, d) {
   const before = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
   const col = n => HEADERS.indexOf(n);
 
-  // 照会経由のキャンセルは電話番号の一致を確認する
-  if (d.tel && digits_(before[col('電話番号')]) !== digits_(d.tel)) {
-    return { ok: false, error: 'ご予約が確認できませんでした。' };
+  /* お客様からのキャンセルは、電話番号の一致を必ず確認します。
+     以前は「送られてきたときだけ」見ていたため、
+     予約番号を知っているだけの人がキャンセルできる状態でした。
+     受け口は公開されているので、省略できる確認にしてはいけません。
+
+     店（管理ページ）からのキャンセルは、パスワードで通します。
+     電話で受けたキャンセルを反映するのに、
+     お客様の番号を打ち直させる必要はありません。 */
+  if (!isAdmin_(d)
+      && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
+    return { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
   }
   if (String(before[col('状態')] || '') === 'キャンセル') {
     // すでにキャンセル済み。二重に通知やメールを送らない。

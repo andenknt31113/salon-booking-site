@@ -804,7 +804,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!confirm(`予約番号 ${code} をキャンセル扱いにします。よろしいですか？`)) return;
       cx.disabled = true;
       const r = (adminData.reservations || []).find(x => x.code === code) || {};
-      const res = await sendToEndpoint({ type: 'cancel', code, date: r.date, time: r.time, name: r.name });
+      /* 店としてのキャンセルなので、パスワード（または記憶した合鍵）を添えます。
+         お客様の電話番号を打ち直さずに反映できます。 */
+      const res = await adminPost({ type: 'cancel', code, date: r.date, time: r.time, name: r.name });
       if (!res.ok) {
         cx.disabled = false;
         alert('キャンセルできませんでした。' + (res.error ? '\n' + res.error : ''));

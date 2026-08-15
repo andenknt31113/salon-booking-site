@@ -321,8 +321,11 @@ http.createServer((req, res) => {
       if (d.type === 'cancel') {
         const t = LEDGER.find(r => r.code === d.code);
         if (!t) return reply(res, { ok: false, error: 'not found' });
-        if (d.tel && digits(t.customer?.tel) !== digits(d.tel)) {
-          return reply(res, { ok: false, error: 'ご予約が確認できませんでした。' });
+        /* 電話番号は必ず確認する（本物と同じ。省略できると他人がキャンセルできる）。
+           ただし店（管理ページ）からは、パスワードで通す。 */
+        const asAdmin = d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        if (!asAdmin && (!digits(d.tel) || digits(t.customer?.tel) !== digits(d.tel))) {
+          return reply(res, { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' });
         }
         if (t.cancelled) return reply(res, { ok:true, alreadyCancelled:true });
         if (!withinDeadline(t.date)) return reply(res, { ok:false, deadline:true, error:deadlineMsg() });
