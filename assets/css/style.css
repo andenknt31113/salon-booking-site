@@ -317,7 +317,10 @@ table { border-collapse: collapse; width: 100%; }
 .page-head { background: var(--panel-2); border-bottom: 1px solid var(--line); padding: 38px 0; }
 .page-head h1 { font-size: clamp(20px, 3.2vw, 27px); letter-spacing: .12em; }
 .page-head p { margin-top: 10px; color: var(--text-2); font-size: 13.5px; }
-.breadcrumb { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11.5px; color: var(--muted); margin-bottom: 14px; }
+.breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-bottom: 14px; }
+/* 指で押せる高さを確保する。文字を大きくすると行間が空きすぎるので、
+   見た目の間隔は負のマージンで戻す。 */
+.breadcrumb a { display: inline-block; padding: 9px 2px; margin: -9px 0; }
 .breadcrumb a:hover { color: var(--accent); }
 
 /* ============================================================
@@ -654,7 +657,10 @@ table { border-collapse: collapse; width: 100%; }
   color: #D8B98A; font-family: var(--font-en); font-size: 10px;
   letter-spacing: .28em; margin-bottom: 15px; text-transform: uppercase;
 }
-.footer-grid li { margin-bottom: 9px; }
+/* フッターのリンクは指1本で押し分けられる高さにする。
+   文字の高さ（15px前後）のままだと、隣の項目を押してしまう。 */
+.footer-grid li { margin-bottom: 0; }
+.footer-grid li a { display: block; padding: 10px 0; }
 .footer-grid a:hover { color: #F1ECE0; }
 .footer-brand { margin-bottom: 16px; }
 .site-footer .wm-name { color: var(--on-ink); }
