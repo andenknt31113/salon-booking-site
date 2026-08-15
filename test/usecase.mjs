@@ -691,6 +691,95 @@ console.log('\n【UC19】日本語入力のまま、全角で打ってしまう�
 }
 
 /* ============================================================
+   UC20 3時間かかるメニューを、閉店間際に選ばれないか
+   ============================================================ */
+console.log('\n【UC20】長いメニューと、閉店の時刻');
+{
+  /* 縮毛矯正は3時間かかります。20:00から始めると23:00になり、
+     受け口は断ります。断られるのは正しいのですが、お客様は
+     お名前も電話番号も入れたあとです。選べないようにしておきます。 */
+  const p = await newPhone('UC20');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+
+  const menus = await p.$$eval('#coupon-choices .selectable', els => els.map((e, i) => {
+    const meta = (e.querySelector('.selectable-meta') || {}).innerText || '';
+    const m = meta.replace(/\s+/g, '').match(/約(?:(\d+)時間)?(?:(\d+)分)?/);
+    return { i, minutes: m ? Number(m[1] || 0) * 60 + Number(m[2] || 0) : 0 };
+  }));
+  const longest = menus.reduce((a, b) => (b.minutes > a.minutes ? b : a), menus[0]);
+  check('UC20', '3時間のメニューがある', longest.minutes >= 180, true);
+
+  await p.locator('#coupon-choices .selectable').nth(longest.i).click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+
+  const duration = await p.evaluate(() => totalMinutes());
+  const slots = await p.$$eval('button[data-date][data-time]', els => els.map(e => ({
+    date: e.dataset.date, time: e.dataset.time, disabled: e.disabled })));
+  const byDate = {};
+  slots.forEach(s => { (byDate[s.date] = byDate[s.date] || []).push(s); });
+  const day1 = Object.keys(byDate).find(d => byDate[d].some(s => !s.disabled));
+  const open = byDate[day1].filter(s => !s.disabled);
+  const last = open[open.length - 1];
+  const endsAt = (() => { const [h, m] = last.time.split(':').map(Number); return h * 60 + m + duration; })();
+
+  const closeMin = await p.evaluate(() => toMinutes(SALON.business.closeTime));
+  check('UC20', '最後の枠でも閉店までに終わる', endsAt <= closeMin, true);
+  check('UC20', '閉店を過ぎる枠は選べない',
+    open.some(s => { const [h, m] = s.time.split(':').map(Number); return h * 60 + m + duration > closeMin; }), false);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC21 受け口が壊れている（公開設定を間違えて入れ直した）
+   ============================================================ */
+console.log('\n【UC21】Apps Script を入れ直して、公開設定を間違えたら');
+{
+  /* 「アクセスできるユーザー」を全員以外にして入れ直すと、
+     受け口はJSONではなくGoogleのログイン画面（HTML）を返します。
+     このとき、お客様に「予約できました」と出してはいけません。
+     来店されても、店の台帳には何もありません。 */
+  await post({ type: 'htmlmode', on: true });
+  const p = await newPhone('UC21');
+  let told = '';
+  p.on('dialog', d => { told = d.message(); d.dismiss(); });
+
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+  const slot = p.locator('button[data-date][data-time]:not([disabled])').nth(20);
+  await slot.click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
+  const saved21 = p.locator('#saved-profile');
+  if (await saved21.isVisible()) { await p.click('#profile-edit'); await p.waitForTimeout(200); }
+  await p.fill('#f-name', '届かない 太郎'); await p.fill('#f-kana', 'トドカナイ タロウ');
+  await p.fill('#f-tel', '09011119999'); await p.fill('#f-email', 'x@example.com');
+  await p.locator('label.radio-chip:has-text("初めて")').first().click();
+  await p.locator('.checkbox-line > span').click();
+  await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(600);
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(5000);
+
+  const seen = await p.evaluate(() => ({
+    head: (document.querySelector('#h-done') || {}).textContent || '',
+    warned: !(document.querySelector('#done-warning') || {}).hidden,
+    warn: (document.querySelector('#done-warning') || {}).innerText || '',
+    code: (document.querySelector('#done-code') || {}).textContent || '',
+    stored: JSON.parse(localStorage.getItem('salon.reservations.v1') || '[]')
+  }));
+  check('UC21', '見出しが「完了しました」になっていない', /完了しました/.test(seen.head), false);
+  check('UC21', '届いていないと見出しで伝えている', /届いて/.test(seen.head), true);
+  check('UC21', '店舗へ連絡するようご案内している', /お電話|ご連絡/.test(seen.warn), true);
+  check('UC21', '予約番号は出している（電話で伝えられるように）', /^LM-/.test(seen.code.trim()), true);
+  check('UC21', 'この端末には届かなかったことを記録している',
+    seen.stored.length === 1 && seen.stored[0].delivered === false, true);
+  console.log('   見出し:', seen.head);
+
+  await post({ type: 'htmlmode', on: false });
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

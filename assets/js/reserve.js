@@ -651,6 +651,18 @@ function deliveryFailureMessage(sent, what) {
 function showDeliveryWarning(sent) {
   const box = $('#done-warning');
   if (!box) return;
+
+  /* 見出しも直します。
+     警告の上に「✓ ご予約が完了しました」と大きく出ていると、
+     急いでいる方はそれだけ見て画面を閉じます。届いていないのですから、
+     いちばん大きい文字が「完了」であってはいけません。 */
+  const head = $('#h-done');
+  if (head) head.textContent = 'ご予約が店舗に届いていません';
+  const icon = document.querySelector('#panel-6 .done-icon, [data-panel="6"] .done-icon');
+  if (icon) { icon.textContent = '！'; icon.classList.add('is-warn'); }
+  const desc = head && head.nextElementSibling;
+  if (desc) desc.textContent = 'お手数ですが、下記のご予約番号をお伝えのうえ、店舗までご連絡ください。';
+
   box.hidden = false;
   box.innerHTML = `
     <b>ご確認ください</b>

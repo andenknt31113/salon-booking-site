@@ -651,6 +651,9 @@ table { border-collapse: collapse; width: 100%; }
   width: 64px; height: 64px; margin: 0 auto 24px; border: 1px solid var(--accent);
   color: var(--accent); display: grid; place-items: center; font-size: 30px;
 }
+/* 店舗に届かなかったときの印。完了と同じ見た目のままでは、
+   急いでいる方が「済んだ」と読んで画面を閉じてしまいます。 */
+.done-icon.is-warn { border-color: var(--danger); color: var(--danger); }
 .done-code {
   display: inline-block; margin-top: 20px; padding: 12px 28px;
   border: 1px solid var(--accent); background: var(--accent-soft);

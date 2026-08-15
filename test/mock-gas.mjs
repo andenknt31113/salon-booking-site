@@ -56,6 +56,7 @@ const reply = (res, obj) => {
 const ADMIN_PW = 'test1234';
 const TOKENS = new Set();
 const FAIL = { on: false };
+const HTML = { on: false };
 /* 本物と同じ受付期限（前日18時） */
 const DEADLINE_DAYS = 1, DEADLINE_HOUR = 18;
 function withinDeadline(dateKey) {
@@ -163,12 +164,24 @@ http.createServer((req, res) => {
          試験のはじめにここを呼んで、まっさらから始めます。 */
       if (d.type === 'reset') {
         LEDGER.length = 0; SHEET_REVIEW.length = 0; UPLOADS.length = 0;
-        TOKENS.clear(); SLOW.ms = 0; FAIL.on = false;
+        TOKENS.clear(); SLOW.ms = 0; FAIL.on = false; HTML.on = false;
         return reply(res, { ok: true });
       }
 
       // テスト用：受信側が失敗を返す状態を作る
       if (d.type === 'failmode') { FAIL.on = !!d.on; return reply(res, { ok:true, fail: FAIL.on }); }
+
+      /* テスト用：Apps Script がJSONではなくHTMLを返す状態を作る。
+
+         公開の設定を「全員」以外にして入れ直すと、実際にこれが起きます。
+         受け取る側にはログイン画面のHTMLが返り、JSONとして読めません。
+         お客様には「送れませんでした」と分かる必要があります。 */
+      if (d.type === 'htmlmode') { HTML.on = !!d.on; return reply(res, { ok:true, html: HTML.on }); }
+      if (HTML.on && d.type !== 'reset') {
+        res.writeHead(200, { 'Content-Type':'text/html; charset=utf-8', 'Access-Control-Allow-Origin':'*' });
+        res.end('<!doctype html><html><body>Googleアカウントでログインしてください</body></html>');
+        return;
+      }
       if (FAIL.on && (d.type === 'reserve' || !d.type || d.type === 'change' || d.type === 'cancel')) {
         return reply(res, { ok:false, error:'台帳が混み合っています。しばらくしてお試しください。' });
       }
