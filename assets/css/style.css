@@ -50,6 +50,10 @@ body {
   letter-spacing: .02em;
 }
 img { max-width: 100%; display: block; }
+/* hidden 属性は必ず効かせる。
+   ブラウザ既定の [hidden]{display:none} は作者スタイル（.notice{display:flex} など）に
+   負けるため、hidden を付けたのに空の枠だけ残る事故が起きる。 */
+[hidden] { display: none !important; }
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: none; }
@@ -618,6 +622,8 @@ table { border-collapse: collapse; width: 100%; }
   color: var(--text-2); margin-bottom: 22px;
 }
 .notice.is-info { border-left-color: var(--ok); }
+/* 送信できなかったときなど、読み飛ばされては困る案内 */
+.notice.is-warn { border-left-color: var(--danger); background: rgba(163, 53, 42, .06); }
 .notice b { flex: none; color: var(--text); }
 
 /* ============================================================

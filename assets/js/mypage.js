@@ -212,7 +212,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!confirm('このご予約をキャンセルします。よろしいですか？')) return;
     btn.disabled = true;
     const code = btn.dataset.lookupCancel;
-    await sendToEndpoint({ type: 'cancel', code, tel: $('#lookup-tel').value.trim() });
+    const res = await sendToEndpoint({ type: 'cancel', code, tel: $('#lookup-tel').value.trim() });
+    if (!res.ok && !res.noEndpoint) {
+      btn.disabled = false;
+      alert('キャンセルを店舗に送信できませんでした。'
+        + (res.error ? `\n（${res.error}）` : '')
+        + '\n\nお手数ですが、もう一度お試しいただくか、店舗までご連絡ください。');
+      return;
+    }
     Store.cancel(code); // この端末にも記録があれば同期する
     await doLookup();
     render();

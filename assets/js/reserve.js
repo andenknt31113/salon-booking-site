@@ -477,6 +477,32 @@ function downloadIcs(r) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/* 店舗に届かなかったときの文言。
+   「予約できました」とだけ出すと、お客様は来店するのに席が用意されない。 */
+function deliveryFailureMessage(sent, what) {
+  return [
+    `申し訳ありません。ご${what}の内容を店舗に送信できませんでした。`,
+    sent.error ? `（${sent.error}）` : '',
+    '',
+    'お手数ですが、少し時間をおいてもう一度お試しいただくか、',
+    SALON.tel ? `お電話（${SALON.tel}）でご連絡ください。` : '店舗までご連絡ください。'
+  ].filter(Boolean).join('\n');
+}
+
+function showDeliveryWarning(sent) {
+  const box = $('#done-warning');
+  if (!box) return;
+  box.hidden = false;
+  box.innerHTML = `
+    <b>ご確認ください</b>
+    <span>
+      この端末にはご予約を保存しましたが、<strong>店舗への送信に失敗しました</strong>。
+      ${sent.error ? `（${esc(sent.error)}）` : ''}
+      お手数ですが、下記のご予約番号をお控えのうえ${SALON.tel ? `お電話（${esc(SALON.tel)}）で` : '店舗まで'}
+      ご連絡ください。席が確保できていない可能性がございます。
+    </span>`;
+}
+
 async function submitReservation() {
   const btn = $('#submit-reservation');
   btn.disabled = true;
@@ -501,7 +527,7 @@ async function submitReservation() {
     // 予約番号はそのまま。日時だけ差し替える。
     reservation = { ...changing, date: state.date, time: state.time,
       endTime: toHHMM(toMinutes(state.time) + totalMinutes()) };
-    reservation.delivered = await sendToEndpoint({
+    const sent = await sendToEndpoint({
       type: 'change',
       code: changing.code,
       date: state.date,
@@ -511,12 +537,25 @@ async function submitReservation() {
       // 別端末から照会して変更する場合の本人確認
       tel: changing.lookupTel || (changing.customer && changing.customer.tel) || ''
     });
+    /* 店舗に届かなかったときは、日時を書き換えずに知らせる。
+       画面だけ変えると、お客様は変更できたつもりで元の時間に来てしまう。 */
+    if (!sent.ok && !sent.noEndpoint) {
+      btn.disabled = false;
+      btn.textContent = 'この日時に変更する';
+      alert(deliveryFailureMessage(sent, '変更'));
+      return;
+    }
+    reservation.delivered = sent.ok;
     Store.reschedule(changing.code, reservation);
   } else {
     reservation = buildReservation();
     // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
-    reservation.delivered = await sendToEndpoint({ type: 'reserve', ...reservation });
+    const sent = await sendToEndpoint({ type: 'reserve', ...reservation });
+    reservation.delivered = sent.ok;
+    reservation.deliveryError = sent.ok ? '' : (sent.error || '');
     Store.add(reservation);
+    // 受信先を設定しているのに届かなかった場合は、完了画面で正直に伝える
+    if (!sent.ok && !sent.noEndpoint) showDeliveryWarning(sent);
   }
 
   if (changing) {

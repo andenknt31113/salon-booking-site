@@ -538,7 +538,12 @@ document.addEventListener('DOMContentLoaded', () => {
       cx.disabled = true;
       const r = (adminData.reservations || []).find(x => x.code === code) || {};
       const res = await sendToEndpoint({ type: 'cancel', code, date: r.date, time: r.time, name: r.name });
-      if (res) await openDashboard();
+      if (!res.ok) {
+        cx.disabled = false;
+        alert('キャンセルできませんでした。' + (res.error ? '\n' + res.error : ''));
+        return;
+      }
+      await openDashboard();
     }
   });
 

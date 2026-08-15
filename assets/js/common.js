@@ -310,18 +310,38 @@ const Availability = {
    Google Apps Script はこれに応答できず、送信が必ず失敗します。
    text/plain なら事前確認なしで届き、GAS 側は e.postData.contents で
    そのまま JSON として読めます。 */
-async function sendToEndpoint(payload) {
-  if (!SALON.reservationEndpoint) return false;
+/* 受信先（Google Apps Script）へ送る。
+
+   返り値は必ず { ok, ... } の形にする。
+   以前は fetch が例外を投げなければ true を返していたが、それだと
+   Apps Script が { ok:false, error:... } を返したとき（シートの取り合いで
+   待ちきれなかった等）に、届いていないのに成功として扱ってしまう。
+
+   通信そのものに失敗した場合は1度だけ入れ直す。
+   Apps Script は久しぶりの呼び出しで立ち上がりに時間がかかることがあり、
+   電波の悪い場所での1回きりの失敗も拾えるため。 */
+async function sendToEndpoint(payload, attempt = 0) {
+  if (!SALON.reservationEndpoint) return { ok: false, noEndpoint: true };
+
   try {
-    await fetch(SALON.reservationEndpoint, {
+    const res = await fetch(SALON.reservationEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
-    return true;
+    const data = await res.json();
+    // 形が違う応答（HTMLのエラーページ等）は失敗として扱う
+    if (!data || typeof data.ok !== 'boolean') {
+      return { ok: false, error: '受信先から予期しない応答が返りました。' };
+    }
+    return data;
   } catch (e) {
+    if (attempt < 1) {
+      await new Promise(r => setTimeout(r, 1500));
+      return sendToEndpoint(payload, attempt + 1);
+    }
     console.warn('受信先への送信に失敗しました。この端末には保存されています。', e);
-    return false;
+    return { ok: false, error: '通信に失敗しました。' };
   }
 }
 
