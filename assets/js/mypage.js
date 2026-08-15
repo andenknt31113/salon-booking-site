@@ -69,7 +69,7 @@ function bookingCard(r) {
     ? changeBtn(r.code)
       + `<button class="btn btn-ghost btn-sm" type="button" data-cancel="${esc(r.code)}">この予約をキャンセルする</button>`
     : (!cancelled && !past)
-      ? `<p style="font-size:12px;color:var(--ink-3);">※ネットでの変更・キャンセルは${deadlineLabel()}までです。お手数ですが店舗までご連絡ください。</p>`
+      ? `<p style="font-size:12px;color:var(--ink-3);">※ネットでの変更・キャンセルは${deadlineLabel()}までです。お手数ですが${contactWay({ html: true })}</p>`
       : reviewLink;
 
   return `
@@ -143,7 +143,7 @@ function renderLookupResult(r) {
              <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>
            </div>`
         : (!cancelled && !past)
-          ? `<p style="font-size:12px;color:var(--muted);margin-top:12px;">※ネットでの変更・キャンセルは${deadlineLabel()}までです。店舗までご連絡ください。</p>`
+          ? `<p style="font-size:12px;color:var(--muted);margin-top:12px;">※ネットでの変更・キャンセルは${deadlineLabel()}までです。${contactWay({ html: true })}</p>`
           : ''}
     </article>`;
 }
@@ -179,22 +179,14 @@ async function doLookup() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const tel = $('#tel-link');
-  if (SALON.tel) {
-    tel.textContent = SALON.tel;
-    tel.href = 'tel:' + SALON.tel.replace(/-/g, '');
-  } else {
-    // 電話番号が未設定のあいだはリンクにしない
-    tel.replaceWith(document.createTextNode('店舗'));
-  }
-
   render();
 
-  // 受付期限の案内を、設定に合わせた文言にする
+  /* 受付期限の案内。期限も連絡先も設定で変わるので、まるごとここで組み立てます。
+     電話番号が空のときに「までお電話ください」だけが残る、という出方をさせません。 */
   const note = $('#deadline-note');
   if (note) {
-    note.insertAdjacentHTML('afterbegin',
-      `ネットでの変更・キャンセルは<b>${deadlineLabel()}まで</b>です。それ以降は`);
+    note.innerHTML = `ネットでの変更・キャンセルは<b>${deadlineLabel()}まで</b>です。`
+      + `それ以降は、お手数ですが${contactWay({ html: true })}`;
   }
 
   $('#search-btn').addEventListener('click', () => {

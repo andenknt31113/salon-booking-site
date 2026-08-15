@@ -119,6 +119,7 @@ async function openDashboard() {
   $('#dashboard').hidden = false;
   renderStats();
   renderReservations();
+  renderCustomers();
   renderClosed();
   renderRows('menus', MENU_COLS, '#menu-rows');
   renderRows('coupons', COUPON_COLS, '#coupon-rows');
@@ -214,6 +215,88 @@ function reservationCard(r) {
         <button class="btn btn-ghost btn-sm" type="button" data-admin-cancel="${esc(r.code)}">キャンセルにする</button>
       </div>`}
     </article>`;
+}
+
+/* ---------- お客様 ----------
+   顧客名簿を別に作ってはいません。**予約台帳をまとめ直しているだけ**です。
+   同じ人かどうかは電話番号で見ます。お名前は表記ゆれがあり、
+   メールは端末を変えると変わることがあるためです。
+   新しい情報を集めていないので、消すときも予約台帳の行を消すだけで済みます。 */
+function telKey(tel) {
+  return String(tel || '').replace(/[^0-9]/g, '');
+}
+
+function buildCustomers() {
+  const map = new Map();
+  (adminData.reservations || []).forEach(r => {
+    const key = telKey(r.tel);
+    if (!key) return;                       // 電話番号が無い行はまとめようがない
+    if (!map.has(key)) {
+      map.set(key, { tel: r.tel, name: r.name, email: r.email, visits: [] });
+    }
+    const c = map.get(key);
+    c.visits.push(r);
+    // お名前とメールは、いちばん新しい予約のものを採ります
+    if (!c.last || r.date > c.last) { c.last = r.date; c.name = r.name; c.email = r.email; }
+  });
+  return [...map.values()].map(c => {
+    c.visits.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+    c.done = c.visits.filter(v => v.status !== 'キャンセル');
+    c.spent = c.done.reduce((s, v) => s + (Number(v.price) || 0), 0);
+    return c;
+  });
+}
+
+function renderCustomers() {
+  const q = ($('#customer-search') || {}).value || '';
+  const sort = ($('#customer-sort') || {}).value || 'recent';
+  const needle = q.trim().toLowerCase();
+  const digits = telKey(q);
+
+  let list = buildCustomers().filter(c => !needle
+    || String(c.name || '').toLowerCase().includes(needle)
+    || (digits && telKey(c.tel).includes(digits)));
+
+  list.sort((a, b) => sort === 'visits' ? b.done.length - a.done.length
+    : sort === 'name' ? String(a.name).localeCompare(String(b.name), 'ja')
+      : String(b.last).localeCompare(String(a.last)));
+
+  if (!list.length) {
+    $('#customer-rows').innerHTML = (adminData.reservations || []).length
+      ? '<p class="empty-state">該当するお客様はいません。</p>'
+      : '<p class="empty-state">ご予約が入ると、ここにお客様が並びます。</p>';
+    return;
+  }
+
+  $('#customer-rows').innerHTML = list.map(c => {
+    const latest = c.done[0] || c.visits[0];
+    /* 来店回数は「キャンセルを除いた予約の数」です。
+       実際に来られたかどうかまでは分からないので、そう書いておきます。 */
+    return `
+      <article class="booking-card">
+        <div class="booking-head">
+          <span class="customer-name">${esc(c.name || '（お名前なし）')}</span>
+          <span class="status-chip">${c.done.length}回</span>
+        </div>
+        <p class="booking-detail">
+          <a href="tel:${esc(telKey(c.tel))}" style="text-decoration:underline">${esc(c.tel)}</a>
+          ${c.email ? `／ ${esc(c.email)}` : ''}
+        </p>
+        <p class="booking-detail">ご予約の合計 ${yen(c.spent)}</p>
+        ${latest ? `<p class="booking-detail">前回：${formatDateJa(latest.date)}／${esc(latest.menu)}</p>` : ''}
+        <details class="customer-history">
+          <summary>ご来店の履歴（${c.visits.length}件）</summary>
+          <ul>
+            ${c.visits.map(v => `
+              <li${v.status === 'キャンセル' ? ' class="is-cancelled"' : ''}>
+                <span class="hist-date">${formatDateJa(v.date)} ${esc(v.time)}</span>
+                <span class="hist-menu">${esc(v.menu)}${v.status === 'キャンセル' ? '（キャンセル）' : ''}</span>
+                ${v.request ? `<span class="hist-request">ご要望：${esc(v.request)}</span>` : ''}
+              </li>`).join('')}
+          </ul>
+        </details>
+      </article>`;
+  }).join('');
 }
 
 /* ---------- 写真 ----------
@@ -619,6 +702,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#filter-date').addEventListener('change', renderReservations);
   $('#filter-status').addEventListener('change', renderReservations);
+  $('#customer-search').addEventListener('input', renderCustomers);
+  $('#customer-sort').addEventListener('change', renderCustomers);
   $('#filter-reset').addEventListener('click', () => {
     $('#filter-date').value = '';
     $('#filter-status').value = 'all';

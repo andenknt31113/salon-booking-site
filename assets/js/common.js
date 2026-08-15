@@ -579,6 +579,29 @@ function applySettings(st) {
   }
 }
 
+/* 「店舗までご連絡ください」と書くときの連絡先。
+   電話番号もLINEも設定していないと、お客様は連絡のしようがありません。
+   行き止まりの案内を出さないよう、あるものから順に選びます。
+   html を true にすると、押せるリンクにして返します。 */
+function contactWay({ html = false } = {}) {
+  if (SALON.tel) {
+    const num = SALON.tel.replace(/-/g, '');
+    return html
+      ? `お電話（<a href="tel:${esc(num)}" style="text-decoration:underline">${esc(SALON.tel)}</a>）でご連絡ください。`
+      : `お電話（${SALON.tel}）でご連絡ください。`;
+  }
+  if (SALON.lineAddUrl) {
+    return html
+      ? `<a href="${esc(SALON.lineAddUrl)}" target="_blank" rel="noopener" style="text-decoration:underline">当店のLINE</a>からご連絡ください。`
+      : '当店のLINEからご連絡ください。';
+  }
+  /* どちらも無い状態で公開してはいけません。
+     公開前チェックリストの必須項目です。ここは最後の逃げ道です。 */
+  console.warn('電話番号もLINEのURLも設定されていません。'
+    + 'お客様に「ご連絡ください」と案内しても、連絡先が分からない状態です。');
+  return '当店までご連絡ください。';
+}
+
 /** 口コミを送る。予約番号と電話番号が一致した予約にだけ書けます。 */
 async function sendReview(payload) {
   if (!SALON.reservationEndpoint) {

@@ -587,7 +587,7 @@ function deliveryFailureMessage(sent, what) {
     sent.error ? `（${sent.error}）` : '',
     '',
     'お手数ですが、少し時間をおいてもう一度お試しいただくか、',
-    SALON.tel ? `お電話（${SALON.tel}）でご連絡ください。` : '店舗までご連絡ください。'
+    contactWay()
   ].filter(Boolean).join('\n');
 }
 

@@ -37,7 +37,8 @@ const demo = `
   const PW = 'zer01';
 
   const D = ${JSON.stringify({
-    d0: day(0), d1: day(1), d2: day(2), d3: day(3), d5: day(5), d7: day(7), dm2: day(-2)
+    d0: day(0), d1: day(1), d2: day(2), d3: day(3), d5: day(5), d7: day(7),
+    dm2: day(-2), dm40: day(-40), dm80: day(-80), dm120: day(-120)
   })};
 
   let 予約 = [
@@ -77,7 +78,22 @@ const demo = `
     { code:'LM-A1B2C', date:D.dm2, time:'16:00', endTime:'17:10',
       menu:'メンズカット', staffName:'MATTEO', price:4000,
       name:'小林 拓也', tel:'09088887777', email:'kobayashi@example.com', visit:'2回目以降',
-      request:'', status:'キャンセル' }
+      request:'', status:'キャンセル' },
+
+    /* 佐藤さんは常連さん。「前どんなメニューだったっけ」を確かめられることを示すため、
+       過去のご来店も入れてあります */
+    { code:'LM-K9D4X', date:D.dm40, time:'10:30', endTime:'11:40',
+      menu:'【清潔感と品が続く】men\\'s骨格補正カット＋眉カット', staffName:'MATTEO', price:6900,
+      name:'佐藤 健太', tel:'09012345678', email:'sato@example.com', visit:'2回目以降',
+      request:'前回より少し短めでお願いします。', status:'予約確定' },
+    { code:'LM-R2G7N', date:D.dm80, time:'19:00', endTime:'21:00',
+      menu:'【彩で見せるワンランク上のお洒落を】カット＋カラー', staffName:'MATTEO', price:14500,
+      name:'佐藤 健太', tel:'09012345678', email:'sato@example.com', visit:'2回目以降',
+      request:'暗すぎない範囲でお願いします。', status:'予約確定' },
+    { code:'LM-W5C1M', date:D.dm120, time:'11:00', endTime:'12:10',
+      menu:'メンズカット', staffName:'MATTEO', price:4000,
+      name:'佐藤 健太', tel:'09012345678', email:'sato@example.com', visit:'初めて',
+      request:'', status:'予約確定' }
   ];
 
   let メニュー = [

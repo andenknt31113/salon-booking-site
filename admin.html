@@ -55,6 +55,7 @@
 
         <div class="tabs" id="admin-tabs">
           <button class="tab" type="button" data-pane="reserve" aria-selected="true">予約一覧</button>
+          <button class="tab" type="button" data-pane="customers" aria-selected="false">お客様</button>
           <button class="tab" type="button" data-pane="closed" aria-selected="false">休業日</button>
           <button class="tab" type="button" data-pane="menus" aria-selected="false">単品メニュー</button>
           <button class="tab" type="button" data-pane="coupons" aria-selected="false">おすすめメニュー</button>
@@ -78,6 +79,23 @@
             <button class="btn btn-outline btn-sm" type="button" id="export-csv">CSVダウンロード</button>
           </div>
           <div id="admin-rows"></div>
+        </div>
+
+        <!-- お客様（予約台帳を電話番号でまとめたもの。新しく溜めているデータではありません） -->
+        <div class="admin-pane" data-pane="customers" hidden>
+          <div class="toolbar">
+            <input class="input" type="search" id="customer-search"
+                   placeholder="お名前・電話番号で探す" autocomplete="off" />
+            <select class="select" id="customer-sort">
+              <option value="recent">最近ご来店の順</option>
+              <option value="visits">ご来店回数の多い順</option>
+              <option value="name">お名前の順</option>
+            </select>
+          </div>
+          <p class="note" style="margin:0 0 16px;">
+            予約台帳を電話番号でまとめた一覧です。前回のメニューやご要望をここで確認できます。
+          </p>
+          <div id="customer-rows"></div>
         </div>
 
         <!-- 休業日 -->
