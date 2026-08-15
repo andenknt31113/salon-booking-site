@@ -172,6 +172,32 @@ function renderSalonInfo(host) {
     .filter(([, v]) => v)
     .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v).replace(/\n/g, '<br />')}</td></tr>`)
     .join('');
+
+  renderMapLinks(host.closest('section'));
+}
+
+/* 地図へのボタン。
+   Googleマップの埋め込みは第三者のiframeを読み込むことになり、
+   こちらの環境では表示確認ができないため、確実に動くリンクにしてあります。
+   カーナビ・Googleマップ用の検索語は directions に書いたものと同じ。 */
+function mapQuery() {
+  return SALON.mapQuery || SALON.address;
+}
+
+function renderMapLinks(section) {
+  if (!section || $('.map-actions', section)) return;
+  const q = encodeURIComponent(mapQuery());
+  const table = $('.info-table', section);
+  if (!table) return;
+
+  table.insertAdjacentHTML('afterend', `
+    <div class="map-actions">
+      <a class="btn btn-outline" target="_blank" rel="noopener"
+         href="https://www.google.com/maps/search/?api=1&query=${q}">地図で見る</a>
+      <a class="btn btn-primary" target="_blank" rel="noopener"
+         href="https://www.google.com/maps/dir/?api=1&destination=${q}">ここへの経路を調べる</a>
+    </div>
+    <p class="map-note">「経路を調べる」を押すと、今いる場所からの道順がGoogleマップで開きます。</p>`);
 }
 
 /* ---------- ページごとの初期化 ---------- */

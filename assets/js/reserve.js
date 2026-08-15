@@ -388,6 +388,72 @@ function buildReservation() {
   };
 }
 
+/* ---------- カレンダーへの登録 ----------
+   .ics ファイルを作ってダウンロードさせます。
+   iPhone・Android・PC のどのカレンダーでも同じ形式で読めます。
+   店舗側の予約はGoogleカレンダーに入りますが、これはお客様のための控えです。 */
+function icsStamp(dateKey, time) {
+  // ローカル時刻のまま書き、TZID で日本時間だと伝える
+  return dateKey.replace(/-/g, '') + 'T' + time.replace(':', '') + '00';
+}
+
+function buildIcs(r) {
+  const esc = t => String(t || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
+  const place = [SALON.fullName || SALON.name, SALON.address].filter(Boolean).join(' ');
+  const detail = [
+    '予約番号：' + r.code,
+    'メニュー：' + (r.menus || []).map(m => m.name).join(' / '),
+    'ご担当：' + r.staffName,
+    '合計：' + (r.totalLabel || yen(r.totalPrice)),
+    SALON.tel ? 'TEL：' + SALON.tel : '',
+    '予約の確認・キャンセル：' + location.href.replace(/reserve\.html.*$/, 'mypage.html')
+  ].filter(Boolean).join('\n');
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//ZER01//reservation//JA',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Tokyo',
+    'BEGIN:STANDARD',
+    'DTSTART:19700101T000000',
+    'TZOFFSETFROM:+0900',
+    'TZOFFSETTO:+0900',
+    'TZNAME:JST',
+    'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    'UID:' + r.code + '@zer01',
+    // DTSTAMP は「この予定を書き出した時刻」なので、来店日時ではなく今のUTC
+    'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, ''),
+    'DTSTART;TZID=Asia/Tokyo:' + icsStamp(r.date, r.time),
+    'DTEND;TZID=Asia/Tokyo:' + icsStamp(r.date, r.endTime),
+    'SUMMARY:' + esc((SALON.name || 'サロン') + ' ご予約'),
+    'LOCATION:' + esc(place),
+    'DESCRIPTION:' + esc(detail),
+    'BEGIN:VALARM',
+    'TRIGGER:-PT2H',
+    'ACTION:DISPLAY',
+    'DESCRIPTION:' + esc((SALON.name || 'サロン') + ' のご予約が2時間後です'),
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+}
+
+function downloadIcs(r) {
+  const blob = new Blob([buildIcs(r)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${SALON.name || 'salon'}-${r.code}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function submitReservation() {
   const btn = $('#submit-reservation');
   btn.disabled = true;
@@ -419,6 +485,10 @@ async function submitReservation() {
     ['メニュー', reservation.menus.map(m => esc(m.name)).join('<br />')],
     ['合計金額', `${reservation.totalLabel || yen(reservation.totalPrice)}${reservation.totalPrice ? '（税込）' : ''}`]
   ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
+
+  // 完了画面の「カレンダーに追加」に、いま取れた予約を渡す
+  const calBtn = $('#add-to-calendar');
+  if (calBtn) calBtn.onclick = () => downloadIcs(reservation);
 
   clearDraft();
   state.step = 6;
