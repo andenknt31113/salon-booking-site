@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#b3123c" />
+<meta name="description" content="24時間ネット予約受付中。メニュー・スタッフ・空き時間を見ながらスマホから簡単にご予約いただけます。" />
+<title>サロン予約サイト</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23b3123c'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='30' font-family='sans-serif' font-weight='bold' fill='%23fff'%3ES%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<header class="hd">
+  <a class="hd-brand" href="#top">
+    <span class="hd-mark" id="hd-mark"></span>
+    <span>
+      <b id="hd-name"></b>
+      <small id="hd-branch"></small>
+    </span>
+  </a>
+  <a class="hd-tel" id="hd-tel" href="#">電話</a>
+</header>
+
+<main id="top">
+
+  <!-- ヒーロー -->
+  <section class="hero">
+    <p class="hero-en">HAIR &amp; BEAUTY SALON</p>
+    <h1 id="hero-catch"></h1>
+    <p class="hero-desc" id="hero-desc"></p>
+    <ul class="hero-info" id="hero-info"></ul>
+    <a class="btn btn-main" href="#reserve">空き時間を見て予約する</a>
+  </section>
+
+  <!-- メニュー -->
+  <section class="sec">
+    <h2 class="sec-t"><span>MENU</span>メニュー・料金</h2>
+    <div id="menu-list"></div>
+    <p class="note">※価格は税込です。髪の長さ・毛量により追加料金をいただく場合がございます。</p>
+  </section>
+
+  <!-- スタッフ -->
+  <section class="sec sec-alt">
+    <h2 class="sec-t"><span>STAFF</span>スタッフ</h2>
+    <div class="staff-list" id="staff-list"></div>
+  </section>
+
+  <!-- 予約 -->
+  <section class="sec" id="reserve">
+    <h2 class="sec-t"><span>RESERVE</span>ネット予約</h2>
+
+    <form id="form" novalidate>
+      <div class="fld">
+        <p class="lbl">1. メニュー<i>必須</i></p>
+        <div class="chips" id="pick-menu"></div>
+        <p class="err" id="err-menu">メニューをお選びください。</p>
+      </div>
+
+      <div class="fld">
+        <p class="lbl">2. ご担当<i class="opt">任意</i></p>
+        <div class="chips" id="pick-staff"></div>
+      </div>
+
+      <div class="fld">
+        <p class="lbl">3. ご来店日<i>必須</i></p>
+        <div class="chips chips-scroll" id="pick-date"></div>
+        <p class="err" id="err-date">ご来店日をお選びください。</p>
+      </div>
+
+      <div class="fld">
+        <p class="lbl">4. ご希望時間<i>必須</i></p>
+        <div class="chips chips-grid" id="pick-time">
+          <p class="hint">先にご来店日をお選びください。</p>
+        </div>
+        <p class="err" id="err-time">ご希望時間をお選びください。</p>
+      </div>
+
+      <div class="fld">
+        <label class="lbl" for="f-name">5. お名前<i>必須</i></label>
+        <input class="inp" type="text" id="f-name" autocomplete="name" placeholder="山田 花子" />
+        <p class="err" id="err-name">お名前をご入力ください。</p>
+      </div>
+
+      <div class="fld">
+        <label class="lbl" for="f-tel">6. 電話番号<i>必須</i></label>
+        <input class="inp" type="tel" id="f-tel" inputmode="tel" autocomplete="tel" placeholder="09012345678" />
+        <p class="err" id="err-tel">電話番号を数字10〜11桁でご入力ください。</p>
+      </div>
+
+      <div class="fld">
+        <label class="lbl" for="f-memo">7. ご要望<i class="opt">任意</i></label>
+        <textarea class="inp" id="f-memo" rows="3" placeholder="例）肩につくくらいの長さにしたいです。"></textarea>
+      </div>
+
+      <div class="total">
+        <span>合計（税込）</span>
+        <b id="total">¥0</b>
+      </div>
+      <p class="total-sub" id="total-sub">メニューをお選びください</p>
+
+      <button class="btn btn-main btn-wide" type="submit">この内容で予約する</button>
+    </form>
+
+    <!-- 完了 -->
+    <div class="done" id="done" hidden>
+      <p class="done-ic">✓</p>
+      <h3>ご予約が完了しました</h3>
+      <p class="done-lead">予約番号を控えてください。確認・キャンセルの際に使用します。</p>
+      <p class="done-code" id="done-code"></p>
+      <dl class="done-list" id="done-list"></dl>
+      <button class="btn btn-sub btn-wide" type="button" id="again">続けて予約する</button>
+    </div>
+  </section>
+
+  <!-- 予約確認 -->
+  <section class="sec sec-alt" id="check">
+    <h2 class="sec-t"><span>MY RESERVATION</span>ご予約の確認</h2>
+    <p class="note" style="margin-top:0">ご予約時にお使いの端末・ブラウザから確認できます。</p>
+    <div id="my-list"></div>
+  </section>
+
+  <!-- アクセス -->
+  <section class="sec" id="access">
+    <h2 class="sec-t"><span>ACCESS</span>店舗情報</h2>
+    <dl class="info" id="info"></dl>
+    <a class="btn btn-sub btn-wide" id="map-link" target="_blank" rel="noopener">地図アプリで開く</a>
+  </section>
+
+</main>
+
+<footer class="ft">
+  <p id="ft-name"></p>
+  <p id="ft-addr"></p>
+  <small id="ft-copy"></small>
+</footer>
+
+<nav class="cta">
+  <a class="btn btn-sub" id="cta-tel" href="#">電話する</a>
+  <a class="btn btn-main" href="#reserve">ネット予約</a>
+</nav>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
