@@ -621,7 +621,25 @@ function buildIcs(r) {
     'END:VALARM',
     'END:VEVENT',
     'END:VCALENDAR'
-  ].join('\r\n');
+  ].map(foldIcs).join('\r\n');
+}
+
+/* カレンダーの決まりでは、1行は75バイトまでです。長い行は、次の行の
+   先頭に空白を置いて続けます。日本語は1文字3バイトなので、メニュー名が
+   少し長いだけで超えます。折らないと、取り込めないカレンダーがあります。
+   文字の途中で切ると化けるので、バイト数を数えながら文字単位で折ります。 */
+function foldIcs(line) {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 74) return line;
+  const out = [];
+  let cur = '', size = 0, limit = 73;   // 続きの行は先頭の空白ぶん1バイト使う
+  for (const ch of line) {
+    const n = enc.encode(ch).length;
+    if (size + n > limit) { out.push(cur); cur = ''; size = 0; limit = 72; }
+    cur += ch; size += n;
+  }
+  if (cur) out.push(cur);
+  return out.join('\r\n ');
 }
 
 function downloadIcs(r) {

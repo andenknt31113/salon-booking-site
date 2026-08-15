@@ -780,6 +780,36 @@ console.log('\n【UC21】Apps Script を入れ直して、公開設定を間違�
 }
 
 /* ============================================================
+   UC22 予約をスマホのカレンダーに入れる
+   ============================================================ */
+console.log('\n【UC22】カレンダーに追加したファイルの中身');
+{
+  /* カレンダーの決まりは、1行75バイトまで・カンマや改行はそのまま書けない、
+     と細かく決まっています。守れていないと、取り込めない端末が出ます。
+     取り込めなかったことは、こちらには分かりません。 */
+  const p = await newPhone('UC22');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  const ics = await p.evaluate(() => buildIcs({
+    code: 'LM-ICS01', date: '2026-09-01', time: '10:00', endTime: '13:00',
+    menus: [{ name: '【清潔感と品が続く】men\'s骨格補正カット＋眉カット, スパ付き' }],
+    staffName: 'MATTEO', totalPrice: 6900
+  }));
+
+  const lines = ics.split('\r\n');
+  const size = s => new TextEncoder().encode(s).length;
+  check('UC22', '始まりと終わりが揃っている',
+    lines[0] === 'BEGIN:VCALENDAR' && lines[lines.length - 1] === 'END:VCALENDAR', true);
+  check('UC22', '75バイトを超える行が無い', lines.every(l => size(l) <= 75), true);
+  check('UC22', '折り返した行は空白で始まる',
+    lines.every((l, i) => i === 0 || /^[A-Z]/.test(l) || l.startsWith(' ')), true);
+  check('UC22', 'カンマがそのまま入っていない', /[^\\],\s*スパ付き/.test(ics), false);
+  check('UC22', '来店日時が入っている', ics.includes('DTSTART;TZID=Asia/Tokyo:20260901T100000'), true);
+  check('UC22', '終わりの時刻も入っている', ics.includes('DTEND;TZID=Asia/Tokyo:20260901T130000'), true);
+  check('UC22', '予約番号が入っている', ics.includes('LM-ICS01'), true);
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
