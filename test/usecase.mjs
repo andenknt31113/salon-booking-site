@@ -484,6 +484,105 @@ console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める'
 }
 
 /* ============================================================
+   UC16 電話で受けた予約を台帳に入れ、ネット予約と重ならないようにする
+   ============================================================ */
+console.log('\n【UC16】電話で受けた予約を台帳に入れる');
+{
+  const day = key(new Date(Date.now() + 11 * 864e5));
+
+  const a = await newPhone('UC16-店');
+  a.on('dialog', d => d.accept());
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+
+  await a.click('#add-booking'); await a.waitForTimeout(300);
+  await a.fill('#ab-date', day);
+  await a.fill('#ab-time', '11:00');
+  await a.fill('#ab-minutes', '60');
+  await a.fill('#ab-name', '電話 九郎');
+  await a.fill('#ab-tel', '09022223333');
+  await a.fill('#ab-menu', 'メンズカット');
+  await a.click('#ab-save'); await a.waitForTimeout(1800);
+
+  const ledger = (await post({ type: 'adminData', password: PW })).reservations || [];
+  const added = ledger.find(r => r.name === '電話 九郎');
+  check('UC16', '台帳に入る', !!added, true);
+  check('UC16', '終了時刻が計算される', added && added.endTime, '12:00');
+  check('UC16', '予約一覧に出る',
+    (await a.locator('#admin-rows').innerText()).includes('電話 九郎'), true);
+  await a.context().close();
+
+  // お客様側から、その枠が取れなくなっている
+  const p = await newPhone('UC16-客');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  const free = async t => p.evaluate(
+    ([d, tm]) => Availability.slotInfo(d, tm, null, 60).available, [day, t]);
+  check('UC16', '11:00 はもう取れない', await free('11:00'), false);
+  check('UC16', '11:30 も取れない（施術中）', await free('11:30'), false);
+  check('UC16', '12:00 からは取れる', await free('12:00'), true);
+  check('UC16', '10:00 も取れる', await free('10:00'), true);
+  await p.context().close();
+
+  // 同じ時間にもう1件入れようとすると、確認を求められる
+  const b2 = await newPhone('UC16-重複');
+  let asked = '';
+  b2.on('dialog', d => { asked = d.message(); d.dismiss(); });   // 「いいえ」を選ぶ
+  await b2.goto(B + '/admin.html'); await b2.waitForTimeout(900);
+  await b2.fill('#passcode', PW); await b2.locator('#remember-me').setChecked(false);
+  await b2.click('#gate-btn'); await b2.waitForTimeout(1700);
+  await b2.click('#add-booking'); await b2.waitForTimeout(300);
+  await b2.fill('#ab-date', day);
+  await b2.fill('#ab-time', '11:30');
+  await b2.fill('#ab-name', '重なり 十郎');
+  await b2.click('#ab-save'); await b2.waitForTimeout(1600);
+  check('UC16', '重なるときは確認を出す', asked.includes('すでに別のご予約'), true);
+
+  const after = (await post({ type: 'adminData', password: PW })).reservations || [];
+  check('UC16', '「いいえ」なら入らない', after.some(r => r.name === '重なり 十郎'), false);
+  await b2.context().close();
+}
+
+/* ============================================================
+   UC17 台帳につながっているのに、空いている枠が×になっていないか
+   ============================================================ */
+console.log('\n【UC17】空いている時間が、勝手に埋まっていないか');
+{
+  /* 受信先が無いときのデモ用に、それらしい「先約」を作る仕組みがあります。
+     台帳につながったあともこれが効いていると、
+     実際には空いている時間が毎日いくつか×になり、
+     店は理由も分からないまま予約を取り逃がします。 */
+  const p = await newPhone('UC17');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
+
+  check('UC17', '台帳につながっている',
+    await p.evaluate(() => Remote.booked !== null), true);
+  check('UC17', '作り物の先約が使われていない',
+    await p.evaluate(() => Availability.busyBlocks('st01', '2099-06-01').length), 0);
+
+  /* 予約が1件も無い先の日は、営業時間内のすべての枠が取れるはずです。
+     ここまでの試験で埋まった日を避けたいので、台帳に無い日を選びます。
+     （当日締め切り・休業日の影響も避けるため、十分先から探します） */
+  const taken = new Set(((await post({ type: 'availability' })).booked || []).map(b => b.date));
+  let far = '';
+  for (let i = 25; i < 55 && !far; i++) {
+    const d = key(new Date(Date.now() + i * 864e5));
+    if (!taken.has(d)) far = d;
+  }
+  check('UC17', '予約の無い日が見つかる', !!far, true);
+  const blocked = await p.evaluate(d => {
+    const out = [];
+    Availability.timeSlots().forEach(t => {
+      const s = Availability.slotInfo(d, t, null, 30);
+      if (!s.available) out.push(t + '=' + (s.reason || '?'));
+    });
+    return out;
+  }, far);
+  check('UC17', `予約の無い日は全部の枠が取れる（${far}）`, blocked.join(',') || 'なし', 'なし');
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

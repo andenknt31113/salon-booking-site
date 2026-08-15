@@ -162,6 +162,32 @@ http.createServer((req, res) => {
           TOKENS.add(t);
           return reply(res, { ok:true, token:t });
         }
+        if (d.type === 'adminAdd') {
+          const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
+          const mins = Number(d.minutes) || 60;
+          if (!d.date || !d.time) return reply(res, { ok:false, error:'来店日と開始時刻をご確認ください。' });
+          if (!String(d.name||'').trim()) return reply(res, { ok:false, error:'お名前をご入力ください。' });
+          const start = toMin(d.time), end = start + mins;
+          if (!d.force) {
+            const taken = LEDGER.some(x => !x.cancelled && x.date === d.date
+              && start < toMin(x.endTime) && toMin(x.time) < end);
+            if (taken) return reply(res, { ok:false, confirm:true,
+              error:'この時間には、すでに別のご予約が入っています。それでも登録しますか？' });
+            if (hitsClosed(d.date, d.time, mins)) return reply(res, { ok:false, confirm:true,
+              error:'この時間は、休業日または受付を止めている時間帯です。それでも登録しますか？' });
+          }
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+          let code;
+          do { code = 'LM-' + Array.from({length:5}, () => chars[Math.floor(Math.random()*chars.length)]).join(''); }
+          while (LEDGER.some(r => r.code === code));
+          const endTime = ('0'+Math.floor(end/60)%24).slice(-2)+':'+('0'+end%60).slice(-2);
+          LEDGER.push({ code, date:d.date, time:d.time, endTime, totalMinutes:mins,
+            menus:[{ name: d.menu || '（電話予約）' }], staffName:'MATTEO', staffId:'st01',
+            totalPrice:Number(d.price)||0,
+            customer:{ name:d.name, tel:d.tel||'', email:'', visit:'電話・来店', request:d.memo||'' },
+            cancelled:false });
+          return reply(res, { ok:true, code, endTime });
+        }
         if (d.type === 'adminUpload') {
           const raw = String(d.dataBase64 || '');
           if (!raw) return reply(res, { ok:false, error:'画像が空です。' });

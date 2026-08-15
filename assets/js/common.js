@@ -267,12 +267,15 @@ const Availability = {
     return mine || Remote.isBusy(staffId, dateKey, time);
   },
 
-  /* サンプルの「先約」を作る。実運用では予約管理システムの空き状況に差し替えてください。
-     1日に1〜3件の施術が入っている想定でブロックを生成します。
-     30分ごとに独立して判定すると、長いメニューで連続枠がまず取れなくなるため、
-     まとまった時間の先約として作ります。 */
+  /* デモ用の「先約」。予約が1件も無い画面はカレンダーが全部○になり、
+     見せたときに動いているのか分からないため、それらしく埋めています。
+
+     ★これは受信先が無いときだけです。
+     台帳につながっている状態でこれを混ぜると、実際には空いている時間が
+     毎日1〜3枠×になり、店は理由も分からないまま予約を取り逃がします。 */
   _blocks: new Map(),
   busyBlocks(staffId, dateKey) {
+    if (Remote.booked !== null) return [];   // 本物の台帳がある＝作り物は使わない
     const ck = staffId + dateKey;
     if (this._blocks.has(ck)) return this._blocks.get(ck);
 

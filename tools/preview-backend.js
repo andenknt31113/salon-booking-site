@@ -226,6 +226,36 @@
           reviews: db.reviews, closedDates: db.closed, settings: db.settings
         };
       }
+      if (d.type === 'adminAdd') {
+        const toMin = t => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : 0; };
+        const mins = Number(d.minutes) || 60;
+        if (!d.date || !d.time) return { ok: false, error: '来店日と開始時刻をご確認ください。' };
+        if (!String(d.name || '').trim()) return { ok: false, error: 'お名前をご入力ください。' };
+        const start = toMin(d.time), end = start + mins;
+        if (!d.force) {
+          const taken = live().some(x => x.date === d.date
+            && start < toMin(x.endTime) && toMin(x.time) < end);
+          if (taken) {
+            return { ok: false, confirm: true,
+              error: 'この時間には、すでに別のご予約が入っています。それでも登録しますか？' };
+          }
+        }
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code;
+        do {
+          code = 'LM-' + Array.from({ length: 5 },
+            () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        } while (db.予約.some(r => r.code === code));
+        const endTime = ('0' + Math.floor(end / 60) % 24).slice(-2) + ':' + ('0' + end % 60).slice(-2);
+        db.予約.push({
+          code: code, date: d.date, time: d.time, endTime: endTime, totalMinutes: mins,
+          menu: d.menu || '（電話予約）', staffName: 'MATTEO', staffId: 'st01',
+          price: Number(d.price) || 0, name: d.name, tel: d.tel || '', email: '',
+          visit: '電話・来店', request: d.memo || '', status: '予約確定'
+        });
+        save();
+        return { ok: true, code: code, endTime: endTime };
+      }
       if (d.type === 'adminUpload') {
         // 本番は Google ドライブに保存してURLを返します。
         // 見本では、選んだ画像そのもの（データURL）を返して表示に使います。

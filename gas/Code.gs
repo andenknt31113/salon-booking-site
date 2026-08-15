@@ -84,6 +84,11 @@ const NOTIFY_EMAIL  = 'zer01.barber@gmail.com';  // 店舗の通知先メール�
 const SALON_NAME    = 'ZER01 barber/lounge';
 const SALON_TEL     = '080-4498-7036';           // メールの署名に入ります
 const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
+/* 管理ページから電話予約を入れるときの担当。
+   assets/js/data.js の staff の1人目と同じにしてください。
+   ここがずれると、その予約が空席計算に入らず二重予約になります。 */
+const SALON_STAFF_ID   = 'st01';
+const SALON_STAFF_NAME = 'MATTEO';
 const SITE_URL      = 'https://andenknt31113.github.io/salon-booking-site/';
 /* LINE公式アカウントの友だち追加URL（https://lin.ee/xxxxxxx の形）。
    入れると予約確認メールの末尾にご案内が入ります。空なら何も足しません。
@@ -152,6 +157,7 @@ function doPost(e) {
     if (data.type === 'adminData')    return json_(doAdminData_(data));
     if (data.type === 'adminSave')    return json_(doAdminSave_(data));
     if (data.type === 'adminUpload')  return json_(doAdminUpload_(data));
+    if (data.type === 'adminAdd')     return json_(doAdminAdd_(getSheet_(), data));
     if (data.type === 'availability') return json_(doAvailability_(getSheet_()));
     if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
     if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
@@ -165,6 +171,71 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/* ============================================================
+   店が電話で受けた予約を、台帳に入れる
+   ------------------------------------------------------------
+   ここが無いと、電話で受けた予約が台帳に無いまま残り、
+   同じ時間にネット予約が入ります。店で二重に受けるのが
+   いちばん起きてはいけないことなので、押さえられるようにします。
+   お客様宛のメールは送りません（電話で話がついているため）。
+   ============================================================ */
+function doAdminAdd_(sheet, d) {
+  requireAdmin_(d);
+
+  const date = normalizeDate_(d.date);
+  const time = normalizeTime_(d.time);
+  const minutes = Number(d.minutes) || 60;
+  if (!date || !time) return { ok: false, error: '来店日と開始時刻をご確認ください。' };
+  if (!String(d.name || '').trim()) return { ok: false, error: 'お名前をご入力ください。' };
+
+  const endTime = addMinutes_(time, minutes);
+  const staffId = SALON_STAFF_ID;
+
+  /* 重なりと休みは、止めずに知らせます。
+     店が承知のうえで入れる場合（常連さんを無理に入れる等）があるためです。 */
+  if (!d.force) {
+    if (isTaken_(sheet, date, time, minutes, staffId, '')) {
+      return { ok: false, confirm: true,
+        error: 'この時間には、すでに別のご予約が入っています。それでも登録しますか？' };
+    }
+    if (hitsClosed_(sheet, date, time, minutes)) {
+      return { ok: false, confirm: true,
+        error: 'この時間は、休業日または受付を止めている時間帯です。それでも登録しますか？' };
+    }
+  }
+
+  const code = issueCode_(sheet);
+  const menuText = String(d.menu || '').trim() || '（電話予約）';
+  const customer = { name: d.name, tel: d.tel || '', kana: '', email: '', visit: '', request: d.memo || '' };
+  const eventId = addToCalendar_(
+    { date: date, time: time, endTime: endTime }, customer, menuText);
+
+  sheet.appendRow([
+    code,
+    formatTime_(new Date().toISOString()),
+    date, time, endTime, minutes,
+    menuText,
+    SALON_STAFF_NAME, staffId,
+    0,
+    Number(d.price) || 0,
+    d.name, '', "'" + (d.tel || ''), '',
+    '電話・来店', d.memo || '',
+    '予約確定',
+    eventId
+  ]);
+
+  return { ok: true, code: code, endTime: endTime };
+}
+
+/** 'HH:MM' に分を足す */
+function addMinutes_(hhmm, minutes) {
+  const total = toMin_(hhmm) + Number(minutes || 0);
+  const h = Math.floor(total / 60) % 24;
+  const m = total % 60;
+  return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);
 }
 
 /** 設置確認用。ブラウザでURLを開くとこれが返ります */

@@ -77,7 +77,56 @@
             </select>
             <button class="btn btn-ghost btn-sm" type="button" id="filter-reset">条件をクリア</button>
             <button class="btn btn-outline btn-sm" type="button" id="export-csv">CSVダウンロード</button>
+            <button class="btn btn-primary btn-sm" type="button" id="add-booking">＋ 電話予約を入れる</button>
           </div>
+
+          <!-- 電話・来店で受けた予約を台帳に入れる。ここに入れないとネット予約と重なります -->
+          <div class="booking-card" id="add-booking-form" hidden style="border-left-color:var(--accent);">
+            <p class="note" style="margin:0 0 14px;">
+              電話やご来店で受けたご予約を入れます。<b>ここに入れておかないと、
+              同じ時間にネット予約が入ってしまいます。</b>お客様へのメールは送りません。
+            </p>
+            <div class="add-grid">
+              <label class="form-field" style="margin:0;">
+                <span>来店日</span>
+                <input class="input" type="date" id="ab-date" />
+              </label>
+              <label class="form-field" style="margin:0;">
+                <span>開始</span>
+                <input class="input" type="time" id="ab-time" step="900" />
+              </label>
+              <label class="form-field" style="margin:0;">
+                <span>所要（分）</span>
+                <input class="input" type="number" id="ab-minutes" value="60" min="15" step="15" />
+              </label>
+              <label class="form-field" style="margin:0;">
+                <span>金額（任意）</span>
+                <input class="input" type="number" id="ab-price" min="0" step="100" placeholder="0" />
+              </label>
+            </div>
+            <label class="form-field" style="margin:12px 0 0;">
+              <span>お名前</span>
+              <input class="input" type="text" id="ab-name" placeholder="山田 太郎" />
+            </label>
+            <label class="form-field" style="margin:12px 0 0;">
+              <span>電話番号（任意）</span>
+              <input class="input" type="tel" id="ab-tel" inputmode="tel" placeholder="09012345678" />
+            </label>
+            <label class="form-field" style="margin:12px 0 0;">
+              <span>メニュー（任意）</span>
+              <input class="input" type="text" id="ab-menu" placeholder="メンズカット" />
+            </label>
+            <label class="form-field" style="margin:12px 0 0;">
+              <span>メモ（任意）</span>
+              <input class="input" type="text" id="ab-memo" placeholder="電話で受付。前回より短め希望" />
+            </label>
+            <p class="field-error" id="ab-error"></p>
+            <div style="display:flex;gap:10px;margin-top:14px;">
+              <button class="btn btn-ghost btn-sm" type="button" id="ab-cancel">やめる</button>
+              <button class="btn btn-primary btn-sm" type="button" id="ab-save" style="flex:1;">台帳に入れる</button>
+            </div>
+          </div>
+
           <div id="admin-rows"></div>
         </div>
 

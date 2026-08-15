@@ -262,6 +262,76 @@ function reservationCard(r) {
     </article>`;
 }
 
+/* ---------- 電話・来店で受けた予約を台帳に入れる ----------
+   ここが無いと、電話で受けた分が台帳に無いまま残り、
+   同じ時間にネット予約が入ります。 */
+function toggleAddBooking(open) {
+  $('#add-booking-form').hidden = !open;
+  $('#ab-error').style.display = 'none';
+  if (open) {
+    // 何も入っていなければ今日を入れておく（毎回打つのは面倒なので）
+    if (!$('#ab-date').value) $('#ab-date').value = toKey(new Date());
+    $('#ab-name').focus();
+  }
+}
+
+async function saveAddBooking(force = false) {
+  const err = $('#ab-error');
+  const btn = $('#ab-save');
+  err.style.display = 'none';
+
+  const payload = {
+    type: 'adminAdd', force,
+    date: $('#ab-date').value,
+    time: $('#ab-time').value,
+    minutes: Number($('#ab-minutes').value) || 60,
+    price: Number($('#ab-price').value) || 0,
+    name: $('#ab-name').value.trim(),
+    tel: $('#ab-tel').value.trim(),
+    menu: $('#ab-menu').value.trim(),
+    memo: $('#ab-memo').value.trim()
+  };
+  if (!payload.date || !payload.time) { showAddError('来店日と開始時刻をお選びください。'); return; }
+  if (!payload.name) { showAddError('お名前をご入力ください。'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '登録中…';
+  const res = await adminPost(payload);
+  btn.disabled = false;
+  btn.textContent = '台帳に入れる';
+
+  /* 重なり・休業日は止めずに確認します。
+     店が承知のうえで入れることがあるためです。 */
+  if (!res.ok && res.confirm) {
+    if (confirm(res.error + '\n\n※ネット予約とは別に、店側の判断で入れられます。')) {
+      return saveAddBooking(true);
+    }
+    return;
+  }
+  if (!res.ok) { showAddError(res.error || '登録できませんでした。'); return; }
+
+  // 画面上の一覧にもすぐ足す（読み込み直さなくても見えるように）
+  (adminData.reservations = adminData.reservations || []).push({
+    code: res.code, date: payload.date, time: payload.time, endTime: res.endTime,
+    menu: payload.menu || '（電話予約）', staffName: '', price: payload.price,
+    name: payload.name, tel: payload.tel, email: '', visit: '電話・来店',
+    request: payload.memo, status: '予約確定'
+  });
+  renderStats();
+  renderReservations();
+  ['#ab-name', '#ab-tel', '#ab-menu', '#ab-memo', '#ab-price'].forEach(id => { $(id).value = ''; });
+  toggleAddBooking(false);
+  const ok = $('#save-ok');
+  ok.textContent = `台帳に入れました（予約番号 ${res.code}）。この時間はネット予約から埋まります。`;
+  ok.style.display = 'block';
+}
+
+function showAddError(message) {
+  const err = $('#ab-error');
+  err.textContent = message;
+  err.style.display = 'block';
+}
+
 /* ---------- お客様 ----------
    顧客名簿を別に作ってはいません。**予約台帳をまとめ直しているだけ**です。
    同じ人かどうかは電話番号で見ます。お名前は表記ゆれがあり、
@@ -759,6 +829,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#filter-status').addEventListener('change', renderReservations);
   $('#customer-search').addEventListener('input', renderCustomers);
   $('#customer-sort').addEventListener('change', renderCustomers);
+  $('#add-booking').addEventListener('click', () => toggleAddBooking($('#add-booking-form').hidden));
+  $('#ab-cancel').addEventListener('click', () => toggleAddBooking(false));
+  $('#ab-save').addEventListener('click', () => saveAddBooking(false));
   $('#filter-reset').addEventListener('click', () => {
     $('#filter-date').value = '';
     $('#filter-status').value = 'all';
