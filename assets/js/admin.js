@@ -10,7 +10,7 @@
 let adminPw = '';          // 入力されたパスワード（この画面を開いている間だけ保持）
 let adminToken = '';       // 「この端末を記憶する」で受け取った合鍵
 let adminData = null;      // 取得した内容
-const edits = { closed: [], menus: [], coupons: [], styles: [], settings: {} };
+const edits = { closed: [], menus: [], coupons: [], styles: [], reviews: [], settings: {} };
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -19,6 +19,8 @@ const TOKEN_KEY = 'salon.adminToken.v1';
 const MENU_COLS = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_COLS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 const STYLE_COLS = ['タイトル', '分類', 'タグ', '画像', '表示'];
+const REVIEW_COLS = ['投稿日', '予約番号', 'ニックネーム', '年代', '性別',
+                     '評価', 'タイトル', '本文', '担当', 'メニュー', '状態'];
 const SETTING_KEYS = [
   ['電話番号', 'tel', '例）0297-00-0000。空欄にすると電話ボタンを出しません'],
   ['営業開始', 'time', ''],
@@ -102,6 +104,7 @@ async function openDashboard() {
   edits.menus = (res.menus || []).map(r => ({ ...r }));
   edits.coupons = (res.coupons || []).map(r => ({ ...r }));
   edits.styles = (res.styles || []).map(r => ({ ...r }));
+  edits.reviews = (res.reviews || []).map(r => ({ ...r }));
   edits.settings = { ...(res.settings || {}) };
 
   $('#gate').hidden = true;
@@ -112,6 +115,7 @@ async function openDashboard() {
   renderRows('menus', MENU_COLS, '#menu-rows');
   renderRows('coupons', COUPON_COLS, '#coupon-rows');
   renderRows('styles', STYLE_COLS, '#style-rows');
+  renderReviews();
   renderSettings();
   return true;
 }
@@ -321,6 +325,7 @@ const PANE = {
   styles:  [STYLE_COLS, '#style-rows']
 };
 function redraw(target) {
+  if (target === 'reviews') { renderReviews(); return; }
   const pane = PANE[target];
   if (pane) renderRows(target, pane[0], pane[1]);
 }
@@ -363,6 +368,46 @@ function renderSettings() {
 function collectWeekdays() {
   const on = $$('[data-weekday]').filter(el => el.checked).map(el => el.dataset.weekday);
   edits.settings['定休曜日'] = on.join(',');
+}
+
+/* 口コミは他のシートと扱いが違う。
+   お客様が書いた本文・評価・お名前は表示のみにして、
+   店舗が触れるのは「掲載するかどうか」と削除だけにしてある。 */
+const REVIEW_STATES = ['未承認', '掲載中', '非掲載'];
+
+function renderReviews() {
+  const host = $('#review-rows');
+  if (!host) return;
+  const rows = edits.reviews;
+
+  host.innerHTML = rows.length
+    ? rows.map((r, i) => {
+        const state = String(r['状態'] || '未承認');
+        const who = [r['ニックネーム'], r['年代'], r['性別']].filter(Boolean).join('・');
+        return `
+        <div class="booking-card" style="border-left-color:${state === '掲載中' ? 'var(--ok)' : 'var(--line)'};">
+          <div class="booking-head">
+            <span class="status-chip ${state === '掲載中' ? '' : 'is-cancelled'}">${esc(state)}</span>
+            <span class="booking-code">${esc(r['投稿日'] || '')}／${esc(r['予約番号'] || '')}</span>
+          </div>
+          <p class="booking-detail"><strong>${esc(stars(Number(r['評価']) || 5))}</strong> ${esc(who)}</p>
+          ${r['タイトル'] ? `<p class="booking-when" style="font-size:15px;">${esc(r['タイトル'])}</p>` : ''}
+          <p class="booking-detail" style="white-space:pre-wrap;">${esc(r['本文'] || '')}</p>
+          <p class="booking-detail" style="font-size:12px;color:var(--muted);">
+            ${esc(r['メニュー'] || '')}${r['担当'] ? '／' + esc(r['担当']) : ''}
+          </p>
+          <div class="booking-actions">
+            ${REVIEW_STATES.map(v => `
+              <label class="radio-chip">
+                <input type="radio" name="rvstate${i}" value="${esc(v)}"
+                       data-review-state="${i}" ${state === v ? 'checked' : ''} />
+                <span>${esc(v)}</span>
+              </label>`).join('')}
+            <button class="btn btn-ghost btn-sm" type="button" data-remove="reviews" data-index="${i}">削除</button>
+          </div>
+        </div>`;
+      }).join('')
+    : '<p class="empty-state">まだ口コミは届いていません。</p>';
 }
 
 /* ---------- 保存 ---------- */
@@ -454,6 +499,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.addEventListener('change', e => {
     const el = e.target;
+    if (el.dataset.reviewState !== undefined && el.checked) {
+      const row = edits.reviews[Number(el.dataset.reviewState)];
+      if (row) row['状態'] = el.value;
+      return;
+    }
     if (el.type === 'checkbox' && el.dataset.target !== undefined) {
       const row = edits[el.dataset.target][Number(el.dataset.index)];
       if (row) row[el.dataset.col] = el.checked ? '○' : '×';

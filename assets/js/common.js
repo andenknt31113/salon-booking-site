@@ -412,6 +412,15 @@ const Catalog = {
         SALON.styles = data.styles;
         this.source = 'sheet';
       }
+      /* 口コミ。評価の数値はここから計算します。
+         このサイトに実際に届いた声だけなので、掲載しても問題ありません。
+         （掲載元サイトの評価を借りてくるのは、この店の実績ではないので出しません） */
+      if (Array.isArray(data.reviews) && data.reviews.length) {
+        SALON.reviews = data.reviews;
+        SALON.reviewCount = data.reviews.length;
+        SALON.rating = data.reviews.reduce((sum, r) => sum + (Number(r.score) || 0), 0) / data.reviews.length;
+        this.source = 'sheet';
+      }
       // 休業日はシートを正とする（空なら休みなし、という指定も尊重する）
       if (Array.isArray(data.closedDates)) {
         SALON.business.closedDates = data.closedDates;
@@ -456,6 +465,24 @@ function applySettings(st) {
     SALON.business.closedWeekdays = raw
       ? [...new Set(raw.split(/[,、・\s]+/).map(t => WEEKDAY_JA.indexOf(t.replace(/曜日?$/, ''))).filter(i => i >= 0))]
       : [];
+  }
+}
+
+/** 口コミを送る。予約番号と電話番号が一致した予約にだけ書けます。 */
+async function sendReview(payload) {
+  if (!SALON.reservationEndpoint) {
+    return { ok: false, error: 'ただいまご感想の投稿をご利用いただけません。' };
+  }
+  try {
+    const res = await fetch(SALON.reservationEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ type: 'review', ...payload })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('ご感想を送れませんでした', e);
+    return { ok: false, error: '通信に失敗しました。時間をおいてお試しください。' };
   }
 }
 

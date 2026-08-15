@@ -97,17 +97,29 @@ function styleCard(sy) {
 }
 
 function reviewCard(r) {
+  // 年代・性代はどちらも任意。空の項目で「（30代・）」のようにならないようにする
+  const who = [r.age, r.gender].filter(Boolean).join('・');
+  const meta = [who ? `（${esc(who)}）` : '', r.date ? '／' + formatDateJa(r.date, { short: true }) : ''].join('');
+
+  // シート由来の口コミは担当を名前で持っている（IDは持たない）
   const st = findStaff(r.staffId);
+  const staffName = (st && st.name) || r.staffName || '';
+
+  const foot = [
+    staffName ? `担当：${esc(staffName)}` : '',
+    r.menu ? `ご利用メニュー：${esc(r.menu)}` : ''
+  ].filter(Boolean).join('／');
+
   return `
     <article class="review">
       <div class="review-head">
         <span class="review-score">${stars(r.score)}</span>
         <strong style="font-family:var(--font-en);">${r.score.toFixed(1)}</strong>
-        <span class="review-user">${esc(r.nickname)}さん（${esc(r.age)}・${esc(r.gender)}）／${formatDateJa(r.date, { short: true })}</span>
+        <span class="review-user">${esc(r.nickname)}さん${meta}</span>
       </div>
-      <h3>${esc(r.title)}</h3>
+      ${r.title ? `<h3>${esc(r.title)}</h3>` : ''}
       <p class="review-body">${esc(r.body)}</p>
-      <p class="review-foot">担当：${esc(st ? st.name : '指名なし')}／ご利用メニュー：${esc(r.menu)}</p>
+      ${foot ? `<p class="review-foot">${foot}</p>` : ''}
     </article>`;
 }
 
@@ -296,7 +308,74 @@ function initGalleryPage() {
   });
 }
 
+/* ---------- 口コミの投稿 ---------- */
+function initReviewForm() {
+  const form = $('#review-form');
+  if (!form) return;
+
+  // 受信先が無いあいだは投稿できないので、その旨だけ出す
+  if (!SALON.reservationEndpoint) {
+    $('#review-gate').innerHTML =
+      '<b>ご案内</b><span>ご感想の投稿は、オンライン受付の準備が整い次第ご利用いただけます。</span>';
+    form.hidden = true;
+    return;
+  }
+
+  // 予約確認ページから来た場合は予約番号を入れておく（電話番号は入れません）
+  try {
+    const code = sessionStorage.getItem('salon.reviewCode');
+    if (code) {
+      $('#rv-code').value = code;
+      sessionStorage.removeItem('salon.reviewCode');
+      $('#write').scrollIntoView({ behavior: 'smooth' });
+    }
+  } catch (e) { /* noop */ }
+
+  const err = $('#rv-error');
+  $('#rv-submit').addEventListener('click', async () => {
+    const btn = $('#rv-submit');
+    const payload = {
+      code: $('#rv-code').value.trim(),
+      tel: $('#rv-tel').value.trim(),
+      score: Number(($('input[name="score"]:checked') || {}).value || 5),
+      nickname: $('#rv-nickname').value.trim(),
+      age: $('#rv-age').value,
+      title: $('#rv-title').value.trim(),
+      body: $('#rv-body').value.trim()
+    };
+    err.style.display = 'none';
+
+    if (!payload.code || !payload.tel) {
+      err.textContent = 'ご予約番号とお電話番号をご入力ください。';
+      err.style.display = 'block';
+      return;
+    }
+    if (!payload.body) {
+      err.textContent = 'ご感想をご入力ください。';
+      err.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '送信中…';
+    const res = await sendReview(payload);
+    btn.disabled = false;
+    btn.textContent = 'ご感想を送る';
+
+    if (!res.ok) {
+      err.textContent = res.error || '送信できませんでした。';
+      err.style.display = 'block';
+      return;
+    }
+    form.hidden = true;
+    $('#review-gate').hidden = true;
+    $('#review-thanks').hidden = false;
+    $('#review-thanks').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+
 function initReviewsPage() {
+  initReviewForm();
   $('#review-summary').innerHTML = SALON.rating
     ? `<div style="text-align:center;">
          <div class="rating-score" style="font-size:44px;">${SALON.rating.toFixed(1)}</div>
@@ -308,7 +387,7 @@ function initReviewsPage() {
     ? SALON.reviews.map(reviewCard).join('')
     : `<p class="empty-state">${SALON.reviewCount
         ? `${SALON.reviewCount}件の評価をいただいています。<br />個別の口コミはただいま準備中です。`
-        : '口コミはまだ届いていません。<br />ご来店後のアンケートにご協力いただけると励みになります。'}</p>`;
+        : '口コミはまだ届いていません。<br />ご来店いただいた方は、下のフォームからご感想をお聞かせください。'}</p>`;
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

@@ -59,6 +59,7 @@
           <button class="tab" type="button" data-pane="menus" aria-selected="false">単品メニュー</button>
           <button class="tab" type="button" data-pane="coupons" aria-selected="false">おすすめメニュー</button>
           <button class="tab" type="button" data-pane="styles" aria-selected="false">写真</button>
+          <button class="tab" type="button" data-pane="reviews" aria-selected="false">口コミ</button>
           <button class="tab" type="button" data-pane="settings" aria-selected="false">店舗情報</button>
           <button class="btn btn-ghost btn-sm" type="button" id="forget-device"
                   style="margin-left:auto;">この端末の記憶を消す</button>
@@ -119,6 +120,19 @@
           <div id="style-rows"></div>
           <button class="btn btn-ghost btn-sm" type="button" data-add="styles">＋ 写真を追加</button>
           <button class="btn btn-primary btn-block" type="button" data-save="styles">写真を保存</button>
+        </div>
+
+        <!-- 口コミ -->
+        <div class="admin-pane" data-pane="reviews" hidden>
+          <p class="note" style="margin:0 0 16px;">
+            お客様から届いたご感想です。<b>「掲載中」にした分だけ</b>サイトに出ます。
+            届いた直後は「未承認」なので、確認するまで公開されません。<br />
+            本文は書き換えられないようにしてあります。お客様の言葉を変えて載せると、
+            景品表示法（ステルスマーケティング規制）に触れるおそれがあるためです。
+            掲載したくないものは「非掲載」にするか、行を削除してください。
+          </p>
+          <div id="review-rows"></div>
+          <button class="btn btn-primary btn-block" type="button" data-save="reviews">口コミを保存</button>
         </div>
 
         <!-- 店舗情報 -->

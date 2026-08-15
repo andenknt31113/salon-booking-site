@@ -743,3 +743,15 @@ table { border-collapse: collapse; width: 100%; }
 
 /* 日時変更のときに通らないステップ */
 .step.is-skipped { opacity: .35; pointer-events: none; }
+
+/* ============================================================
+   口コミの投稿フォーム
+   ============================================================ */
+/* 狭い画面では1列に落とす。minmax(0,…) が無いと長い placeholder で広がる */
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 0 16px; }
+.score-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.score-picker .radio-chip span { min-width: 56px; text-align: center; }
+textarea.input { resize: vertical; line-height: 1.8; }
+
+/* 口コミの本文は改行を活かす（お客様が書いたまま出す） */
+.review-body { white-space: pre-wrap; }

@@ -46,12 +46,17 @@ function bookingCard(r) {
       ? '<span class="status-chip is-past">ご来店済み</span>'
       : '<span class="status-chip">予約確定</span>';
 
+  // ご来店後は、ご感想をお願いする
+  const reviewLink = (past && !cancelled)
+    ? `<button class="btn btn-outline btn-sm" type="button" data-review="${esc(r.code)}">ご感想を書く</button>`
+    : '';
+
   const actions = isCancellable(r)
     ? changeBtn(r.code)
       + `<button class="btn btn-ghost btn-sm" type="button" data-cancel="${esc(r.code)}">この予約をキャンセルする</button>`
     : (!cancelled && !past)
       ? '<p style="font-size:12px;color:var(--ink-3);">※変更・キャンセルの受付期限を過ぎています。お手数ですが店舗までご連絡ください。</p>'
-      : '';
+      : reviewLink;
 
   return `
     <article class="booking-card ${cancelled ? 'is-cancelled' : ''}">
@@ -216,6 +221,14 @@ document.addEventListener('DOMContentLoaded', () => {
   /* 日時の変更。
      予約の中身（メニュー・担当・お客様情報）はそのままに、
      日時だけ選び直してもらいます。予約番号も変わりません。 */
+  // ご感想を書く（予約番号だけ渡す。電話番号は口コミページで入力してもらう）
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-review]');
+    if (!btn) return;
+    try { sessionStorage.setItem('salon.reviewCode', btn.dataset.review); } catch (err) { /* noop */ }
+    location.href = 'reviews.html#write';
+  });
+
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-change]');
     if (!btn) return;

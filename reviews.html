@@ -44,6 +44,90 @@
         </p>
       </div>
     </section>
+
+    <!-- 口コミの投稿 -->
+    <section class="section section-alt" id="write">
+      <div class="container-narrow" style="max-width:620px;">
+        <div class="section-head">
+          <span class="section-label">YOUR VOICE</span>
+          <h2 class="section-title">ご感想をお聞かせください</h2>
+        </div>
+        <div class="notice" id="review-gate">
+          <b>ご案内</b>
+          <span>
+            ご来店いただいた方のご感想のみ掲載しております。
+            お手元のご予約番号とお電話番号をご入力ください。
+          </span>
+        </div>
+
+        <div id="review-form">
+          <div class="form-row">
+            <label class="form-field">
+              <span class="field-label">ご予約番号<span class="required">必須</span></span>
+              <input class="input" type="text" id="rv-code" placeholder="LM-XXXXX" autocomplete="off" />
+            </label>
+            <label class="form-field">
+              <span class="field-label">お電話番号<span class="required">必須</span></span>
+              <input class="input" type="tel" id="rv-tel" placeholder="09012345678" autocomplete="tel" />
+            </label>
+          </div>
+
+          <div class="form-field">
+            <span class="field-label">満足度<span class="required">必須</span></span>
+            <div class="score-picker" id="rv-score">
+              <label class="radio-chip"><input type="radio" name="score" value="5" checked /><span>★5</span></label>
+              <label class="radio-chip"><input type="radio" name="score" value="4" /><span>★4</span></label>
+              <label class="radio-chip"><input type="radio" name="score" value="3" /><span>★3</span></label>
+              <label class="radio-chip"><input type="radio" name="score" value="2" /><span>★2</span></label>
+              <label class="radio-chip"><input type="radio" name="score" value="1" /><span>★1</span></label>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label class="form-field">
+              <span class="field-label">お名前（ニックネーム可）</span>
+              <input class="input" type="text" id="rv-nickname" placeholder="R.S" maxlength="30" />
+            </label>
+            <label class="form-field">
+              <span class="field-label">年代</span>
+              <select class="select" id="rv-age">
+                <option value="">選択しない</option>
+                <option>10代</option><option>20代</option><option>30代</option>
+                <option>40代</option><option>50代</option><option>60代以上</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="form-field">
+            <span class="field-label">タイトル</span>
+            <input class="input" type="text" id="rv-title" placeholder="仕上がりに満足しています" maxlength="60" />
+          </label>
+
+          <label class="form-field">
+            <span class="field-label">ご感想<span class="required">必須</span></span>
+            <textarea class="input" id="rv-body" rows="5"
+                      placeholder="施術の感想や、お店の雰囲気などをお聞かせください。"></textarea>
+          </label>
+
+          <p class="field-error" id="rv-error"></p>
+          <p style="font-size:11.5px;color:var(--muted);margin:4px 0 16px;line-height:1.7;">
+            いただいたご感想は、店舗が確認したうえで掲載いたします。
+            お電話番号が掲載されることはありません。
+          </p>
+          <button class="btn btn-primary btn-block" type="button" id="rv-submit">ご感想を送る</button>
+        </div>
+
+        <div id="review-thanks" hidden>
+          <div class="done-box" style="padding:32px 20px;">
+            <div class="done-icon" aria-hidden="true">✓</div>
+            <h3 style="font-size:18px;margin-bottom:10px;">ありがとうございました</h3>
+            <p class="section-desc">
+              ご感想をお預かりしました。店舗が確認のうえ掲載いたします。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div id="site-footer"></div>

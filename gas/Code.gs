@@ -21,6 +21,7 @@ const COUPON_SHEET  = 'おすすめメニュー';
 const CLOSED_SHEET  = '休業日';
 const SETTING_SHEET = '設定';
 const STYLE_SHEET   = 'スタイル';
+const REVIEW_SHEET  = '口コミ';
 
 /* 管理者ページのパスワード。
    ここに直接書かず、スクリプトプロパティに保存します。
@@ -121,6 +122,8 @@ const HEADERS = [
 const MENU_HEADERS   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_HEADERS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 const STYLE_HEADERS  = ['タイトル', '分類', 'タグ', '画像', '表示'];
+const REVIEW_HEADERS = ['投稿日', '予約番号', 'ニックネーム', '年代', '性別',
+                        '評価', 'タイトル', '本文', '担当', 'メニュー', '状態'];
 
 /* ============================================================
    受信の入口
@@ -142,6 +145,7 @@ function doPost(e) {
     if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
     if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
     if (data.type === 'change')       return json_(doChange_(getSheet_(), data));
+    if (data.type === 'review')       return json_(doReview_(getSheet_(), data));
     return json_(doReserve_(getSheet_(), data));
 
   } catch (err) {
@@ -332,6 +336,7 @@ function doMenu_() {
     categories: readMenuSheet_(ss),
     coupons: readCouponSheet_(ss),
     styles: readStyleSheet_(ss),
+    reviews: readReviewSheet_(ss),
     closedDates: readClosedSheet_(ss),
     settings: readSettings_(ss)
   };
@@ -441,6 +446,114 @@ function readStyleSheet_(ss) {
   });
 
   return out.length ? out : null;
+}
+
+/* 「口コミ」シート。
+   状態が「掲載中」の行だけをサイトに出します。
+   投稿された直後は「未承認」なので、店舗が確認するまで公開されません。 */
+function readReviewSheet_(ss) {
+  const sheet = ss.getSheetByName(REVIEW_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, REVIEW_HEADERS.length).getValues();
+  const col = n => REVIEW_HEADERS.indexOf(n);
+  const out = [];
+
+  rows.forEach((r, i) => {
+    if (String(r[col('状態')] || '').trim() !== '掲載中') return;
+    const body = String(r[col('本文')] || '').trim();
+    if (!body) return;
+    out.push({
+      id: 'rv' + i,
+      score: Number(r[col('評価')]) || 5,
+      nickname: String(r[col('ニックネーム')] || 'お客様'),
+      age: String(r[col('年代')] || ''),
+      gender: String(r[col('性別')] || ''),
+      date: normalizeDate_(r[col('投稿日')]) || '',
+      title: String(r[col('タイトル')] || ''),
+      body: body,
+      staffId: null,
+      staffName: String(r[col('担当')] || ''),
+      menu: String(r[col('メニュー')] || '')
+    });
+  });
+
+  // 新しいものから
+  out.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  return out.length ? out : null;
+}
+
+/* 口コミの受付。
+   予約番号と電話番号が一致した予約にだけ書けます。
+   実際にご来店いただいた方の声だけを載せるためで、
+   架空の口コミの掲載は景品表示法（ステルスマーケティング規制）に触れます。 */
+function doReview_(sheet, d) {
+  const body = String(d.body || '').trim();
+  if (!body) return { ok: false, error: 'ご感想をご入力ください。' };
+  if (body.length > 2000) return { ok: false, error: 'ご感想が長すぎます（2000文字まで）。' };
+
+  const row = findRowByCode_(sheet, d.code);
+  if (row === -1) return { ok: false, error: 'ご予約が確認できませんでした。' };
+
+  const col = n => HEADERS.indexOf(n);
+  const r = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
+
+  if (digits_(r[col('電話番号')]) !== digits_(d.tel)) {
+    return { ok: false, error: 'ご予約が確認できませんでした。' };
+  }
+  if (String(r[col('状態')] || '') === 'キャンセル') {
+    return { ok: false, error: 'キャンセルされたご予約には投稿いただけません。' };
+  }
+
+  // 来店前の予約には書けない
+  const visit = parseDateTime_(normalizeDate_(r[col('来店日')]), normalizeTime_(r[col('開始')]));
+  if (visit && visit.getTime() > Date.now()) {
+    return { ok: false, error: 'ご来店後にご投稿いただけます。' };
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const rv = ss.getSheetByName(REVIEW_SHEET) || ss.insertSheet(REVIEW_SHEET);
+  if (rv.getLastRow() === 0) {
+    rv.appendRow(REVIEW_HEADERS);
+    rv.getRange(1, 1, 1, REVIEW_HEADERS.length).setFontWeight('bold').setBackground('#f3efea');
+    rv.setFrozenRows(1);
+  }
+  // 同じ予約からの二重投稿を防ぐ
+  if (rv.getLastRow() > 1) {
+    const codes = rv.getRange(2, REVIEW_HEADERS.indexOf('予約番号') + 1, rv.getLastRow() - 1, 1).getValues();
+    if (codes.some(function (x) { return String(x[0]) === String(d.code); })) {
+      return { ok: false, error: 'このご予約にはすでにご感想をいただいています。ありがとうございます。' };
+    }
+  }
+
+  const score = Math.min(5, Math.max(1, Number(d.score) || 5));
+  rv.appendRow([
+    Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'),
+    d.code,
+    String(d.nickname || 'お客様').slice(0, 30),
+    String(d.age || '').slice(0, 10),
+    String(d.gender || '').slice(0, 10),
+    score,
+    String(d.title || '').slice(0, 60),
+    body,
+    String(r[col('担当')] || ''),
+    String(r[col('メニュー')] || ''),
+    '未承認'
+  ]);
+
+  notify_(
+    '【口コミが届きました】' + String(d.nickname || 'お客様'),
+    [
+      '評価：' + score,
+      'タイトル：' + String(d.title || ''),
+      '',
+      body,
+      '',
+      '※「未承認」の状態です。管理ページの口コミタブで「掲載中」にすると公開されます。'
+    ].join('\n')
+  );
+
+  return { ok: true };
 }
 
 /* 価格セルの読み取り。
@@ -717,6 +830,7 @@ function doAdminData_(d) {
     menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS),
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS),
     styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS),
+    reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ']),
     settings: readSettings_(ss)
   };
@@ -730,6 +844,7 @@ function doAdminSave_(d) {
   if (d.target === 'menus')   writeSheetRows_(ss, MENU_SHEET, MENU_HEADERS, d.rows);
   else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
   else if (d.target === 'styles')  writeSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, d.rows);
+  else if (d.target === 'reviews') writeSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, d.rows);
   else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ'], d.rows);
   else if (d.target === 'settings') writeSettings_(ss, d.rows);
   else return { ok: false, error: '不明な保存先です: ' + d.target };
@@ -927,7 +1042,7 @@ function json_(obj) {
    エディタ上部の関数選択で「はじめの準備」を選んで実行すると、
    次のことをまとめて行います。
 
-   1. 予約台帳・単品メニュー・おすすめメニュー・スタイル・休業日・設定 の6枚を作る
+   1. 予約台帳・単品メニュー・おすすめメニュー・スタイル・口コミ・休業日・設定 の7枚を作る
    2. 管理ページのパスワードを決める（下の PASSWORD に書いた文字列）
    3. 足りない設定があれば、実行ログに残りの手順を出す
 
@@ -943,7 +1058,7 @@ function はじめの準備() {
   // 1. シートをそろえる
   getSheet_();          // 予約台帳
   setupMenuSheets();    // 単品メニュー・おすすめメニュー・スタイル・休業日・設定
-  log.push('✅ シートを作成しました（予約一覧／メニュー／おすすめメニュー／スタイル／休業日／設定）');
+  log.push('✅ シートを作成しました（予約一覧／メニュー／おすすめメニュー／スタイル／口コミ／休業日／設定）');
 
   // 2. 管理ページのパスワード
   const props = PropertiesService.getScriptProperties();
@@ -1038,6 +1153,15 @@ function setupMenuSheets() {
      ['スパイキーショート', 'ショート', 'ショート,フェード', '', '○'],
      ['シャドウパーマ・マッシュ', 'パーマ', 'パーマ,マッシュ', '', '○'],
      ['店内', '店内', '半個室,ドリンクサービス', '', '○']].forEach(r => style.appendRow(r));
+  }
+
+  const review = ss.getSheetByName(REVIEW_SHEET) || ss.insertSheet(REVIEW_SHEET);
+  if (review.getLastRow() === 0) {
+    review.appendRow(REVIEW_HEADERS);
+    review.getRange(1, 1, 1, REVIEW_HEADERS.length).setFontWeight('bold').setBackground('#f3efea');
+    review.setFrozenRows(1);
+    review.setColumnWidth(REVIEW_HEADERS.indexOf('本文') + 1, 420);
+    review.getRange('K1').setNote('「掲載中」にした行だけがサイトに出ます。届いた直後は「未承認」です。');
   }
 
   const coupon = ss.getSheetByName(COUPON_SHEET) || ss.insertSheet(COUPON_SHEET);
