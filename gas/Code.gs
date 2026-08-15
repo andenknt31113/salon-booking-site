@@ -32,13 +32,59 @@ function adminPassword_() {
   return PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD') || '';
 }
 
+/* ---- 合言葉の入れまちがいを数える ----
+
+   この受け口は誰でも呼べます（そうしないとお客様の予約が届きません）。
+   つまり合言葉は、何度でも試せる状態に置かれています。短い合言葉なら
+   いつかは当たります。そこで、まちがいが続いたら、しばらく受け付けません。
+
+   記憶させた端末（トークン）はこの制限を通します。誰かがでたらめを
+   送り続けているあいだ、店の人まで管理ページに入れなくなっては、
+   困るのは店だからです。 */
+const ADMIN_FAIL_PROP = 'ADMIN_FAILS';
+const ADMIN_MAX_FAILS = 10;
+const ADMIN_LOCK_MINUTES = 15;
+
+function adminFails_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(ADMIN_FAIL_PROP) || '{}'); }
+  catch (e) { return {}; }
+}
+/** まちがいが続いていて、いま止めている状態か。残り分数を返す（0なら通す） */
+function adminLockedMinutes_() {
+  const f = adminFails_();
+  if (!f.n || f.n < ADMIN_MAX_FAILS) return 0;
+  const until = Number(f.at || 0) + ADMIN_LOCK_MINUTES * 60 * 1000;
+  const left = until - Date.now();
+  if (left <= 0) { clearAdminFails_(); return 0; }
+  return Math.ceil(left / 60000);
+}
+function noteAdminFail_() {
+  const f = adminFails_();
+  const now = Date.now();
+  // 前のまちがいから時間が空いていれば、数え直します
+  const fresh = Number(f.at || 0) + ADMIN_LOCK_MINUTES * 60 * 1000 > now;
+  PropertiesService.getScriptProperties().setProperty(ADMIN_FAIL_PROP,
+    JSON.stringify({ n: (fresh ? Number(f.n || 0) : 0) + 1, at: now }));
+}
+function clearAdminFails_() {
+  PropertiesService.getScriptProperties().deleteProperty(ADMIN_FAIL_PROP);
+}
+
 /** 管理操作の認証。合っていなければ例外を投げる。
     パスワードそのものか、ログイン時に発行した端末トークンのどちらかで通ります。 */
 function requireAdmin_(d) {
   const pw = adminPassword_();
   if (!pw) throw new Error('管理パスワードが未設定です。スクリプトプロパティに ADMIN_PASSWORD を登録してください。');
-  if (String(d.password || '') === pw) return;
+  // 記憶させた端末は、止めているあいだも通します
   if (d.token && validToken_(String(d.token))) return;
+
+  const left = adminLockedMinutes_();
+  if (left) {
+    throw new Error(`パスワードのまちがいが続いたため、${left}分ほどお待ちください。`);
+  }
+  if (String(d.password || '') === pw) { clearAdminFails_(); return; }
+  // 合言葉を入れたうえでまちがえたときだけ数えます
+  if (String(d.password || '')) noteAdminFail_();
   throw new Error('パスワードが違います。');
 }
 
@@ -184,7 +230,9 @@ function doPost(e) {
 
   } catch (err) {
     console.error(err);
-    return json_({ ok: false, error: String(err) });
+    /* 画面にそのまま出る文字です。「Error: 」が頭に付いたままだと、
+       店の人には何のことか分かりません。 */
+    return json_({ ok: false, error: String(err && err.message ? err.message : err).replace(/^Error:\s*/, '') });
   } finally {
     lock.releaseLock();
   }

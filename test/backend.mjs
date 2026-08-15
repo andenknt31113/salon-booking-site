@@ -536,6 +536,39 @@ console.log('\n【店側の入口】合い札');
   bad.out.ok ? note('入店', '違う合言葉でも入れる') : ok('違う合言葉では入れない');
 }
 
+console.log('\n【店側の入口】まちがいが続いたら');
+{
+  /* 受け口は誰でも呼べるので、合言葉は何度でも試せます。
+     短い合言葉が当てられないよう、続けてまちがえたら少し止めます。 */
+  const store = { ADMIN_PASSWORD: 'himitsu' };
+  let last;
+  for (let i = 0; i < 12; i++) last = admin('doAdminData_', { password: 'hazure' + i }, store);
+  last.out.ok ? note('総当たり', '何度でも試せる') : ok('まちがいを続けても入れない');
+
+  const right = admin('doAdminData_', { password: 'himitsu' }, store);
+  right.out.ok
+    ? note('総当たり', '10回まちがえた直後でも、すぐ試し続けられる')
+    : ok('まちがいが続いたら、正しい合言葉でもしばらく待たせる');
+  console.log('  そのときの返事:', String(right.out.error || right.out.threw).slice(0, 40));
+
+  /* 店の人まで締め出さないこと。記憶させた端末は通します。 */
+  const clean = { ADMIN_PASSWORD: 'himitsu' };
+  const login = admin('doAdminLogin_', { password: 'himitsu', remember: true }, clean);
+  for (let i = 0; i < 12; i++) admin('doAdminData_', { password: 'hazure' + i }, login.store);
+  admin('doAdminData_', { token: login.out.token }, login.store).out.ok
+    ? ok('記憶させた端末は、止めているあいだも入れる')
+    : note('記憶させた端末', 'まで入れなくなる（困るのは店です）');
+
+  /* お客様のキャンセルは合言葉を送りません。それを数えてはいけません。 */
+  const shop2 = { ADMIN_PASSWORD: 'himitsu' };
+  for (let i = 0; i < 12; i++) {
+    run('doCancel_', makeSheet([row()]), { code: 'LM-AAAAA', tel: '09011112222' });
+  }
+  admin('doAdminData_', { password: 'himitsu' }, shop2).out.ok
+    ? ok('お客様のキャンセルは、まちがい回数に数えない')
+    : note('お客様のキャンセル', 'が回数に数えられ、店が入れなくなる');
+}
+
 console.log('\n【店側の入口】保存');
 {
   let r = admin('doAdminSave_', { target: 'menus', rows: [] });
