@@ -85,6 +85,10 @@ const SALON_NAME    = 'ZER01 barber/lounge';
 const SALON_TEL     = '';                        // ★要確認（未確認のうちは空のまま）
 const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
 const SITE_URL      = 'https://andenknt31113.github.io/salon-booking-site/';
+/* LINE公式アカウントの友だち追加URL（https://lin.ee/xxxxxxx の形）。
+   入れると予約確認メールの末尾にご案内が入ります。空なら何も足しません。
+   assets/js/data.js の lineAddUrl と同じものを入れてください。 */
+const LINE_ADD_URL  = '';
 
 /* お客様へ予約確認メールを送るか（false にすると店舗への通知のみ） */
 const MAIL_TO_CUSTOMER = true;
@@ -290,6 +294,10 @@ function doReserve_(sheet, d) {
     'ご予約番号と電話番号を入力すると、どの端末からでもご確認いただけます。',
     '前日18時を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
     '',
+    LINE_ADD_URL ? '【次回のご予約はLINEから】' : '',
+    LINE_ADD_URL ? LINE_ADD_URL : '',
+    LINE_ADD_URL ? '友だち追加していただくと、前日のリマインドが届き、次回のご予約もワンタップで開けます。' : '',
+    LINE_ADD_URL ? '' : '',
     `${SALON_NAME}`,
     SALON_TEL ? `TEL ${SALON_TEL}` : '',
     SALON_ADDRESS

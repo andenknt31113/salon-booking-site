@@ -302,6 +302,24 @@ function initStep3() {
   });
 }
 
+/* 予約が取れた直後は、LINEの友だち追加をいちばんお願いしやすい瞬間です。
+   ここで登録していただけると、次回からホットペッパーを通さずに来ていただけます。
+   data.js の lineAddUrl が空のあいだは何も出しません。 */
+function renderLineInvite() {
+  const host = $('#line-invite');
+  if (!host || !SALON.lineAddUrl) return;
+  host.innerHTML = `
+    <p class="line-invite-title">次回のご予約は、LINEからワンタップで</p>
+    <p class="line-invite-text">
+      友だち追加していただくと、前日のリマインドが届き、
+      次回のご予約もこの画面まで一度で開けます。
+    </p>
+    <a class="btn btn-line" href="${esc(SALON.lineAddUrl)}" target="_blank" rel="noopener">
+      LINEで友だち追加
+    </a>`;
+  host.hidden = false;
+}
+
 /* ============================================================
  *  STEP4: 入力フォーム
  * ============================================================ */
@@ -680,6 +698,8 @@ async function submitReservation() {
   // 完了画面の「カレンダーに追加」に、いま取れた予約を渡す
   const calBtn = $('#add-to-calendar');
   if (calBtn) calBtn.onclick = () => downloadIcs(reservation);
+
+  renderLineInvite();
 
   clearDraft();
   // 次回この端末から予約されるときに入力し直さなくて済むように覚えておく

@@ -565,6 +565,16 @@ table { border-collapse: collapse; width: 100%; }
 .summary-total strong { font-family: var(--font-en); font-size: 24px; color: var(--accent); }
 .summary-note { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
+/* 予約完了後のLINE友だち追加のお誘い（lineAddUrl を入れたときだけ出ます） */
+.line-invite {
+  max-width: 520px; margin: 26px auto 0; padding: 20px 19px; text-align: center;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+}
+.line-invite-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+.line-invite-text { font-size: 13px; color: var(--text-2); line-height: 1.8; margin-bottom: 16px; }
+.btn-line { background: #06C755; border: 1px solid #06C755; color: #fff; }
+.btn-line:hover { background: #05B34D; border-color: #05B34D; color: #fff; }
+
 /* 前回の入力を覚えておいたときのカード（2回目以降の方向け） */
 .saved-profile {
   border: 1px solid var(--accent-dim); border-radius: var(--radius);
@@ -608,8 +618,15 @@ table { border-collapse: collapse; width: 100%; }
 }
 .radio-chip input:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 .radio-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-.checkbox-line { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--text-2); }
-.checkbox-line input { margin-top: 4px; flex: none; accent-color: var(--accent); }
+/* 必須の同意チェック。スマホで指先に対して13pxは小さいので広げてあります */
+.checkbox-line {
+  display: flex; align-items: flex-start; gap: 11px; font-size: 13px; color: var(--text-2);
+  cursor: pointer; padding: 6px 0;
+}
+.checkbox-line input {
+  width: 21px; height: 21px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer;
+}
+.checkbox-line > span { padding-top: 2px; }
 .field-error { color: #E08878; font-size: 12px; margin-top: 7px; display: none; }
 .form-field.has-error .input, .form-field.has-error .select, .form-field.has-error .textarea { border-color: var(--danger); }
 .form-field.has-error .field-error { display: block; }
@@ -750,6 +767,8 @@ table { border-collapse: collapse; width: 100%; }
   }
   .sp-cta .btn { flex: 1; padding: 14px 10px; }
   .sp-cta .btn-ghost { flex: 0 0 34%; }
+  /* 固定ボタンぶんの余白。出さないページには付けない */
+  body.has-sp-cta { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

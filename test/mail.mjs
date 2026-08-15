@@ -31,8 +31,11 @@ function makeSheet(rows) {
   };
 }
 
-function run(fnName, sheet, payload) {
+/* patch を渡すと Code.gs の中身を差し替えてから動かせます。
+   （LINEのURLを入れたときの文面を確かめるのに使っています） */
+function run(fnName, sheet, payload, patch) {
   sent.length = 0;
+  const code = patch ? patch(src) : src;
   const ctx = {
     console: { log() {}, warn() {}, error() {} },
     MailApp: { sendEmail: (to, subject, body) => sent.push({ 宛先: to, 件名: subject, 本文: body }) },
@@ -51,7 +54,7 @@ function run(fnName, sheet, payload) {
     }
   };
   vm.createContext(ctx);
-  vm.runInContext(src + `;globalThis.__fn = ${fnName};`, ctx);
+  vm.runInContext(code + `;globalThis.__fn = ${fnName};`, ctx);
   const out = ctx.__fn(sheet, payload);
   return { out, sent: sent.map(m => ({ ...m })) };
 }
@@ -146,6 +149,35 @@ function inspect(label, messages) {
   const r = run('doCancel_', sheet, { code: 'LM-MAIL5', tel: '09099990000' });
   console.log('\n返り値:', JSON.stringify(r.out));
   inspect('5. キャンセル', r.sent);
+}
+
+/* ---- 6. LINEのURLを入れたとき／入れていないとき ---- */
+{
+  const payload = {
+    code: 'LM-MAIL6', createdAt: new Date().toISOString(),
+    date: '2026-09-25', time: '15:00', endTime: '16:10', totalMinutes: 70,
+    menus: [{ name: 'メンズカット' }], staffName: 'MATTEO', staffId: 'st01',
+    nominationFee: 0, totalPrice: 4000,
+    customer: { name: '中村 四郎', kana: 'ナカムラ シロウ', tel: '09012120000',
+                email: 'v@example.com', visit: '初めて', request: '' }
+  };
+  const withLine = run('doReserve_', makeSheet([]), payload,
+    s => s.replace("const LINE_ADD_URL  = '';", "const LINE_ADD_URL  = 'https://lin.ee/testtest';"));
+  inspect('6. LINEのURLを入れたとき', withLine.sent);
+  const toCustomer = withLine.sent.find(m => m.宛先 === 'v@example.com');
+  if (!toCustomer || !toCustomer.本文.includes('https://lin.ee/testtest')) {
+    problems.push('6. LINEのURLを入れたのに、確認メールに友だち追加の案内が入っていない');
+  }
+
+  const without = run('doReserve_', makeSheet([]), payload);
+  const plain = without.sent.find(m => m.宛先 === 'v@example.com');
+  if (plain && /LINE/.test(plain.本文)) {
+    problems.push('6. LINEのURLが空なのに、確認メールにLINEの案内が出ている');
+  }
+  // 空欄が連続して不自然な空行になっていないか
+  if (plain && /\n\n\n/.test(plain.本文)) {
+    problems.push('6. LINEのURLが空のとき、確認メールに余計な空行が残っている');
+  }
 }
 
 console.log('\n' + '='.repeat(52));

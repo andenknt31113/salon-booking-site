@@ -48,7 +48,8 @@ async function book(p, { name, tel, menuIndex = 0, slotIndex = 0 }) {
   await p.fill('#f-name', name); await p.fill('#f-kana', 'テスト');
   await p.fill('#f-tel', tel); await p.fill('#f-email', 'test@example.com');
   await p.locator('label.radio-chip:has-text("初めて")').first().click();
-  const ag = p.locator('#f-agree'); if (await ag.count()) await ag.check({ force: true });
+  // 実際のお客様と同じく、文言のほう（ラベル）を押して同意する
+  await p.locator('.checkbox-line > span').click();
   await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(600);
   await p.locator('#submit-reservation').click(); await p.waitForTimeout(1800);
 
@@ -357,7 +358,8 @@ console.log('\n【UC13】2回目のお客様が、前回の入力のまま予約
   check('UC13', 'それでも同意チェックは自分で押す', await p.locator('#f-agree').isChecked(), false);
 
   // 同意だけ押して、そのまま予約できる
-  await p.locator('#f-agree').check({ force: true });
+  await p.locator('.checkbox-line > span').click();
+  check('UC13', '同意チェックが入る', await p.locator('#f-agree').isChecked(), true);
   await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(700);
   check('UC13', '入力し直さずに確認へ進める',
     (await p.locator('#confirm-body').innerText()).includes('常連 八郎'), true);

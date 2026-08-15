@@ -742,6 +742,8 @@ function renderFooter() {
   const host = $('#site-footer');
   if (!host) return;
   const year = new Date().getFullYear();
+  // 固定ボタンの下にコピーライトが隠れないよう、出すページだけ余白を足す
+  document.body.classList.toggle('has-sp-cta', !!stickyCta());
   host.innerHTML = `
     <footer class="site-footer">
       <div class="container">
@@ -769,6 +771,9 @@ function renderFooter() {
             <ul>
               <li><a href="reserve.html">空席状況・ネット予約</a></li>
               <li><a href="mypage.html">ご予約の確認・キャンセル</a></li>
+              ${SALON.lineAddUrl
+                ? `<li><a href="${esc(SALON.lineAddUrl)}" target="_blank" rel="noopener">LINEで友だち追加</a></li>`
+                : ''}
               <li><a href="index.html#faq">よくあるご質問</a></li>
               <li><a href="privacy.html">プライバシーポリシー</a></li>
               <li><a href="admin.html">スタッフ用 予約管理</a></li>
@@ -778,6 +783,17 @@ function renderFooter() {
         <p class="copyright">&copy; ${year} ${esc(SALON.name)}. All rights reserved.</p>
       </div>
     </footer>
+    ${stickyCta()}`;
+}
+
+/* 画面下に貼りつく予約ボタン。
+   予約ページと予約確認ページでは出しません。予約の途中に「予約する」が
+   ずっと居座ると、いま押すべきボタン（次へ・この内容で予約する）と紛らわしく、
+   画面も狭くなるためです。 */
+function stickyCta() {
+  const page = currentPage();
+  if (page === 'reserve.html' || page === 'mypage.html') return '';
+  return `
     <div class="sp-cta">
       ${SALON.tel ? `<a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>` : ''}
       <a class="btn btn-primary" href="reserve.html">24時間ネット予約</a>
