@@ -484,7 +484,10 @@ function applyQueryParams() {
 }
 
 /* ---------- 起動 ---------- */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // スプレッドシートにメニューがあれば取り込む（無ければ data.js のまま）
+  await Catalog.load();
+
   loadDraft();
   applyQueryParams();
   if (state.step === 6) state.step = 1;

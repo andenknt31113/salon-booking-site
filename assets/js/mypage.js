@@ -72,6 +72,76 @@ function render() {
     : '<div class="empty-state">過去のご予約はありません。</div>';
 }
 
+/* ============================================================
+ *  予約番号 + 電話番号での照会
+ * ============================================================ */
+function renderLookupResult(r) {
+  const cancelled = r.status === 'キャンセル';
+  const dt = fromKey(r.date);
+  dt.setMinutes(toMinutes(r.time));
+  const past = dt.getTime() < Date.now();
+
+  const deadline = fromKey(r.date);
+  deadline.setDate(deadline.getDate() - 1);
+  deadline.setHours(18, 0, 0, 0);
+  const canCancel = !cancelled && !past && Date.now() < deadline.getTime();
+
+  const chip = cancelled
+    ? '<span class="status-chip is-cancelled">キャンセル済み</span>'
+    : past
+      ? '<span class="status-chip is-past">ご来店済み</span>'
+      : '<span class="status-chip">予約確定</span>';
+
+  $('#lookup-result').innerHTML = `
+    <article class="booking-card ${cancelled ? 'is-cancelled' : ''}">
+      <div class="booking-head">
+        ${chip}
+        <span class="booking-code">予約番号 ${esc(r.code)}</span>
+      </div>
+      <p class="booking-when">${formatDateJa(r.date)} ${esc(r.time)}〜${esc(r.endTime || '')}</p>
+      <p class="booking-detail">${esc(r.name)} 様</p>
+      <p class="booking-detail">メニュー：${esc(r.menuText)}</p>
+      <p class="booking-detail">ご担当：${esc(r.staffName)}</p>
+      <p class="booking-detail">合計：<strong>${yen(r.totalPrice)}</strong>（税込・約${formatDuration(r.totalMinutes)}）</p>
+      ${canCancel
+        ? `<div style="margin-top:14px;">
+             <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>
+           </div>`
+        : (!cancelled && !past)
+          ? '<p style="font-size:12px;color:var(--muted);margin-top:12px;">※キャンセル受付期限を過ぎています。店舗までご連絡ください。</p>'
+          : ''}
+    </article>`;
+}
+
+async function doLookup() {
+  const btn = $('#lookup-btn');
+  const code = $('#lookup-code').value.trim();
+  const tel = $('#lookup-tel').value.trim();
+  const err = $('#lookup-error');
+
+  err.style.display = 'none';
+  $('#lookup-result').innerHTML = '';
+
+  if (!code || !tel) {
+    err.textContent = 'ご予約番号とお電話番号の両方をご入力ください。';
+    err.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '照会中…';
+  const res = await lookupReservation(code, tel);
+  btn.disabled = false;
+  btn.textContent = 'ご予約を確認する';
+
+  if (!res.ok) {
+    err.textContent = res.error || 'ご予約が見つかりませんでした。';
+    err.style.display = 'block';
+    return;
+  }
+  renderLookupResult(res.reservation);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const tel = $('#tel-link');
   if (SALON.tel) {
@@ -94,6 +164,32 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#clear-btn').addEventListener('click', () => {
     filterCode = '';
     $('#search-code').value = '';
+    render();
+  });
+
+  // 照会フォーム
+  $('#lookup-btn').addEventListener('click', doLookup);
+  $('#lookup-tel').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLookup();
+  });
+  // 受信先が未設定のあいだは照会が使えないので、その旨を出しておく
+  if (!SALON.reservationEndpoint) {
+    $('#lookup-box').innerHTML =
+      '<p class="empty-state" style="padding:20px;">'
+      + 'ご予約番号での照会は、オンライン受付の準備が整い次第ご利用いただけます。'
+      + '</p>';
+  }
+
+  // 照会結果からのキャンセル（電話番号の一致を店舗側でも確認します）
+  document.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-lookup-cancel]');
+    if (!btn) return;
+    if (!confirm('このご予約をキャンセルします。よろしいですか？')) return;
+    btn.disabled = true;
+    const code = btn.dataset.lookupCancel;
+    await sendToEndpoint({ type: 'cancel', code, tel: $('#lookup-tel').value.trim() });
+    Store.cancel(code); // この端末にも記録があれば同期する
+    await doLookup();
     render();
   });
 

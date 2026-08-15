@@ -344,6 +344,62 @@ const Remote = {
   }
 };
 
+/* ============================================================
+ *  メニュー・クーポンの取り込み
+ *  スプレッドシートの「メニュー」「クーポン」シートに行があれば、
+ *  そちらを優先して使います。無ければ data.js の内容のまま動きます。
+ * ============================================================ */
+const Catalog = {
+  loaded: false,
+  source: 'local',   // 'local' = data.js / 'sheet' = スプレッドシート
+
+  async load() {
+    if (this.loaded) return this.source;
+    this.loaded = true;
+    if (!SALON.reservationEndpoint) return this.source;
+
+    try {
+      const res = await fetch(SALON.reservationEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ type: 'menu' })
+      });
+      const data = await res.json();
+
+      // 中身があるときだけ差し替える（空のシートで消えてしまわないように）
+      if (Array.isArray(data.categories) && data.categories.length) {
+        SALON.menuCategories = data.categories;
+        this.source = 'sheet';
+      }
+      if (Array.isArray(data.coupons) && data.coupons.length) {
+        SALON.coupons = data.coupons;
+        this.source = 'sheet';
+      }
+    } catch (e) {
+      console.warn('メニューを取得できませんでした。掲載中の内容で表示します。', e);
+    }
+    return this.source;
+  }
+};
+
+/** 予約番号と電話番号でご予約を照会する（ログインの代わり） */
+async function lookupReservation(code, tel) {
+  if (!SALON.reservationEndpoint) {
+    return { ok: false, error: 'ただいまオンラインでの照会をご利用いただけません。' };
+  }
+  try {
+    const res = await fetch(SALON.reservationEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ type: 'lookup', code: code, tel: tel })
+    });
+    return await res.json();
+  } catch (e) {
+    console.warn('照会に失敗しました', e);
+    return { ok: false, error: '通信に失敗しました。時間をおいてお試しください。' };
+  }
+}
+
 /** キャンセルを受信先へ通知する（予約台帳の状態を更新するため） */
 function sendCancellation(reservation) {
   return sendToEndpoint({

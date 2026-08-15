@@ -236,7 +236,10 @@ function initReviewsPage() {
         : '口コミはまだ届いていません。<br />ご来店後のアンケートにご協力いただけると励みになります。'}</p>`;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // スプレッドシートにメニューがあれば取り込む（無ければ data.js のまま）
+  await Catalog.load();
+
   const page = document.body.dataset.page;
   ({
     home: initHome,
