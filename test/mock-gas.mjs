@@ -43,9 +43,15 @@ const types = {
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml'
 };
+/* テスト用：応答をわざと遅らせる（通信が遅い状況の再現）。
+   {"type":"slowmode","ms":2000} を送ると以降の応答が遅くなる。 */
+const SLOW = { ms: 0 };
 const reply = (res, obj) => {
-  res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-  res.end(JSON.stringify(obj));
+  const send = () => {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(obj));
+  };
+  SLOW.ms ? setTimeout(send, SLOW.ms) : send();
 };
 const ADMIN_PW = 'test1234';
 const TOKENS = new Set();
@@ -126,6 +132,7 @@ http.createServer((req, res) => {
     req.on('data', c => body += c);
     req.on('end', () => {
       const d = JSON.parse(body);
+      if (d.type === 'slowmode') { SLOW.ms = Number(d.ms) || 0; const t = SLOW.ms; SLOW.ms = 0; const r = { ok: true, ms: t }; reply(res, r); SLOW.ms = t; return; }
 
       // テスト用：受信側が失敗を返す状態を作る
       if (d.type === 'failmode') { FAIL.on = !!d.on; return reply(res, { ok:true, fail: FAIL.on }); }

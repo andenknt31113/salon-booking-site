@@ -145,6 +145,7 @@ node test/mail.mjs          # メールの文面（ブラウザ不要）
 node test/mock-gas.mjs      # Apps Script の代わりのテスト用サーバー
 node test/usecase.mjs       # 別のターミナルで実行
 node test/quality.mjs       # 構造化データ・OGP・操作しやすさ
+node test/slow.mjs          # 通信が遅いときの表示
 ```
 
 予約・確認・変更・キャンセル・口コミ・休業日・値段変更に加えて、

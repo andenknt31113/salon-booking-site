@@ -57,6 +57,17 @@ function seededRandom(str) {
   }
   return (h >>> 0) / 4294967296;
 }
+/* 一覧はスプレッドシートが届いたあとにもう一度描く。
+   そのとき同じリスナーを二重に張らないための目印。
+   二重に張ると1回のタップが2回分になり、選んだ直後に解除されてしまう。
+   （2つのファイルで別々に持つと、両方を読み込む場面で衝突するのでここに置く） */
+const boundOnce = new Set();
+function bindOnce(key, fn) {
+  if (boundOnce.has(key)) return;
+  boundOnce.add(key);
+  fn();
+}
+
 /** HTMLエスケープ */
 function esc(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => (

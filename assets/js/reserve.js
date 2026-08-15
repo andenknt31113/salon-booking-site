@@ -132,14 +132,14 @@ function initStep1() {
     .join('');
   renderMenuChoices('all');
 
-  tabsHost.addEventListener('click', e => {
+  bindOnce('menu-cat-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
     $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     renderMenuChoices(tab.dataset.cat);
-  });
+  }));
 
-  $('#coupon-choices').addEventListener('click', e => {
+  bindOnce('coupon-choices', () => $('#coupon-choices').addEventListener('click', e => {
     const btn = e.target.closest('[data-coupon]');
     if (!btn) return;
     const id = btn.dataset.coupon;
@@ -148,9 +148,9 @@ function initStep1() {
     renderCouponChoices();
     updateSummary();
     saveDraft();
-  });
+  }));
 
-  $('#menu-choices').addEventListener('click', e => {
+  bindOnce('menu-choices', () => $('#menu-choices').addEventListener('click', e => {
     const btn = e.target.closest('[data-menu]');
     if (!btn) return;
     const id = btn.dataset.menu;
@@ -161,7 +161,7 @@ function initStep1() {
     btn.classList.toggle('is-selected', state.menuIds.includes(id));
     updateSummary();
     saveDraft();
-  });
+  }));
 }
 
 /* ============================================================
@@ -188,7 +188,7 @@ function renderStaffChoices() {
 
 function initStep2() {
   renderStaffChoices();
-  $('#staff-choices').addEventListener('click', e => {
+  bindOnce('staff-choices', () => $('#staff-choices').addEventListener('click', e => {
     const btn = e.target.closest('[data-staff]');
     if (!btn) return;
     state.staffId = btn.dataset.staff || null;
@@ -197,7 +197,7 @@ function initStep2() {
     renderStaffChoices();
     updateSummary();
     saveDraft();
-  });
+  }));
 }
 
 /* ============================================================
@@ -760,11 +760,31 @@ function applyQueryParams(search) {
   }
 }
 
-/* ---------- 起動 ---------- */
-document.addEventListener('DOMContentLoaded', async () => {
-  // スプレッドシートにメニューがあれば取り込む（無ければ data.js のまま）
-  await Catalog.load();
+/* スプレッドシートが届いたあと、選択を引き継ぐ。
+   シート管理に切り替わるとメニューのIDが変わる（cp01 → sc0）ため、
+   IDでは追えない。名前で同じものを探し直す。
+   取得を待たずに描いているので、待っているあいだに選ばれることがある。 */
+function remapSelection(before) {
+  if (!before.couponId && !before.menuIds.length) return;
 
+  const sameName = (list, name) => list.find(x => (x.title || x.name) === name);
+
+  if (before.couponName) {
+    const c = sameName(SALON.coupons, before.couponName);
+    state.couponId = c ? c.id : null;
+  }
+  state.menuIds = before.menuNames
+    .map(n => { const m = sameName(allMenuItems(), n); return m ? m.id : null; })
+    .filter(Boolean);
+
+  // 見つからなかったものがあれば、日時は選び直してもらう（所要時間が変わるため）
+  const lost = (before.couponName && !state.couponId)
+    || state.menuIds.length !== before.menuIds.length;
+  if (lost) resetDateTime();
+}
+
+/* ---------- 起動 ---------- */
+document.addEventListener('DOMContentLoaded', () => {
   loadDraft();
   dropUnknownSelections();
 
@@ -805,6 +825,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   $('#submit-reservation').addEventListener('click', submitReservation);
+
+  /* メニューをスプレッドシートから取り込む。
+     待ってから描くと、応答が遅いあいだ選択肢が1つも出ません。
+     先に掲載中の内容で描き、届いたら中身だけ入れ替えます。 */
+  Catalog.load().then(source => {
+    if (source !== 'sheet') return;
+    const before = {
+      couponId: state.couponId,
+      couponName: state.couponId
+        ? (SALON.coupons.find(c => c.id === state.couponId) || {}).title : '',
+      menuIds: [...state.menuIds],
+      menuNames: state.menuIds
+        .map(id => (allMenuItems().find(m => m.id === id) || {}).name)
+        .filter(Boolean)
+    };
+    remapSelection(before);
+    initStep1();
+    renderStaffChoices();
+    if (state.step === 3) renderCalendar();
+    updateSummary();
+    renderStep();
+    saveDraft();
+  });
 
   // 他のお客様の予約状況を取得し、届いたらカレンダーを描き直す
   Remote.load().then(ok => {

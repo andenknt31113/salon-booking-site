@@ -148,13 +148,13 @@ function renderFaq(host) {
       <div class="faq-a"><span>${esc(f.a)}</span></div>
     </div>`).join('');
 
-  host.addEventListener('click', e => {
+  bindOnce('faq', () => host.addEventListener('click', e => {
     const btn = e.target.closest('.faq-q');
     if (!btn) return;
     const item = btn.closest('.faq-item');
     const open = item.classList.toggle('is-open');
     btn.setAttribute('aria-expanded', String(open));
-  });
+  }));
 }
 
 /* ---------- 店舗情報 ---------- */
@@ -274,12 +274,12 @@ function initMenuPage() {
   draw('all');
   wireImageFallbacks($('#coupon-list'));
 
-  tabsHost.addEventListener('click', e => {
+  bindOnce('menu-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
     $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     draw(tab.dataset.cat);
-  });
+  }));
 }
 
 function initStaffPage() {
@@ -302,12 +302,12 @@ function initGalleryPage() {
   };
   draw('すべて');
 
-  tabsHost.addEventListener('click', e => {
+  bindOnce('style-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
     $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     draw(tab.dataset.len);
-  });
+  }));
 }
 
 /* ---------- 口コミの投稿 ---------- */
@@ -334,7 +334,7 @@ function initReviewForm() {
   } catch (e) { /* noop */ }
 
   const err = $('#rv-error');
-  $('#rv-submit').addEventListener('click', async () => {
+  bindOnce('review-submit', () => $('#rv-submit').addEventListener('click', async () => {
     const btn = $('#rv-submit');
     const payload = {
       code: $('#rv-code').value.trim(),
@@ -373,7 +373,7 @@ function initReviewForm() {
     $('#review-gate').hidden = true;
     $('#review-thanks').hidden = false;
     $('#review-thanks').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
+  }));
 }
 
 function initReviewsPage() {
@@ -392,16 +392,27 @@ function initReviewsPage() {
         : '口コミはまだ届いていません。<br />ご来店いただいた方は、下のフォームからご感想をお聞かせください。'}</p>`;
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  // スプレッドシートにメニューがあれば取り込む（無ければ data.js のまま）
-  await Catalog.load();
+/* 起動。
+   まず掲載中の内容（data.js）ですぐ描き、
+   スプレッドシートが届いたら描き直します。
 
+   取得を待ってから描いていたころは、Apps Script の応答が遅いあいだ
+   （久しぶりの呼び出しでは数秒かかります）トップのキャッチコピーすら
+   出ませんでした。LINEから来た方が最初に見る画面が空白になります。 */
+document.addEventListener('DOMContentLoaded', () => {
   const page = document.body.dataset.page;
-  ({
+  const init = {
     home: initHome,
     menu: initMenuPage,
     staff: initStaffPage,
     gallery: initGalleryPage,
     reviews: initReviewsPage
-  }[page] || (() => {}))();
+  }[page] || (() => {});
+
+  init();
+
+  Catalog.load().then(source => {
+    // シートに中身があったときだけ描き直す（同じ内容で2度描かない）
+    if (source === 'sheet') init();
+  });
 });
