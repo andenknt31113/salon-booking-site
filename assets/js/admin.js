@@ -31,6 +31,10 @@ const SETTING_KEYS = [
   ['最終受付', 'time', ''],
   ['キャッチコピー', 'text', 'トップの大見出しに出ます'],
   ['お知らせ', 'text', 'トップの上部に帯で出ます。空欄なら出ません'],
+  ['LINE友だち追加URL', 'url',
+   'LINE公式アカウントの「友だち追加」URL（https://lin.ee/… ）。入れると予約完了画面とフッターに案内が出ます'],
+  ['Google口コミURL', 'url',
+   'Googleビジネスプロフィールの「クチコミを書く」URL。空欄なら案内を出しません'],
   ['ロゴ画像', 'image', 'ヘッダーとトップに出るロゴ。写真を選ぶと自動で入ります'],
   ['スタッフ写真', 'image', 'スタッフ紹介に出る写真'],
   ['メイン写真', 'image', 'トップの一番上に大きく出る写真。店内や施術中の写真がおすすめです']
@@ -396,7 +400,8 @@ function renderSettings() {
     return `
     <label class="form-field">
       <span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">${esc(key)}</span>
-      <input class="input" type="${type === 'time' ? 'time' : 'text'}"
+      <input class="input" type="${type === 'time' ? 'time' : type === 'url' ? 'url' : 'text'}"
+             ${type === 'url' ? 'inputmode="url" placeholder="https://" ' : ''}
              value="${esc(edits.settings[key] ?? '')}" data-setting="${esc(key)}" />
       ${hint ? `<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:5px;">${esc(hint)}</span>` : ''}
     </label>`;

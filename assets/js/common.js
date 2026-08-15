@@ -545,6 +545,25 @@ function applySettings(st) {
     b.lastOrder = b.closeTime;
   }
   set('キャッチコピー', v => { SALON.catch = v; });
+
+  /* 外部サービスのURL。
+     LINE公式アカウントを開設した日に、店側がスマホから貼れるようにします。
+     ここをコード側だけにしておくと、いちばん貼りたい日に貼れません。
+     ただし貼り先が http(s) でないと、押した人を思わぬ場所へ飛ばしてしまうので、
+     形が違うものは受け取りません。 */
+  const url = v => (/^https?:\/\//i.test(v) ? v : null);
+  const setUrl = (key, apply) => {
+    const raw = st[key];
+    if (raw === undefined) return;
+    const t = String(raw).trim();
+    if (t === '') { apply(''); return; }        // 空欄にすれば案内を消せます
+    const ok = url(t);
+    if (ok) apply(ok);
+    else console.warn(`設定シートの「${key}」は https:// から始まる形で入力してください（${t}）。`);
+  };
+  setUrl('LINE友だち追加URL', v => { SALON.lineAddUrl = v; });
+  setUrl('Google口コミURL', v => { SALON.googleReviewUrl = v; });
+
   set('ロゴ画像', v => { SALON.logo = v; });
   set('スタッフ写真', v => { if (SALON.staff[0]) SALON.staff[0].image = v; });
   set('メイン写真', v => { SALON.heroImage = v; });

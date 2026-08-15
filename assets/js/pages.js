@@ -372,8 +372,26 @@ function initReviewForm() {
     form.hidden = true;
     $('#review-gate').hidden = true;
     $('#review-thanks').hidden = false;
+    renderGoogleReviewLink();
     $('#review-thanks').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
+}
+
+/* ご感想をいただいた直後だけ、Googleにも書いていただけないかお願いします。
+   このサイトの口コミは店が下げられるので、外から見た信用にはなりません。
+   信用になるのはGoogle側です（DECISIONS.md）。
+   店舗情報にURLを入れていないあいだは何も出しません。 */
+function renderGoogleReviewLink() {
+  const host = $('#google-review');
+  if (!host || !SALON.googleReviewUrl) return;
+  host.innerHTML = `
+    <p style="font-size:13px;color:var(--text-2);line-height:1.8;margin:20px 0 14px;">
+      よろしければ、Googleにも同じ内容をお寄せいただけると励みになります。
+    </p>
+    <a class="btn btn-outline" href="${esc(SALON.googleReviewUrl)}" target="_blank" rel="noopener">
+      Googleにクチコミを書く
+    </a>`;
+  host.hidden = false;
 }
 
 function initReviewsPage() {

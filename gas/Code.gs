@@ -275,6 +275,7 @@ function doReserve_(sheet, d) {
     c.request ? `ご要望：${c.request}` : ''
   ].filter(Boolean).join('\n'));
 
+  const lineUrl = lineAddUrl_();
   mailCustomer_(c.email, `ご予約を承りました（${d.date} ${d.time}）`, [
     `${or_(c.name, 'お客様')} 様`,
     '',
@@ -294,10 +295,10 @@ function doReserve_(sheet, d) {
     'ご予約番号と電話番号を入力すると、どの端末からでもご確認いただけます。',
     '前日18時を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
     '',
-    LINE_ADD_URL ? '【次回のご予約はLINEから】' : '',
-    LINE_ADD_URL ? LINE_ADD_URL : '',
-    LINE_ADD_URL ? '友だち追加していただくと、前日のリマインドが届き、次回のご予約もワンタップで開けます。' : '',
-    LINE_ADD_URL ? '' : '',
+    lineUrl ? '【次回のご予約はLINEから】' : '',
+    lineUrl || '',
+    lineUrl ? '友だち追加していただくと、前日のリマインドが届き、次回のご予約もワンタップで開けます。' : '',
+    lineUrl ? '' : '',
     `${SALON_NAME}`,
     SALON_TEL ? `TEL ${SALON_TEL}` : '',
     SALON_ADDRESS
@@ -1068,6 +1069,18 @@ function writeSheetRows_(ss, name, headers, rows) {
   if (body.length) sheet.getRange(2, 1, body.length, headers.length).setValues(body);
 }
 
+/* 友だち追加URLは「設定」シートから読みます。
+   管理ページから貼れる場所に置いておかないと、
+   LINEを開設した日に、コードを触れる人を待つことになるためです。
+   シートが空のときだけ、上の LINE_ADD_URL を使います。 */
+function lineAddUrl_() {
+  try {
+    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['LINE友だち追加URL'] || '').trim();
+    if (/^https?:\/\//i.test(v)) return v;
+  } catch (e) { /* シートが読めないときは下の定数で */ }
+  return LINE_ADD_URL;
+}
+
 /** 設定シート（項目 / 内容 の2列） */
 function readSettings_(ss) {
   const sheet = ss.getSheetByName(SETTING_SHEET);
@@ -1291,8 +1304,10 @@ function setupMenuSheets() {
     setting.setColumnWidth(2, 420);
     [['電話番号', ''], ['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00'],
      ['キャッチコピー', ''], ['お知らせ', ''], ['定休曜日', ''],
+     ['LINE友だち追加URL', ''], ['Google口コミURL', ''],
      ['ロゴ画像', ''], ['スタッフ写真', ''], ['メイン写真', '']].forEach(r => setting.appendRow(r));
     setting.getRange('B8').setNote('休みにする曜日を「日,水」のように書きます。毎週その曜日が予約できなくなります。');
+    setting.getRange('B9').setNote('LINE公式アカウントの友だち追加URL（https://lin.ee/… ）。入れると予約完了画面に案内が出ます。');
   }
 
   const style = ss.getSheetByName(STYLE_SHEET) || ss.insertSheet(STYLE_SHEET);

@@ -383,6 +383,56 @@ console.log('\n【UC13】2回目のお客様が、前回の入力のまま予約
 }
 
 /* ============================================================
+   UC14 LINE公式アカウントを開設し、店がその日のうちに反映する
+   ============================================================ */
+console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映する');
+{
+  const p = await newPhone('UC14');
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1300);
+  check('UC14', '入れる前は案内が出ていない',
+    await p.locator('.site-footer a[href*="lin.ee"]').count(), 0);
+
+  // 店が管理ページの「店舗情報」からURLを貼る
+  const a = await newPhone('UC14-店');
+  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
+  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
+  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  await a.locator('.tab', { hasText: '店舗情報' }).first().click(); await a.waitForTimeout(500);
+  await a.fill('[data-setting="LINE友だち追加URL"]', 'https://lin.ee/zer01test');
+  await a.locator('[data-save="settings"]').first().click(); await a.waitForTimeout(1800);
+  check('UC14', 'コードを触らずに保存できる',
+    ((await post({ type: 'adminData', password: PW })).settings || {})['LINE友だち追加URL'],
+    'https://lin.ee/zer01test');
+  await a.context().close();
+
+  await p.reload(); await p.waitForTimeout(1500);
+  check('UC14', '貼った直後からサイトに出る',
+    await p.locator('.site-footer a[href="https://lin.ee/zer01test"]').count(), 1);
+
+  // おかしなURLは受け取らない（押した人を思わぬ場所へ飛ばさない）
+  const b2 = await newPhone('UC14-悪い値');
+  await b2.goto(B + '/admin.html'); await b2.waitForTimeout(900);
+  await b2.fill('#passcode', PW); await b2.locator('#remember-me').setChecked(false);
+  await b2.click('#gate-btn'); await b2.waitForTimeout(1700);
+  await b2.locator('.tab', { hasText: '店舗情報' }).first().click(); await b2.waitForTimeout(500);
+  await b2.fill('[data-setting="LINE友だち追加URL"]', 'javascript:alert(1)');
+  await b2.locator('[data-save="settings"]').first().click(); await b2.waitForTimeout(1800);
+  await b2.context().close();
+
+  await p.reload(); await p.waitForTimeout(1500);
+  check('UC14', 'https以外のURLは採用しない',
+    await p.evaluate(() => SALON.lineAddUrl), '');
+  check('UC14', '変なリンクがサイトに出ない',
+    await p.locator('.site-footer a[href^="javascript:"]').count(), 0);
+  await p.context().close();
+
+  // あと片付け（この先の試験に影響させない）
+  await post({ type: 'adminSave', password: PW, target: 'settings',
+    rows: { ...(await post({ type: 'adminData', password: PW })).settings,
+            'LINE友だち追加URL': '' } });
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
