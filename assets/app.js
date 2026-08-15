@@ -102,9 +102,19 @@ const findStaff = id => SALON.staff.find(s => s.id === id);
    予約データ（この端末に保存）
    ============================================================ */
 const KEY = 'salon.bookings.v1';
+let memory = null; // localStorage が使えない環境（プライベートモード等）での代替
+
 const Store = {
-  all() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } },
-  save(l) { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} },
+  all() {
+    if (memory) return memory;
+    try { return JSON.parse(localStorage.getItem(KEY)) || []; }
+    catch (e) { memory = []; return memory; }
+  },
+  save(l) {
+    if (memory) { memory = l; return; }
+    try { localStorage.setItem(KEY, JSON.stringify(l)); }
+    catch (e) { memory = l; }
+  },
   add(b) { const l = this.all(); l.push(b); this.save(l); },
   cancel(code) {
     const l = this.all();
