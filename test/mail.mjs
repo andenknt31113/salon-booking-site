@@ -17,6 +17,10 @@ const jstKey = t => {
 };
 const day = n => jstKey(Date.now() + n * 864e5);
 const sent = [];
+/* スクリプトのプロパティ（Apps Script の保存箱）。
+   前日リマインドは「もう送ったか」をここに控えるので、
+   試験のあいだも中身が残るようにしておきます。 */
+const props = {};
 
 function makeSheet(rows) {
   const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
@@ -51,7 +55,11 @@ function run(fnName, sheet, payload, patch) {
     MailApp: { sendEmail: (to, subject, body) => sent.push({ 宛先: to, 件名: subject, 本文: body }) },
     UrlFetchApp: { fetch: (url, opt) => sent.push({ 宛先: 'LINE', 本文: JSON.parse(opt.payload).messages[0].text }) },
     CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev1' }) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty(){}, deleteProperty(){} }) },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (k in props ? props[k] : null),
+      setProperty: (k, v) => { props[k] = v; },
+      deleteProperty: k => { delete props[k]; },
+      getKeys: () => Object.keys(props) }) },
     LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: () => null, insertSheet: () => sheet }), getUi: () => { throw new Error('no ui'); } },
     DriveApp: {},
@@ -222,6 +230,15 @@ function inspect(label, messages) {
   if (!to.includes('rem@example.com')) problems.push('7. 明日のお客様にリマインドが送られていない');
   if (to.includes('cancelled@example.com')) problems.push('7. キャンセル済みにリマインドを送っている');
   if (to.includes('later@example.com')) problems.push('7. 明日以外のお客様にも送っている');
+
+  /* トリガーが二度動くことも、確認のために手で実行することもあります。
+     そのたびにお客様へ同じ案内が届いては困ります。 */
+  const again = run('sendReminders', sheet, null);
+  if (again.sent.length) {
+    problems.push(`7. もう一度実行すると、同じお客様にリマインドが${again.sent.length}通目として届く`);
+  } else {
+    console.log('  ・もう一度実行しても、二通目は送られません');
+  }
 }
 
 console.log('\n' + '='.repeat(52));

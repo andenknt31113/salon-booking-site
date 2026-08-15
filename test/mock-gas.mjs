@@ -236,7 +236,8 @@ http.createServer((req, res) => {
           closedDates: SHEET_CLOSED.map(c=> typeof c==='string' ? { '休業日': c, '開始':'', '終了':'', 'メモ':'' } : { '休業日': c.date, '開始': c.start, '終了': c.end, 'メモ':'' }),
           settings: SHEET_SETTINGS });
         if (d.type === 'adminSave') {
-          if (d.stamp && d.stamp !== stampOf(d.target)) {
+          /* 本番と同じで、印の無い保存も断ります */
+          if (d.stamp !== stampOf(d.target)) {
             return reply(res, { ok:false, stale:true,
               error:'この内容は、別の端末から変更されています。いったん読み込み直してください。' });
           }

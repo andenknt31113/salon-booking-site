@@ -1284,7 +1284,10 @@ function doAdminSave_(d) {
      このページはシートをまるごと書き換えるため、確認せずに保存すると
      相手の変更が黙って消えます。 */
   const sheetName = SAVE_TARGETS[d.target];
-  if (sheetName && d.stamp && d.stamp !== sheetStamp_(ss, sheetName)) {
+  /* 印が付いていない保存も断ります。以前は「印があるときだけ」見ていたので、
+     印を外して送れば、相手の変更ごと上書きできる状態でした。
+     管理ページは読み込んだときに必ず印を受け取っています。 */
+  if (sheetName && d.stamp !== sheetStamp_(ss, sheetName)) {
     return {
       ok: false,
       stale: true,
@@ -1296,13 +1299,44 @@ function doAdminSave_(d) {
   if (d.target === 'menus')   writeSheetRows_(ss, MENU_SHEET, MENU_HEADERS, d.rows);
   else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
   else if (d.target === 'styles')  writeSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, d.rows);
-  else if (d.target === 'reviews') writeSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, d.rows);
+  else if (d.target === 'reviews') writeSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, keepReviewWords_(ss, d.rows));
   else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', '開始', '終了', 'メモ'], d.rows);
   else if (d.target === 'settings') writeSettings_(ss, d.rows);
   else return { ok: false, error: '不明な保存先です: ' + d.target };
 
   // 保存後の印を返す。続けて保存しても弾かれないように。
   return { ok: true, stamps: allStamps_(ss) };
+}
+
+/* お客様が書いた言葉は、店側からは書き換えられません。
+
+   管理ページで触れるのは「載せるか、載せないか」と削除だけです。
+   画面でもそうしていますが、受け口は公開されているので、ここでも
+   同じにします。載せる文言をこちらで直せてしまうと、それは
+   お客様の声ではなくなり、景品表示法（いわゆるステマ規制）にも触れます。
+
+   本文・評価・ニックネーム・投稿日は、台帳にある元の言葉に戻します。
+   台帳に無い予約番号の行は、こちらで作った口コミなので受け付けません。 */
+function keepReviewWords_(ss, rows) {
+  const sheet = ss.getSheetByName(REVIEW_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const before = sheet.getRange(2, 1, sheet.getLastRow() - 1, REVIEW_HEADERS.length).getValues();
+  const key = r => codeKey_(r[REVIEW_HEADERS.indexOf('予約番号')]);
+  const WRITABLE = ['状態'];
+
+  return (rows || []).map(function (row) {
+    const src = before.filter(function (b) { return key(b) === codeKey_(row['予約番号']); })[0];
+    if (!src) return null;                       // 元が無い＝こちらで書いた口コミ
+    const out = {};
+    REVIEW_HEADERS.forEach(function (h, i) {
+      out[h] = WRITABLE.indexOf(h) >= 0 ? row[h] : src[i];
+    });
+    // 「状態」も決められた3つ以外は受け付けません
+    if (['未承認', '掲載中', '非掲載'].indexOf(String(out['状態'])) < 0) {
+      out['状態'] = String(src[REVIEW_HEADERS.indexOf('状態')] || '未承認');
+    }
+    return out;
+  }).filter(Boolean);
 }
 
 /* ============================================================
@@ -1745,6 +1779,19 @@ function sendReminders() {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const target = Utilities.formatDate(tomorrow, 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  /* 同じ日のぶんを二度送らないようにします。
+
+     トリガーは、こちらが何もしなくても二度動くことがあります。
+     動作を確かめようとして手で実行することもあります。そのたびに
+     お客様へ「明日のご予約」がもう一通届くのは、店の信用に関わります。
+     送った日付を控えておき、同じ日なら何もしません。 */
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('REMINDED_DATE') === target) {
+    console.log(`リマインドは送信済みです（対象日 ${target}）`);
+    return;
+  }
+  props.setProperty('REMINDED_DATE', target);
 
   const rows = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
   const col = n => HEADERS.indexOf(n);

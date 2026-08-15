@@ -548,6 +548,129 @@ console.log('\n【店側の入口】保存');
   r.out.ok ? note('保存先に予約台帳', '予約を全部消せてしまう') : ok('予約台帳は保存先にできない');
 }
 
+/* ============================================================
+   2台で同じ画面を開いていたとき / お客様の言葉
+
+   管理ページはシートをまるごと書き換えます。開いてから保存するまでに
+   別の端末が保存していたら、そのまま上書きすると相手の変更が黙って消えます。
+   口コミのほうは逆で、店側から変えてよいのは「載せるかどうか」だけです。
+   文面や評価をこちらで直せると、それはもうお客様の声ではありません。
+   ============================================================ */
+function shop(sheetsInit = {}) {
+  const store = { ADMIN_PASSWORD: 'himitsu' };
+  const sheets = {};
+  const mk = (name, rows = []) => {
+    const data = rows.map(r => r.slice());
+    return {
+      getName: () => name, getLastRow: () => data.length + 1,
+      getLastColumn: () => (data[0] || []).length, appendRow: r => data.push(r),
+      getRange: (rw, c, nr, nc) => ({
+        getValues: () => data.slice(rw - 2, rw - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || x.length))),
+        setValues: v => { v.forEach((r, i) => { data[rw - 2 + i] = r.slice(); }); },
+        setValue() {}, clearContent: () => { data.length = 0; },
+        setFontWeight: () => ({ setBackground: () => {} }), setNote() {},
+        setFontLine: () => ({ setFontColor: () => {} })
+      }),
+      getDataRange: () => ({ getValues: () => data.map(r => r.slice()) }),
+      setFrozenRows() {}, setColumnWidth() {}, clear() {}, deleteRows() {}, _data: data
+    };
+  };
+  Object.keys(sheetsInit).forEach(n => { sheets[n] = mk(n, sheetsInit[n]); });
+  const ss = { getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = mk(n)) };
+  const ctx = {
+    console: { log() {}, warn() {}, error() {} },
+    MailApp: { sendEmail() {} }, UrlFetchApp: { fetch() {} },
+    CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = v; },
+      deleteProperty: k => { delete store[k]; }, getKeys: () => Object.keys(store) }) },
+    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } },
+    DriveApp: {}, ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
+    Utilities: { formatDate: d => new Date(d).toISOString().slice(0, 10), getUuid: () => 'uuid',
+      /* 印は中身から作ります。中身が変われば印も変わる必要があります。 */
+      computeDigest: (alg, text) => { let h = 0; for (const ch of String(text)) h = (h * 31 + ch.charCodeAt(0)) | 0;
+        return [(h >> 24) & 255, (h >> 16) & 255, (h >> 8) & 255, h & 255]; },
+      DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
+      newBlob: () => ({}), base64Decode: () => [], base64Encode: () => '' }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(src, ctx);
+  return {
+    call: (fn, payload) => {
+      vm.runInContext(`globalThis.__w = ${fn};`, ctx);
+      try { return ctx.__w(payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
+    }, sheets
+  };
+}
+
+console.log('\n【店側の入口】2台で同時に開いていたら');
+{
+  const menuRow = name => ({ 区分: 'カット', メニュー名: name, 価格: 4500, '所要(分)': 60, 説明: '', 画像: '', 表示: '○' });
+  const w = shop({ 'メニュー': [['カット', 'A', '4000', '60', '', '', '○']] });
+  const opened = w.call('doAdminData_', { password: 'himitsu' });
+  const stamp = opened.stamps && opened.stamps.menus;
+
+  stamp ? ok('画面を開くと、いまの中身の印を受け取る') : note('印', 'が返ってこない');
+
+  w.call('doAdminSave_', { password: 'himitsu', target: 'menus', stamp, rows: [menuRow('Aを直した')] }).ok
+    ? ok('先に保存した側は通る') : note('先の保存', 'が通らない');
+
+  w.call('doAdminSave_', { password: 'himitsu', target: 'menus', stamp, rows: [menuRow('Bが別に直した')] }).ok
+    ? note('あとから保存した側', 'も通る（先に保存した内容が黙って消えます）')
+    : ok('あとから保存した側は「読み込み直して」と断る');
+
+  const after = w.call('doAdminData_', { password: 'himitsu' });
+  (after.menus || [])[0] && after.menus[0]['メニュー名'] === 'Aを直した'
+    ? ok('先に保存した内容が残っている') : note('先の保存', 'が消えている');
+
+  w.call('doAdminSave_', { password: 'himitsu', target: 'menus', stamp: after.stamps.menus, rows: [menuRow('読み直した')] }).ok
+    ? ok('読み込み直せば保存できる') : note('読み直し後の保存', 'も断られる');
+
+  w.call('doAdminSave_', { password: 'himitsu', target: 'menus', rows: [menuRow('印なし')] }).ok
+    ? note('印を付けない保存', 'は通る（外して送れば上書きできます）') : ok('印を付けない保存も断る');
+}
+
+console.log('\n【口コミ】お客様の言葉は店側から変えられない');
+{
+  const RVH = ['投稿日','予約番号','ニックネーム','年代','性別','評価','タイトル','本文','担当','メニュー','状態'];
+  const orig = ['2026-08-01','LM-RV001','ケンタ','30代','男性',2,'うーん','待ち時間が長かったです','MATTEO','カット','未承認'];
+  const w = shop({ '口コミ': [orig.slice()] });
+  /* 保存には、いまの中身の印が要ります（2台で同時に開いたときの取り合いを防ぐため）。
+     読み込んでから保存する、という管理ページと同じ手順を踏みます。 */
+  const saveReviews = rows => {
+    const stamp = w.call('doAdminData_', { password: 'himitsu' }).stamps.reviews;
+    return w.call('doAdminSave_', { password: 'himitsu', target: 'reviews', stamp, rows });
+  };
+
+  saveReviews([
+    { 投稿日:'2026-08-01', 予約番号:'LM-RV001', ニックネーム:'ケンタ', 年代:'30代', 性別:'男性',
+      評価: 5, タイトル:'最高でした', 本文:'最高の店でした！', 担当:'MATTEO', メニュー:'カット', 状態:'掲載中' }
+  ]);
+  const now = w.sheets['口コミ']._data[0] || [];
+  const at = h => now[RVH.indexOf(h)];
+  at('本文') === '待ち時間が長かったです' ? ok('本文は元のまま') : note('本文', `が「${at('本文')}」に書き換わる`);
+  Number(at('評価')) === 2 ? ok('評価も元のまま') : note('評価', `が ${at('評価')} に書き換わる`);
+  at('ニックネーム') === 'ケンタ' ? ok('お名前も元のまま') : note('ニックネーム', 'が書き換わる');
+  at('状態') === '掲載中' ? ok('載せるかどうかは変えられる') : note('状態', `が変えられない（${at('状態')}）`);
+
+  saveReviews([{ 予約番号: 'LM-RV001', 状態: 'でたらめ' }]);
+  ['未承認', '掲載中', '非掲載'].includes(String(w.sheets['口コミ']._data[0][RVH.indexOf('状態')]))
+    ? ok('決められた3つ以外の状態は入らない') : note('状態', 'に何でも書ける');
+
+  saveReviews([
+    { 予約番号: 'LM-RV001', 状態: '掲載中' },
+    { 投稿日: '2026-08-10', 予約番号: 'LM-FAKE1', ニックネーム: 'サクラ', 評価: 5, 本文: '最高の店です', 状態: '掲載中' }
+  ]);
+  const codes = w.sheets['口コミ']._data.map(r => r[RVH.indexOf('予約番号')]);
+  codes.includes('LM-FAKE1')
+    ? note('来ていない口コミ', 'を足せる（作り話の口コミは景品表示法に触れます）')
+    : ok('来ていない口コミは足せない');
+
+  saveReviews([]);
+  w.sheets['口コミ']._data.length === 0 ? ok('要らない口コミは消せる') : note('口コミ', 'が消せない');
+}
+
 console.log('\n【店側の入口】写真');
 {
   const img = 'A'.repeat(1000);
