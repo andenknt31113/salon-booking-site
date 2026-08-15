@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="ネット予約限定クーポンと通常メニューの一覧。カット・カラー・パーマ・トリートメントの料金と所要時間をご確認いただけます。" />
+  <title>クーポン・メニュー</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body data-page="menu">
+  <div id="site-header"></div>
+
+  <main>
+    <div class="page-head">
+      <div class="container">
+        <nav class="breadcrumb" aria-label="パンくず">
+          <a href="index.html">サロンTOP</a><span>&gt;</span><span>クーポン・メニュー</span>
+        </nav>
+        <h1>クーポン・メニュー</h1>
+        <p>価格はすべて税込表示です。髪の長さ・毛量により追加料金をいただく場合がございます。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-head is-left">
+          <span class="section-label">COUPON</span>
+          <h2 class="section-title">ネット予約限定クーポン</h2>
+        </div>
+        <div class="coupon-list" id="coupon-list"></div>
+      </div>
+    </section>
+
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-head is-left">
+          <span class="section-label">MENU</span>
+          <h2 class="section-title">通常メニュー</h2>
+        </div>
+        <div class="tabs" id="menu-tabs" role="tablist"></div>
+        <div id="menu-list"></div>
+        <div class="notice" style="margin-top:24px;">
+          <b>ご注意</b>
+          <span>表示の所要時間は目安です。仕上がりのご希望や髪の状態により前後する場合がございます。あらかじめご了承ください。</span>
+        </div>
+        <p style="text-align:center;margin-top:28px;">
+          <a class="btn btn-primary btn-lg" href="reserve.html">メニューを選んで予約する</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script src="assets/js/pages.js"></script>
+</body>
+</html>

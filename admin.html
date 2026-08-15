@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>予約管理（スタッフ用）</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body data-page="admin">
+  <div id="site-header"></div>
+
+  <main>
+    <div class="page-head">
+      <div class="container">
+        <nav class="breadcrumb" aria-label="パンくず">
+          <a href="index.html">サロンTOP</a><span>&gt;</span><span>予約管理</span>
+        </nav>
+        <h1>予約管理（スタッフ用）</h1>
+        <p>ネット予約の受付状況を確認できます。</p>
+      </div>
+    </div>
+
+    <!-- パスコード入力 -->
+    <section class="section" id="gate">
+      <div class="container-narrow" style="max-width:420px;">
+        <div class="form-field">
+          <label for="passcode">パスコード</label>
+          <input class="input" type="password" id="passcode" inputmode="numeric" placeholder="パスコードを入力" />
+          <p class="field-error" id="gate-error">パスコードが正しくありません。</p>
+        </div>
+        <button class="btn btn-primary btn-block" type="button" id="gate-btn">管理画面を開く</button>
+        <p style="font-size:12px;color:var(--ink-3);margin-top:14px;">
+          ※簡易的な入口です。実運用ではサーバー側の認証をご利用ください（初期値は data.js の adminPasscode）。
+        </p>
+      </div>
+    </section>
+
+    <!-- 管理画面本体 -->
+    <section class="section" id="dashboard" hidden>
+      <div class="container">
+        <div class="stat-grid" id="stats"></div>
+
+        <div class="toolbar">
+          <input class="input" type="date" id="filter-date" />
+          <select class="select" id="filter-staff"></select>
+          <select class="select" id="filter-status">
+            <option value="all">すべての状態</option>
+            <option value="reserved">予約確定のみ</option>
+            <option value="cancelled">キャンセルのみ</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" type="button" id="filter-reset">条件をクリア</button>
+          <button class="btn btn-outline btn-sm" type="button" id="export-csv">CSVダウンロード</button>
+        </div>
+
+        <div class="table-scroll">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>予約番号</th><th>来店日</th><th>時間</th><th>担当</th>
+                <th>お客様</th><th>連絡先</th><th>メニュー</th><th>金額</th>
+                <th>来店</th><th>状態</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="admin-rows"></tbody>
+          </table>
+        </div>
+        <p id="admin-empty" class="empty-state" hidden>該当する予約はありません。</p>
+
+        <div class="notice" style="margin-top:26px;">
+          <b>データについて</b>
+          <span>
+            この一覧はご覧のブラウザに保存された予約のみを表示します。
+            複数端末で共有するには data.js の <code>reservationEndpoint</code> に
+            Google Apps Script などの受信先を設定してください。
+          </span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script src="assets/js/admin.js"></script>
+</body>
+</html>

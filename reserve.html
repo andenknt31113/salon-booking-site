@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="空席状況を見ながら24時間ネット予約。メニュー・スタッフ・日時を選ぶだけでご予約が完了します。" />
+  <title>空席状況・ネット予約</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body data-page="reserve">
+  <div id="site-header"></div>
+
+  <main>
+    <div class="page-head">
+      <div class="container">
+        <nav class="breadcrumb" aria-label="パンくず">
+          <a href="index.html">サロンTOP</a><span>&gt;</span><span>空席状況・ネット予約</span>
+        </nav>
+        <h1>空席状況・ネット予約</h1>
+        <p>メニュー → スタッフ → 日時 → お客様情報の順にお進みください。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="container">
+        <!-- ステップ表示 -->
+        <ol class="steps" id="steps">
+          <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
+          <li class="step" data-step="2"><b>STEP 2</b>スタッフ</li>
+          <li class="step" data-step="3"><b>STEP 3</b>日時</li>
+          <li class="step" data-step="4"><b>STEP 4</b>お客様情報</li>
+          <li class="step" data-step="5"><b>STEP 5</b>確認</li>
+        </ol>
+
+        <div class="reserve-layout" id="reserve-layout">
+          <div>
+            <!-- STEP1 メニュー -->
+            <section class="reserve-panel" data-panel="1" aria-labelledby="h-step1">
+              <h2 class="section-title" id="h-step1" style="font-size:19px;margin-bottom:6px;">ご希望のメニューをお選びください</h2>
+              <p class="section-desc" style="margin-bottom:20px;">クーポンは1つ、通常メニューは複数選択できます。</p>
+
+              <h3 style="font-size:14px;margin-bottom:10px;padding-left:10px;border-left:3px solid var(--accent);">クーポン</h3>
+              <div id="coupon-choices"></div>
+
+              <h3 style="font-size:14px;margin:26px 0 10px;padding-left:10px;border-left:3px solid var(--accent);">通常メニュー</h3>
+              <div class="tabs" id="menu-cat-tabs"></div>
+              <div id="menu-choices"></div>
+
+              <div class="panel-actions">
+                <button class="btn btn-primary btn-lg" type="button" data-next="2">スタッフ選択へ進む</button>
+              </div>
+            </section>
+
+            <!-- STEP2 スタッフ -->
+            <section class="reserve-panel" data-panel="2" aria-labelledby="h-step2">
+              <h2 class="section-title" id="h-step2" style="font-size:19px;margin-bottom:6px;">ご指名のスタッフをお選びください</h2>
+              <p class="section-desc" style="margin-bottom:20px;">指名なしの場合は、当日空いているスタッフが担当いたします。</p>
+              <div id="staff-choices"></div>
+              <div class="panel-actions">
+                <button class="btn btn-ghost" type="button" data-prev="1">戻る</button>
+                <button class="btn btn-primary" type="button" data-next="3">日時選択へ進む</button>
+              </div>
+            </section>
+
+            <!-- STEP3 日時 -->
+            <section class="reserve-panel" data-panel="3" aria-labelledby="h-step3">
+              <h2 class="section-title" id="h-step3" style="font-size:19px;margin-bottom:6px;">ご来店日時をお選びください</h2>
+              <p class="section-desc" style="margin-bottom:16px;">
+                ご選択中のメニューの所要時間（<span id="cal-duration"></span>）で空きのある枠を表示しています。
+              </p>
+
+              <div class="calendar-nav">
+                <button class="btn btn-ghost btn-sm" type="button" id="cal-prev">&lt; 前の期間</button>
+                <strong id="cal-range"></strong>
+                <button class="btn btn-ghost btn-sm" type="button" id="cal-next">次の期間 &gt;</button>
+              </div>
+
+              <div class="calendar-scroll">
+                <table class="calendar" id="calendar">
+                  <thead id="cal-head"></thead>
+                  <tbody id="cal-body"></tbody>
+                </table>
+              </div>
+
+              <ul class="legend">
+                <li><b>◎</b> 空きに余裕あり</li>
+                <li><b>○</b> 予約可</li>
+                <li><span class="few">△</span> 残りわずか</li>
+                <li><span class="none">×</span> 予約不可</li>
+                <li><span class="none">-</span> 休業日</li>
+              </ul>
+
+              <div class="panel-actions">
+                <button class="btn btn-ghost" type="button" data-prev="2">戻る</button>
+                <button class="btn btn-primary" type="button" data-next="4">お客様情報の入力へ</button>
+              </div>
+            </section>
+
+            <!-- STEP4 お客様情報 -->
+            <section class="reserve-panel" data-panel="4" aria-labelledby="h-step4">
+              <h2 class="section-title" id="h-step4" style="font-size:19px;margin-bottom:20px;">お客様情報をご入力ください</h2>
+
+              <form id="customer-form" novalidate>
+                <div class="form-field" data-field="name">
+                  <label for="f-name">お名前<span class="required">必須</span></label>
+                  <input class="input" type="text" id="f-name" name="name" autocomplete="name" placeholder="山田 花子" />
+                  <p class="field-error">お名前をご入力ください。</p>
+                </div>
+
+                <div class="form-field" data-field="kana">
+                  <label for="f-kana">フリガナ<span class="required">必須</span></label>
+                  <input class="input" type="text" id="f-kana" name="kana" placeholder="ヤマダ ハナコ" />
+                  <p class="field-error">フリガナを全角カタカナでご入力ください。</p>
+                </div>
+
+                <div class="form-field" data-field="tel">
+                  <label for="f-tel">電話番号<span class="required">必須</span></label>
+                  <input class="input" type="tel" id="f-tel" name="tel" autocomplete="tel" inputmode="tel" placeholder="09012345678" />
+                  <p class="field-error">電話番号を数字10〜11桁でご入力ください。</p>
+                </div>
+
+                <div class="form-field" data-field="email">
+                  <label for="f-email">メールアドレス<span class="required">必須</span></label>
+                  <input class="input" type="email" id="f-email" name="email" autocomplete="email" placeholder="example@example.com" />
+                  <p class="field-error">メールアドレスの形式をご確認ください。</p>
+                </div>
+
+                <div class="form-field" data-field="visit">
+                  <span class="field-label">ご来店回数<span class="required">必須</span></span>
+                  <div class="radio-row">
+                    <label class="radio-chip"><input type="radio" name="visit" value="初めて" /><span>初めて</span></label>
+                    <label class="radio-chip"><input type="radio" name="visit" value="2回目以降" /><span>2回目以降</span></label>
+                  </div>
+                  <p class="field-error">ご来店回数をお選びください。</p>
+                </div>
+
+                <div class="form-field" data-field="request">
+                  <label for="f-request">ご要望・ご相談<span class="optional">任意</span></label>
+                  <textarea class="textarea" id="f-request" name="request" placeholder="例）肩につくくらいの長さにしたいです。写真の「くびれボブ」のようなイメージにできますか？"></textarea>
+                </div>
+
+                <div class="form-field" data-field="agree">
+                  <label class="checkbox-line">
+                    <input type="checkbox" id="f-agree" name="agree" />
+                    <span>キャンセルポリシー（前日18時以降のキャンセルはお電話でご連絡ください）に同意します<span class="required">必須</span></span>
+                  </label>
+                  <p class="field-error">キャンセルポリシーへの同意が必要です。</p>
+                </div>
+              </form>
+
+              <div class="panel-actions">
+                <button class="btn btn-ghost" type="button" data-prev="3">戻る</button>
+                <button class="btn btn-primary" type="button" data-next="5">入力内容の確認へ</button>
+              </div>
+            </section>
+
+            <!-- STEP5 確認 -->
+            <section class="reserve-panel" data-panel="5" aria-labelledby="h-step5">
+              <h2 class="section-title" id="h-step5" style="font-size:19px;margin-bottom:20px;">ご予約内容の確認</h2>
+              <div class="notice">
+                <b>ご確認</b>
+                <span>内容に間違いがないかご確認のうえ、「この内容で予約する」ボタンを押してください。</span>
+              </div>
+              <table class="confirm-table"><tbody id="confirm-body"></tbody></table>
+              <div class="panel-actions">
+                <button class="btn btn-ghost" type="button" data-prev="4">修正する</button>
+                <button class="btn btn-primary btn-lg" type="button" id="submit-reservation">この内容で予約する</button>
+              </div>
+            </section>
+
+            <!-- 完了 -->
+            <section class="reserve-panel" data-panel="6" aria-labelledby="h-done">
+              <div class="done-box">
+                <div class="done-icon" aria-hidden="true">✓</div>
+                <h2 class="section-title" id="h-done" style="font-size:21px;">ご予約が完了しました</h2>
+                <p class="section-desc">ご予約番号はこちらです。予約の確認・キャンセルの際に必要になります。</p>
+                <p class="done-code" id="done-code"></p>
+                <div style="max-width:520px;margin:28px auto 0;text-align:left;">
+                  <table class="confirm-table"><tbody id="done-body"></tbody></table>
+                </div>
+                <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:28px;">
+                  <a class="btn btn-outline" href="mypage.html">予約内容を確認する</a>
+                  <a class="btn btn-primary" href="index.html">サロンTOPへ戻る</a>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- サマリー -->
+          <aside class="summary" id="summary">
+            <h3>ご予約内容</h3>
+            <dl id="summary-body"></dl>
+            <div class="summary-total">
+              <span>合計（税込）</span>
+              <strong id="summary-total">¥0</strong>
+            </div>
+            <p class="summary-note" id="summary-note"></p>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script src="assets/js/reserve.js"></script>
+</body>
+</html>

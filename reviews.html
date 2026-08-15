@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="ご来店いただいたお客様からの口コミ一覧。" />
+  <title>口コミ</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body data-page="reviews">
+  <div id="site-header"></div>
+
+  <main>
+    <div class="page-head">
+      <div class="container">
+        <nav class="breadcrumb" aria-label="パンくず">
+          <a href="index.html">サロンTOP</a><span>&gt;</span><span>口コミ</span>
+        </nav>
+        <h1>口コミ</h1>
+        <p>ご来店後にお送りするアンケートにご回答いただいた内容を掲載しています。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="container-narrow">
+        <div id="review-summary" style="margin-bottom:32px;"></div>
+        <div class="review-list" id="review-list"></div>
+        <p style="text-align:center;margin-top:32px;">
+          <a class="btn btn-primary btn-lg" href="reserve.html">空席を見て予約する</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script src="assets/js/pages.js"></script>
+</body>
+</html>

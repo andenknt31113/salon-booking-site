@@ -1,0 +1,500 @@
+/* ============================================================
+ *  予約フロー（STEP1〜5 + 完了）
+ * ============================================================ */
+
+const DRAFT_KEY = 'salon.reserveDraft.v1';
+
+const state = {
+  step: 1,
+  couponId: null,
+  menuIds: [],
+  staffId: null,        // null = 指名なし
+  staffChosen: false,   // 「指名なし」を明示的に選んだか
+  date: null,
+  time: null,
+  calOffset: 0,
+  customer: { name: '', kana: '', tel: '', email: '', visit: '', request: '', agree: false }
+};
+
+/* ---------- 下書きの保存・復元 ---------- */
+function saveDraft() {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(state));
+  } catch (e) { /* プライベートモード等では保存しない */ }
+}
+function loadDraft() {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (saved.step === 6) return; // 完了済みの下書きは復元しない
+    Object.assign(state, saved, { calOffset: 0 });
+  } catch (e) { /* 破損時は無視 */ }
+}
+function clearDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* noop */ }
+}
+
+/* ---------- 集計 ---------- */
+function selectedMenus() {
+  const list = [];
+  if (state.couponId) {
+    const c = SALON.coupons.find(x => x.id === state.couponId);
+    if (c) list.push({ id: c.id, name: c.title, price: c.price, minutes: c.minutes, isCoupon: true });
+  }
+  state.menuIds.forEach(id => {
+    const m = allMenuItems().find(x => x.id === id);
+    if (m) list.push({ id: m.id, name: m.name, price: m.price, minutes: m.minutes, isCoupon: false });
+  });
+  return list;
+}
+function nominationFee() {
+  const st = findStaff(state.staffId);
+  return st ? st.nominationFee : 0;
+}
+function totalPrice() {
+  return selectedMenus().reduce((sum, m) => sum + m.price, 0) + nominationFee();
+}
+function totalMinutes() {
+  return selectedMenus().reduce((sum, m) => sum + m.minutes, 0) || SALON.business.slotMinutes;
+}
+function hasMenu() {
+  return selectedMenus().length > 0;
+}
+
+/* ============================================================
+ *  STEP1: メニュー選択
+ * ============================================================ */
+function renderCouponChoices() {
+  $('#coupon-choices').innerHTML = SALON.coupons.map(c => `
+    <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}">
+      <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
+      <span class="selectable-sub">${esc(c.detail)}</span>
+      <span class="selectable-meta"><strong>${yen(c.price)}</strong> ／ 約${formatDuration(c.minutes)}</span>
+    </button>`).join('');
+}
+
+function renderMenuChoices(catId) {
+  const cats = catId === 'all' ? SALON.menuCategories : SALON.menuCategories.filter(c => c.id === catId);
+  $('#menu-choices').innerHTML = cats.map(cat => `
+    <h4 style="font-size:13px;color:var(--ink-3);margin:18px 0 8px;">${esc(cat.name)}</h4>
+    ${cat.items.map(m => `
+      <button class="selectable ${state.menuIds.includes(m.id) ? 'is-selected' : ''}" type="button" data-menu="${esc(m.id)}">
+        <span class="selectable-title">${esc(m.name)}</span>
+        ${m.note ? `<span class="selectable-sub">${esc(m.note)}</span>` : ''}
+        <span class="selectable-meta"><strong>${yen(m.price)}</strong> ／ 約${formatDuration(m.minutes)}</span>
+      </button>`).join('')}
+  `).join('');
+}
+
+function initStep1() {
+  renderCouponChoices();
+
+  const tabsHost = $('#menu-cat-tabs');
+  tabsHost.innerHTML = [{ id: 'all', name: 'すべて' }, ...SALON.menuCategories]
+    .map((c, i) => `<button class="tab" type="button" data-cat="${esc(c.id)}" aria-selected="${i === 0}">${esc(c.name)}</button>`)
+    .join('');
+  renderMenuChoices('all');
+
+  tabsHost.addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    renderMenuChoices(tab.dataset.cat);
+  });
+
+  $('#coupon-choices').addEventListener('click', e => {
+    const btn = e.target.closest('[data-coupon]');
+    if (!btn) return;
+    const id = btn.dataset.coupon;
+    state.couponId = state.couponId === id ? null : id; // 再クリックで解除
+    resetDateTime();
+    renderCouponChoices();
+    updateSummary();
+    saveDraft();
+  });
+
+  $('#menu-choices').addEventListener('click', e => {
+    const btn = e.target.closest('[data-menu]');
+    if (!btn) return;
+    const id = btn.dataset.menu;
+    state.menuIds = state.menuIds.includes(id)
+      ? state.menuIds.filter(x => x !== id)
+      : [...state.menuIds, id];
+    resetDateTime();
+    btn.classList.toggle('is-selected', state.menuIds.includes(id));
+    updateSummary();
+    saveDraft();
+  });
+}
+
+/* ============================================================
+ *  STEP2: スタッフ選択
+ * ============================================================ */
+function renderStaffChoices() {
+  const none = `
+    <button class="selectable ${state.staffChosen && !state.staffId ? 'is-selected' : ''}" type="button" data-staff="">
+      <span class="selectable-title">指名なし（おまかせ）</span>
+      <span class="selectable-sub">当日空いているスタッフが担当いたします。指名料はかかりません。</span>
+      <span class="selectable-meta">指名料 <strong>¥0</strong></span>
+    </button>`;
+
+  const list = SALON.staff.map(s => `
+    <button class="selectable ${state.staffId === s.id ? 'is-selected' : ''}" type="button" data-staff="${esc(s.id)}">
+      <span class="selectable-title">${esc(s.name)}（${esc(s.role)}）</span>
+      <span class="selectable-sub">${esc(s.tags.map(t => '#' + t).join(' '))}／出勤：${s.workdays.map(d => WEEKDAY_JA[d]).join('・')}曜</span>
+      <span class="selectable-meta">指名料 <strong>${s.nominationFee > 0 ? yen(s.nominationFee) : '¥0'}</strong></span>
+    </button>`).join('');
+
+  $('#staff-choices').innerHTML = none + list;
+}
+
+function initStep2() {
+  renderStaffChoices();
+  $('#staff-choices').addEventListener('click', e => {
+    const btn = e.target.closest('[data-staff]');
+    if (!btn) return;
+    state.staffId = btn.dataset.staff || null;
+    state.staffChosen = true;
+    resetDateTime();
+    renderStaffChoices();
+    updateSummary();
+    saveDraft();
+  });
+}
+
+/* ============================================================
+ *  STEP3: 空席カレンダー
+ * ============================================================ */
+function resetDateTime() {
+  state.date = null;
+  state.time = null;
+}
+
+function renderCalendar() {
+  const dates = Availability.dateRange(state.calOffset);
+  const times = Availability.timeSlots();
+  const duration = totalMinutes();
+
+  $('#cal-duration').textContent = formatDuration(duration);
+  $('#cal-range').textContent =
+    `${formatDateJa(dates[0], { short: true })} 〜 ${formatDateJa(dates[dates.length - 1], { short: true })}`;
+  $('#cal-prev').disabled = state.calOffset === 0;
+  $('#cal-next').disabled =
+    state.calOffset + SALON.business.calendarDays * 2 > SALON.business.bookableDays;
+
+  $('#cal-head').innerHTML = `<tr><th scope="col">時間</th>${dates.map(d => {
+    const wd = fromKey(d).getDay();
+    const cls = wd === 0 ? ' class="is-sun"' : wd === 6 ? ' class="is-sat"' : '';
+    return `<th scope="col"${cls}>
+        <span class="cal-date">${fromKey(d).getMonth() + 1}/${fromKey(d).getDate()}</span>
+        <span class="cal-wd">${WEEKDAY_JA[wd]}</span>
+      </th>`;
+  }).join('')}</tr>`;
+
+  $('#cal-body').innerHTML = times.map(t => `
+    <tr>
+      <th scope="row">${t}</th>
+      ${dates.map(d => {
+        const info = Availability.slotInfo(d, t, state.staffId, duration);
+        const selected = state.date === d && state.time === t;
+        const cls = [
+          'slot',
+          info.symbol === '△' ? 'is-few' : '',
+          selected ? 'is-selected' : ''
+        ].filter(Boolean).join(' ');
+        const label = info.available
+          ? `${formatDateJa(d, { short: true })} ${t} を選択`
+          : `${formatDateJa(d, { short: true })} ${t} は予約できません`;
+        return `<td><button class="${cls}" type="button" ${info.available ? '' : 'disabled'}
+            data-date="${d}" data-time="${t}" aria-label="${esc(label)}">${info.symbol}</button></td>`;
+      }).join('')}
+    </tr>`).join('');
+}
+
+function initStep3() {
+  $('#cal-prev').addEventListener('click', () => {
+    state.calOffset = Math.max(0, state.calOffset - SALON.business.calendarDays);
+    renderCalendar();
+  });
+  $('#cal-next').addEventListener('click', () => {
+    state.calOffset += SALON.business.calendarDays;
+    renderCalendar();
+  });
+  $('#cal-body').addEventListener('click', e => {
+    const btn = e.target.closest('.slot');
+    if (!btn || btn.disabled) return;
+    state.date = btn.dataset.date;
+    state.time = btn.dataset.time;
+    renderCalendar();
+    updateSummary();
+    saveDraft();
+  });
+}
+
+/* ============================================================
+ *  STEP4: 入力フォーム
+ * ============================================================ */
+const VALIDATORS = {
+  name: v => v.trim().length > 0,
+  kana: v => /^[ァ-ヶー\s　]+$/.test(v.trim()),
+  tel: v => /^0\d{9,10}$/.test(v.replace(/[-\s]/g, '')),
+  email: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()),
+  visit: v => v !== '',
+  agree: v => v === true
+};
+
+function readForm() {
+  const form = $('#customer-form');
+  return {
+    name: form.name.value,
+    kana: form.kana.value,
+    tel: form.tel.value,
+    email: form.email.value,
+    visit: (form.querySelector('input[name="visit"]:checked') || {}).value || '',
+    request: form.request.value,
+    agree: form.agree.checked
+  };
+}
+
+function fillForm() {
+  const form = $('#customer-form');
+  const c = state.customer;
+  form.name.value = c.name;
+  form.kana.value = c.kana;
+  form.tel.value = c.tel;
+  form.email.value = c.email;
+  form.request.value = c.request;
+  form.agree.checked = !!c.agree;
+  if (c.visit) {
+    const radio = form.querySelector(`input[name="visit"][value="${CSS.escape(c.visit)}"]`);
+    if (radio) radio.checked = true;
+  }
+}
+
+function validateForm(showErrors = true) {
+  const c = readForm();
+  state.customer = c;
+  let firstInvalid = null;
+
+  Object.entries(VALIDATORS).forEach(([key, check]) => {
+    const field = $(`[data-field="${key}"]`);
+    const ok = check(c[key]);
+    if (showErrors) field.classList.toggle('has-error', !ok);
+    if (!ok && !firstInvalid) firstInvalid = field;
+  });
+
+  if (firstInvalid && showErrors) {
+    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const input = firstInvalid.querySelector('input, textarea');
+    if (input) input.focus({ preventScroll: true });
+  }
+  return !firstInvalid;
+}
+
+function initStep4() {
+  const form = $('#customer-form');
+  fillForm();
+  form.addEventListener('input', () => {
+    state.customer = readForm();
+    saveDraft();
+  });
+  form.addEventListener('change', () => {
+    state.customer = readForm();
+    saveDraft();
+  });
+  // 入力し直したらエラー表示を解除
+  form.addEventListener('input', e => {
+    const field = e.target.closest('.form-field');
+    if (field) field.classList.remove('has-error');
+  });
+}
+
+/* ============================================================
+ *  STEP5: 確認 → 送信
+ * ============================================================ */
+function reservationSummaryRows() {
+  const menus = selectedMenus();
+  const end = toHHMM(toMinutes(state.time) + totalMinutes());
+  const fee = nominationFee();
+  return [
+    ['ご来店日時', `${formatDateJa(state.date)} ${state.time} 〜 ${end}（約${formatDuration(totalMinutes())}）`],
+    ['ご担当', staffLabel(state.staffId) + (fee > 0 ? `（指名料 ${yen(fee)}）` : '')],
+    ['メニュー', menus.map(m => `${m.name}（${yen(m.price)}）`).join('<br />')],
+    ['合計金額', `<strong style="font-size:17px;color:var(--accent);">${yen(totalPrice())}</strong>（税込）`],
+    ['お名前', `${esc(state.customer.name)}（${esc(state.customer.kana)}）様`],
+    ['電話番号', esc(state.customer.tel)],
+    ['メールアドレス', esc(state.customer.email)],
+    ['ご来店回数', esc(state.customer.visit)],
+    ['ご要望', state.customer.request ? esc(state.customer.request).replace(/\n/g, '<br />') : '—']
+  ];
+}
+
+function renderConfirm() {
+  $('#confirm-body').innerHTML = reservationSummaryRows()
+    .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
+}
+
+function buildReservation() {
+  const menus = selectedMenus();
+  return {
+    code: Store.issueCode(),
+    status: 'reserved',
+    createdAt: new Date().toISOString(),
+    date: state.date,
+    time: state.time,
+    endTime: toHHMM(toMinutes(state.time) + totalMinutes()),
+    staffId: state.staffId,
+    staffName: staffLabel(state.staffId),
+    menus: menus.map(m => ({ id: m.id, name: m.name, price: m.price, minutes: m.minutes })),
+    nominationFee: nominationFee(),
+    totalPrice: totalPrice(),
+    totalMinutes: totalMinutes(),
+    customer: { ...state.customer }
+  };
+}
+
+async function submitReservation() {
+  const btn = $('#submit-reservation');
+  btn.disabled = true;
+  btn.textContent = '送信中…';
+
+  const reservation = buildReservation();
+  // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
+  reservation.delivered = await sendToEndpoint({ type: 'reserve', ...reservation });
+  Store.add(reservation);
+
+  $('#done-code').textContent = reservation.code;
+  $('#done-body').innerHTML = [
+    ['ご来店日時', `${formatDateJa(reservation.date)} ${reservation.time}〜`],
+    ['ご担当', reservation.staffName],
+    ['メニュー', reservation.menus.map(m => esc(m.name)).join('<br />')],
+    ['合計金額', `${yen(reservation.totalPrice)}（税込）`]
+  ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
+
+  clearDraft();
+  state.step = 6;
+  renderStep();
+  btn.disabled = false;
+  btn.textContent = 'この内容で予約する';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ============================================================
+ *  サマリー・ステップ制御
+ * ============================================================ */
+function updateSummary() {
+  const menus = selectedMenus();
+  const fee = nominationFee();
+  const rows = [];
+
+  rows.push(['メニュー', menus.length
+    ? menus.map(m => `${esc(m.name)}<br /><small style="color:var(--ink-3)">${yen(m.price)}／約${formatDuration(m.minutes)}</small>`).join('<br />')
+    : '<span style="color:var(--ink-3)">未選択</span>']);
+
+  rows.push(['ご担当', state.staffChosen
+    ? esc(staffLabel(state.staffId)) + (fee > 0 ? `<br /><small style="color:var(--ink-3)">指名料 ${yen(fee)}</small>` : '')
+    : '<span style="color:var(--ink-3)">未選択</span>']);
+
+  rows.push(['日時', state.date && state.time
+    ? `${formatDateJa(state.date, { short: true })} ${state.time}〜<br /><small style="color:var(--ink-3)">所要 約${formatDuration(totalMinutes())}</small>`
+    : '<span style="color:var(--ink-3)">未選択</span>']);
+
+  $('#summary-body').innerHTML = rows
+    .map(([k, v]) => `<div class="summary-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  $('#summary-total').textContent = yen(totalPrice());
+  $('#summary-note').textContent = menus.length
+    ? '※髪の長さ・毛量により追加料金をいただく場合がございます。'
+    : '※メニューをお選びいただくと合計金額が表示されます。';
+}
+
+function renderStep() {
+  $$('.reserve-panel').forEach(p => {
+    p.classList.toggle('is-active', Number(p.dataset.panel) === state.step);
+  });
+  $$('.step').forEach(s => {
+    const n = Number(s.dataset.step);
+    s.classList.toggle('is-current', n === state.step);
+    s.classList.toggle('is-done', n < state.step);
+  });
+  $('#steps').style.display = state.step === 6 ? 'none' : '';
+  $('#summary').style.display = state.step === 6 ? 'none' : '';
+  if (state.step === 6) $('#reserve-layout').style.gridTemplateColumns = '1fr';
+  updateSummary();
+}
+
+function goTo(step) {
+  // 前に進むときだけ入力チェック
+  if (step > state.step) {
+    if (state.step === 1 && !hasMenu()) {
+      alert('メニューを1つ以上お選びください。');
+      return;
+    }
+    if (state.step === 2 && !state.staffChosen) {
+      alert('ご希望のスタッフ、または「指名なし」をお選びください。');
+      return;
+    }
+    if (state.step === 3 && !(state.date && state.time)) {
+      alert('ご来店日時をお選びください。');
+      return;
+    }
+    if (state.step === 4 && !validateForm()) return;
+  }
+
+  state.step = step;
+  if (step === 3) renderCalendar();
+  if (step === 5) renderConfirm();
+  saveDraft();
+  renderStep();
+  window.scrollTo({ top: $('#steps').offsetTop - 130, behavior: 'smooth' });
+}
+
+/* ---------- URLパラメータからの事前選択 ---------- */
+function applyQueryParams() {
+  const params = new URLSearchParams(location.search);
+  const menu = params.get('menu');
+  const staff = params.get('staff');
+
+  if (menu) {
+    if (SALON.coupons.some(c => c.id === menu)) {
+      state.couponId = menu;
+    } else if (allMenuItems().some(m => m.id === menu) && !state.menuIds.includes(menu)) {
+      state.menuIds.push(menu);
+    }
+  }
+  if (staff && findStaff(staff)) {
+    state.staffId = staff;
+    state.staffChosen = true;
+  }
+}
+
+/* ---------- 起動 ---------- */
+document.addEventListener('DOMContentLoaded', () => {
+  loadDraft();
+  applyQueryParams();
+  if (state.step === 6) state.step = 1;
+
+  initStep1();
+  initStep2();
+  initStep3();
+  initStep4();
+
+  $('#reserve-layout').addEventListener('click', e => {
+    const next = e.target.closest('[data-next]');
+    if (next) { goTo(Number(next.dataset.next)); return; }
+    const prev = e.target.closest('[data-prev]');
+    if (prev) { goTo(Number(prev.dataset.prev)); }
+  });
+
+  $('#submit-reservation').addEventListener('click', submitReservation);
+
+  // ステップ表示をクリックして戻れるように
+  $('#steps').addEventListener('click', e => {
+    const step = e.target.closest('.step');
+    if (!step) return;
+    const n = Number(step.dataset.step);
+    if (n < state.step) goTo(n);
+  });
+
+  renderStep();
+});
