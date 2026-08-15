@@ -149,32 +149,67 @@ function renderStats() {
   ].map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join('');
 }
 
+/* 日付の見出し。今日・明日は日付より先に、その言葉で分かるようにします */
+function dayHeading(date) {
+  const today = toKey(new Date());
+  const t = new Date(); t.setDate(t.getDate() + 1);
+  const tomorrow = toKey(t);
+  const label = date === today ? '本日' : date === tomorrow ? '明日' : '';
+  return { label, text: formatDateJa(date) };
+}
+
 function renderReservations() {
   const list = filteredReservations();
   if (!list.length) {
     $('#admin-rows').innerHTML = '<p class="empty-state">該当する予約はありません。</p>';
     return;
   }
-  $('#admin-rows').innerHTML = list.map(r => {
-    const off = r.status === 'キャンセル';
+
+  /* 来店日ごとにまとめ、早い順に並べます。
+     カードが縦に並ぶだけだと、その日が何件なのか数えないと分かりません。
+     朝いちばんに開いて「今日は何時から何件か」を見るのが主な使い方なので、
+     日付で区切って件数を添えます。 */
+  const byDate = new Map();
+  [...list]
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+    .forEach(r => {
+      if (!byDate.has(r.date)) byDate.set(r.date, []);
+      byDate.get(r.date).push(r);
+    });
+
+  $('#admin-rows').innerHTML = [...byDate].map(([date, rows]) => {
+    const h = dayHeading(date);
+    const live = rows.filter(r => r.status !== 'キャンセル').length;
+    const count = live ? `${live}件` : `キャンセル${rows.length}件のみ`;
     return `
-      <article class="booking-card ${off ? 'is-cancelled' : ''}">
-        <div class="booking-head">
-          <span class="status-chip ${off ? 'is-cancelled' : ''}">${esc(r.status || '予約確定')}</span>
-          <span class="booking-code">${esc(r.code)}</span>
-        </div>
-        <p class="booking-when">${formatDateJa(r.date)} ${esc(r.time)}〜${esc(r.endTime)}</p>
-        <p class="booking-detail">${esc(r.name)} 様（${esc(r.visit || '—')}）</p>
-        <p class="booking-detail">${esc(r.menu)}／${esc(r.staffName)}</p>
-        <p class="booking-detail">${yen(r.price)}／
-          <a href="tel:${esc(r.tel.replace(/[^0-9]/g, ''))}" style="text-decoration:underline">${esc(r.tel)}</a>
-        </p>
-        ${r.request ? `<p class="booking-detail">ご要望：${esc(r.request)}</p>` : ''}
-        ${off ? '' : `<div style="margin-top:12px;">
-          <button class="btn btn-ghost btn-sm" type="button" data-admin-cancel="${esc(r.code)}">キャンセルにする</button>
-        </div>`}
-      </article>`;
+      <div class="day-heading">
+        ${h.label ? `<span class="day-badge">${esc(h.label)}</span>` : ''}
+        <span class="day-date">${esc(h.text)}</span>
+        <span class="day-count">${esc(count)}</span>
+      </div>
+      ${rows.map(reservationCard).join('')}`;
   }).join('');
+}
+
+function reservationCard(r) {
+  const off = r.status === 'キャンセル';
+  return `
+    <article class="booking-card ${off ? 'is-cancelled' : ''}">
+      <div class="booking-head">
+        <span class="booking-time">${esc(r.time)}〜${esc(r.endTime)}</span>
+        ${off ? '<span class="status-chip is-cancelled">キャンセル</span>' : ''}
+        <span class="booking-code">${esc(r.code)}</span>
+      </div>
+      <p class="booking-name">${esc(r.name)} 様<small>${esc(r.visit || '—')}</small></p>
+      <p class="booking-detail">${esc(r.menu)}／${esc(r.staffName)}</p>
+      <p class="booking-detail">${yen(r.price)}／
+        <a href="tel:${esc(r.tel.replace(/[^0-9]/g, ''))}" style="text-decoration:underline">${esc(r.tel)}</a>
+      </p>
+      ${r.request ? `<p class="booking-request">ご要望：${esc(r.request)}</p>` : ''}
+      ${off ? '' : `<div style="margin-top:12px;">
+        <button class="btn btn-ghost btn-sm" type="button" data-admin-cancel="${esc(r.code)}">キャンセルにする</button>
+      </div>`}
+    </article>`;
 }
 
 /* ---------- 写真 ----------

@@ -565,6 +565,10 @@ table { border-collapse: collapse; width: 100%; }
 .summary-total strong { font-family: var(--font-en); font-size: 24px; color: var(--accent); }
 .summary-note { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
+/* 予約ページの、画面下に貼りつく「次へ」。
+   スマホでのみ出します。画面が広いときは各ステップの下のボタンで足ります。 */
+.step-cta { display: none; }
+
 /* 予約完了後のLINE友だち追加のお誘い（lineAddUrl を入れたときだけ出ます） */
 .line-invite {
   max-width: 520px; margin: 26px auto 0; padding: 20px 19px; text-align: center;
@@ -670,6 +674,28 @@ table { border-collapse: collapse; width: 100%; }
 .booking-detail { font-size: 13px; color: var(--text-2); margin-top: 6px; }
 .empty-state { text-align: center; padding: 56px 20px; color: var(--muted); font-size: 13.5px; }
 
+/* 管理ページの予約一覧：日付ごとの見出しと、時刻を先に読ませるカード */
+.day-heading {
+  display: flex; align-items: baseline; gap: 10px;
+  margin: 26px 0 11px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+.day-heading:first-child { margin-top: 0; }
+.day-badge {
+  flex: none; font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  background: var(--accent); color: var(--on-ink); padding: 3px 9px;
+}
+.day-date { font-size: 14px; font-weight: 700; }
+.day-count { margin-left: auto; flex: none; font-size: 12px; color: var(--muted); }
+.booking-time {
+  font-family: var(--font-en); font-size: 19px; font-weight: 700; letter-spacing: .02em;
+}
+.booking-name { font-size: 15px; font-weight: 700; margin-top: 2px; }
+.booking-name small { font-size: 11.5px; font-weight: 400; color: var(--muted); margin-left: 9px; }
+.booking-request {
+  font-size: 12.5px; color: var(--text-2); margin-top: 10px; line-height: 1.75;
+  padding: 9px 11px; background: var(--panel-2); border-radius: var(--radius);
+}
+
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 26px; }
 .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
 .stat span { font-size: 11.5px; color: var(--muted); display: block; letter-spacing: .06em; }
@@ -769,6 +795,22 @@ table { border-collapse: collapse; width: 100%; }
   .sp-cta .btn-ghost { flex: 0 0 34%; }
   /* 固定ボタンぶんの余白。出さないページには付けない */
   body.has-sp-cta { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
+
+  /* 予約ページの「次へ」。選び終えた時点で、一覧を送らなくても進めます */
+  .step-cta[hidden] { display: none; }
+  .step-cta {
+    display: flex; align-items: center; gap: 12px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(241, 236, 224, .96); border-top: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+  }
+  .step-cta-info {
+    flex: 1; min-width: 0; font-size: 12px; color: var(--muted); line-height: 1.5;
+  }
+  .step-cta .btn { flex: 0 0 auto; max-width: 60%; padding: 13px 16px; font-size: 13px; }
+  .step-cta .btn[disabled] { opacity: .4; }
+  body:has(.step-cta:not([hidden])) { padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

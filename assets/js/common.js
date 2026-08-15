@@ -792,7 +792,8 @@ function renderFooter() {
    画面も狭くなるためです。 */
 function stickyCta() {
   const page = currentPage();
-  if (page === 'reserve.html' || page === 'mypage.html') return '';
+  // 予約の途中と、店側が使うページには出しません
+  if (page === 'reserve.html' || page === 'mypage.html' || page === 'admin.html') return '';
   return `
     <div class="sp-cta">
       ${SALON.tel ? `<a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>` : ''}

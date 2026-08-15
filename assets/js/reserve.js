@@ -740,6 +740,8 @@ function updateSummary() {
     : hasQuote
       ? '※価格はカウンセリングのうえでお見積りいたします。'
       : '※髪の長さ・毛量により追加料金をいただく場合がございます。';
+  // 選んだ瞬間に、下のボタンも押せる状態に変える
+  renderStepCta();
 }
 
 function renderStep() {
@@ -756,7 +758,46 @@ function renderStep() {
   $('#steps').style.display = state.step === 6 ? 'none' : '';
   $('#summary').style.display = state.step === 6 ? 'none' : '';
   if (state.step === 6) $('#reserve-layout').style.gridTemplateColumns = '1fr';
-  updateSummary();
+  updateSummary();   // この中で下のボタンも描き直します
+}
+
+/* 画面下に貼りつく「次へ」。
+   メニューは23件あるので、選んでから一覧の最後まで送らないと次に進めない、
+   というのは操作としてつらすぎます。選んだ時点で押せるようにします。
+   STEP5（確認）には出しません。送信ボタンを2か所に置くと二重送信の元になるためです。 */
+const STEP_CTA = {
+  1: { to: 2, label: 'スタッフの選択へ', ok: () => hasMenu(), hint: 'メニューをお選びください' },
+  2: { to: 3, label: '日時の選択へ', ok: () => state.staffChosen, hint: 'ご担当をお選びください' },
+  3: { to: 4, label: 'お客様情報の入力へ', ok: () => !!(state.date && state.time), hint: 'ご来店日時をお選びください' },
+  4: { to: 5, label: '入力内容の確認へ', ok: () => true }
+};
+
+function renderStepCta() {
+  const host = $('#step-cta');
+  if (!host) return;
+  // 変更モードでは日時だけ選び直すので、STEP3 のときにだけ出します
+  const cta = STEP_CTA[state.step];
+  if (!cta || (changing && state.step !== 3)) { host.hidden = true; return; }
+
+  const ready = cta.ok();
+  const info = ready ? stepCtaInfo() : (cta.hint || '');
+  host.innerHTML = `
+    <span class="step-cta-info">${esc(info)}</span>
+    <button class="btn btn-primary" type="button" data-next="${cta.to}"${ready ? '' : ' disabled'}>
+      ${esc(cta.label)}
+    </button>`;
+  host.hidden = false;
+}
+
+/* ボタンの左に出す、いま選ばれている内容の短い要約 */
+function stepCtaInfo() {
+  if (state.step === 1) {
+    const n = (state.couponId ? 1 : 0) + state.menuIds.length;
+    return `${n}件 ／ ${totalText()}`;
+  }
+  if (state.step === 2) return staffLabel(state.staffId);
+  if (state.step === 3) return `${formatDateJa(state.date)} ${state.time}〜`;
+  return '';
 }
 
 function goTo(step) {
