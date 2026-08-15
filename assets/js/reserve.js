@@ -106,7 +106,10 @@ function renderCouponChoices() {
     <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}">
       <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
       <span class="selectable-sub">${esc(c.detail)}</span>
-      <span class="selectable-meta"><strong>${priceText(c)}</strong> ／ 約${formatDuration(c.minutes)}</span>
+      <span class="selectable-meta">
+        <strong class="${c.price ? '' : 'is-quote'}">${priceText(c)}</strong>
+        <span class="selectable-time">約${formatDuration(c.minutes)}</span>
+      </span>
     </button>`).join('');
 }
 
@@ -118,7 +121,10 @@ function renderMenuChoices(catId) {
       <button class="selectable ${state.menuIds.includes(m.id) ? 'is-selected' : ''}" type="button" data-menu="${esc(m.id)}">
         <span class="selectable-title">${esc(m.name)}</span>
         ${m.note ? `<span class="selectable-sub">${esc(m.note)}</span>` : ''}
-        <span class="selectable-meta"><strong>${priceText(m)}</strong> ／ 約${formatDuration(m.minutes)}</span>
+        <span class="selectable-meta">
+          <strong class="${m.price ? '' : 'is-quote'}">${priceText(m)}</strong>
+          <span class="selectable-time">約${formatDuration(m.minutes)}</span>
+        </span>
       </button>`).join('')}
   `).join('');
 }
@@ -173,14 +179,14 @@ function renderStaffChoices() {
     <button class="selectable ${state.staffChosen && !state.staffId ? 'is-selected' : ''}" type="button" data-staff="">
       <span class="selectable-title">指名なし（おまかせ）</span>
       <span class="selectable-sub">当日空いているスタッフが担当いたします。指名料はかかりません。</span>
-      <span class="selectable-meta">指名料 <strong>¥0</strong></span>
+      <span class="selectable-meta"><span>指名料 <strong>¥0</strong></span></span>
     </button>`;
 
   const list = SALON.staff.map(s => `
     <button class="selectable ${state.staffId === s.id ? 'is-selected' : ''}" type="button" data-staff="${esc(s.id)}">
       <span class="selectable-title">${esc(s.name)}（${esc(s.role)}）</span>
       <span class="selectable-sub">${esc(s.tags.map(t => '#' + t).join(' '))}／出勤：${s.workdays.map(d => WEEKDAY_JA[d]).join('・')}曜</span>
-      <span class="selectable-meta">指名料 <strong>${s.nominationFee > 0 ? yen(s.nominationFee) : '¥0'}</strong></span>
+      <span class="selectable-meta"><span>指名料 <strong>${s.nominationFee > 0 ? yen(s.nominationFee) : '¥0'}</strong></span></span>
     </button>`).join('');
 
   $('#staff-choices').innerHTML = none + list;

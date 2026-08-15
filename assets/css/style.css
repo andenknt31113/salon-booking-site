@@ -502,10 +502,20 @@ table { border-collapse: collapse; width: 100%; }
 .selectable.is-selected::after {
   content: "✓"; position: absolute; top: 13px; right: 15px; color: var(--accent); font-weight: 700;
 }
-.selectable-title { font-size: 14.5px; font-weight: 700; padding-right: 26px; }
-.selectable-sub { font-size: 12.5px; color: var(--text-2); margin-top: 7px; }
-.selectable-meta { font-size: 12.5px; color: var(--muted); margin-top: 9px; }
+/* 見出し・説明・価格は必ず別の行に分ける。
+   span のままだと文章として流れるので、説明文の長さによって
+   価格の出る位置が1件ごとにずれ、一覧で値段を目で追えなくなる。 */
+.selectable-title { display: block; font-size: 14.5px; font-weight: 700; padding-right: 26px; }
+.selectable-sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 7px; }
+.selectable-meta {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 12.5px; color: var(--muted);
+  margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-2);
+}
 .selectable-meta strong { font-family: var(--font-en); font-size: 16px; color: var(--accent); }
+/* 「お見積り」は和文なので英数字用の字送りを当てない */
+.selectable-meta strong.is-quote { font-family: inherit; font-size: 14px; }
+.selectable-time { flex: none; white-space: nowrap; }
 
 /* 空席カレンダー */
 .calendar-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
