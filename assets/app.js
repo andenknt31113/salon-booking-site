@@ -116,6 +116,7 @@ const Store = {
     catch (e) { memory = l; }
   },
   add(b) { const l = this.all(); l.push(b); this.save(l); },
+  find(code) { return this.all().find(b => b.code === code) || null; },
   cancel(code) {
     const l = this.all();
     const t = l.find(b => b.code === code);
@@ -356,6 +357,29 @@ function renderMyList() {
 }
 
 /* ============================================================
+   受信先への送信
+   ============================================================ */
+/* Content-Type を text/plain にしているのは意図的です。
+   application/json にするとブラウザが事前確認（OPTIONS）を送りますが、
+   Google Apps Script はこれに応答できず、送信が必ず失敗します。
+   text/plain なら事前確認なしで届き、GAS 側は e.postData.contents で
+   そのまま JSON として読めます。 */
+async function send(payload) {
+  if (!SALON.endpoint) return false;
+  try {
+    await fetch(SALON.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    return true;
+  } catch (err) {
+    console.warn('送信に失敗しました。この端末には保存されています。', err);
+    return false;
+  }
+}
+
+/* ============================================================
    入力チェックと送信
    ============================================================ */
 function setErr(id, on) { $('#err-' + id).classList.toggle('on', on); }
@@ -409,17 +433,7 @@ async function submit(e) {
   btn.disabled = true;
   btn.textContent = '送信中…';
 
-  if (SALON.endpoint) {
-    try {
-      await fetch(SALON.endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(booking)
-      });
-    } catch (err) {
-      console.warn('送信に失敗しました。端末には保存されています。', err);
-    }
-  }
+  await send({ type: 'reserve', ...booking });
   Store.add(booking);
 
   $('#done-code').textContent = booking.code;
@@ -494,9 +508,15 @@ $('#form').addEventListener('submit', submit);
 $('#again').addEventListener('click', resetForm);
 
 $('#my-list').addEventListener('click', e => {
-  const b = e.target.closest('[data-cancel]'); if (!b) return;
-  if (!confirm('このご予約をキャンセルします。よろしいですか？')) return;
-  Store.cancel(b.dataset.cancel);
+  const btn = e.target.closest('[data-cancel]'); if (!btn) return;
+  const code = btn.dataset.cancel;
+  const b = Store.find(code);
+  if (!b) return;
+  if (!confirm(`${dateJa(b.date)} ${b.time}〜 のご予約をキャンセルします。\nよろしいですか？`)) return;
+
+  Store.cancel(code);
+  // 台帳側もキャンセル扱いに更新する
+  send({ type: 'cancel', code, date: b.date, time: b.time, name: b.name });
   renderMyList();
   renderTimePicker();
 });
