@@ -144,9 +144,10 @@ GitHub Pages はサーバー処理を持たない静的ホスティングです�
 ### ユースケースと試験
 
 「誰が・どの場面で使うか」を [ユースケース.md](ユースケース.md) にまとめ、
-そのまま自動試験にしてあります（12シナリオ／35項目）。
+そのまま自動試験にしてあります（19シナリオ／86項目）。
 
 ```bash
+node test/settings.mjs      # 2か所に書いた設定の食い違い（ブラウザ不要）
 node test/mail.mjs          # メールの文面（ブラウザ不要）
 node test/backend.mjs       # 受け口におかしな入力を投げる（ブラウザ不要）
 node test/mock-gas.mjs      # Apps Script の代わりのテスト用サーバー
@@ -155,6 +156,10 @@ node test/quality.mjs       # 構造化データ・OGP・操作しやすさ
 node test/escape.mjs        # お客様が書いた文字の出方（画面）
 node test/slow.mjs          # 通信が遅いときの表示
 ```
+
+`test/usecase.mjs` `test/escape.mjs` `test/slow.mjs` は `test/mock-gas.mjs` を
+立ち上げてから実行してください。試験のはじめに台帳を空に戻すので、
+サーバーは立ち上げっぱなしで構いません。
 
 予約・確認・変更・キャンセル・口コミ・休業日・値段変更に加えて、
 **同時に同じ枠を押された場合**、**受付期限を過ぎた場合**、
