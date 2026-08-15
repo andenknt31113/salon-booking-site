@@ -434,12 +434,21 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
       getKeys: () => Object.keys(store) }) },
     LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } },
-    DriveApp: {},
+    /* 写真の保存先。Googleドライブにはつなぎません。 */
+    DriveApp: {
+      getFoldersByName: () => ({ hasNext: () => true, next: () => ({
+        createFile: () => ({ getId: () => 'fileid', setSharing() {} }) }) }),
+      createFolder: () => ({ createFile: () => ({ getId: () => 'fileid', setSharing() {} }) }),
+      Access: { ANYONE_WITH_LINK: 'link' }, Permission: { VIEW: 'view' }
+    },
     ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
-    Utilities: { formatDate: d => new Date(d).toISOString().slice(0, 10),
+    Utilities: { formatDate: (d, tz, f) => (f === 'yyyyMMdd-HHmmss'
+        ? new Date(d).toISOString().slice(0, 10).replace(/-/g, '') + '-000000'
+        : new Date(d).toISOString().slice(0, 10)),
       getUuid: () => 'uuid-' + (seq++), computeDigest: () => [1, 2, 3],
       DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
-      newBlob: () => ({}), base64Decode: () => [], base64Encode: () => '' }
+      newBlob: (bytes, mime, name) => ({ bytes, mime, name, setSharing() {} }),
+      base64Decode: s => ({ length: Math.floor(String(s).length * 3 / 4) }), base64Encode: () => '' }
   };
   vm.createContext(ctx);
   vm.runInContext(src + `;globalThis.__a = ${fnName};`, ctx);
@@ -500,6 +509,58 @@ console.log('\n【店側の入口】保存');
 
   r = admin('doAdminSave_', { password: 'himitsu', target: '予約一覧', rows: [] });
   r.out.ok ? note('保存先に予約台帳', '予約を全部消せてしまう') : ok('予約台帳は保存先にできない');
+}
+
+console.log('\n【店側の入口】写真');
+{
+  const img = 'A'.repeat(1000);
+  const up = (over, store) => admin('doAdminUpload_',
+    Object.assign({ password: 'himitsu', slot: 'logo', mimeType: 'image/jpeg', dataBase64: img }, over), store).out;
+
+  up({}).ok ? ok('JPEGは受け取る') : note('JPEG', 'が受け取れない');
+  up({ mimeType: 'image/png', dataBase64: 'data:image/png;base64,' + img }).ok
+    ? ok('PNGも受け取る') : note('PNG', 'が受け取れない');
+  up({ mimeType: 'image/svg+xml' }).ok
+    ? note('SVG', 'を受け取ってしまう（中に命令を書ける形式です）') : ok('SVGは断る');
+  up({ mimeType: 'text/html' }).ok ? note('HTML', 'を画像として受け取ってしまう') : ok('HTMLは断る');
+  up({ dataBase64: 'A'.repeat(40 * 1024 * 1024) }).ok
+    ? note('40MBの画像', 'を受け取ってしまう（保存先を食いつぶします）') : ok('大きすぎる画像は断る');
+  up({ dataBase64: '' }).ok ? note('空の画像', 'を受け取ってしまう') : ok('空の画像は断る');
+  admin('doAdminUpload_', { slot: 'logo', mimeType: 'image/jpeg', dataBase64: img }).out.ok
+    ? note('合言葉なしの写真送信', '誰でも保存できる') : ok('合言葉なしでは写真を送れない');
+
+  const odd = up({ slot: '../../etc/passwd' });
+  /^[A-Za-z0-9_-]+-[\d-]+\.(jpg|png|webp)$/.test(String(odd.name || ''))
+    ? ok(`用途名が変でも、保存名は無害になる（${odd.name}）`)
+    : note('用途名', `そのまま保存名になる（${odd.name}）`);
+}
+
+/* ============================================================
+   空き状況の応答
+
+   この応答だけは、合言葉なしで誰でも受け取れます。そうしないと
+   お客様の画面に空き時間を出せないためです。
+   だからこそ、ここに人の名前や電話番号が1つでも混ざってはいけません。
+   ここは毎回、必ず確かめます。
+   ============================================================ */
+console.log('\n【空き状況】誰でも受け取れる応答の中身');
+{
+  const sheet = makeSheet([row({
+    お名前: '安田 健汰', フリガナ: 'ヤスダ ケンタ', 電話番号: "'08044987036",
+    メール: 'kenta@example.com', ご要望: 'いつもの感じで', メニュー: 'メンズカット',
+    来店日: day(10), 予約番号: 'LM-PRIV1'
+  })]);
+  const { out } = run('doAvailability_', sheet, undefined);
+  const text = JSON.stringify(out);
+  console.log('  返ってくる中身:', text);
+  for (const [label, needle] of [['お名前', '安田'], ['フリガナ', 'ヤスダ'], ['電話番号', '08044987036'],
+                                 ['メール', 'kenta@example.com'], ['ご要望', 'いつもの'],
+                                 ['メニュー', 'メンズカット'], ['予約番号', 'LM-PRIV1']]) {
+    text.includes(needle) ? note('空き状況に' + label, 'が入っている') : ok(label + 'は出ていない');
+  }
+  const b = (out.booked || [])[0] || {};
+  (b.date && b.time && b.minutes) ? ok('埋まっている時間帯は分かる')
+                                  : note('空き状況', '埋まっている時間が分からない');
 }
 
 console.log('\n' + '='.repeat(52));

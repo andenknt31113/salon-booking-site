@@ -1302,6 +1302,8 @@ function doAdminSave_(d) {
    誰でも閲覧できる設定になります（サイトに載せる写真のため）。
    ============================================================ */
 const IMAGE_FOLDER = 'ZER01サイト画像';
+/* 1枚の上限。長辺1200pxの写真なら、まず超えません。 */
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
 function imageFolder_() {
   const found = DriveApp.getFoldersByName(IMAGE_FOLDER);
@@ -1317,10 +1319,21 @@ function doAdminUpload_(d) {
   // "data:image/jpeg;base64,...." の形で来ても受け取れるようにする
   const body = raw.indexOf(',') >= 0 ? raw.slice(raw.indexOf(',') + 1) : raw;
   const mime = String(d.mimeType || 'image/jpeg');
-  if (mime.indexOf('image/') !== 0) return { ok: false, error: '画像ファイルを選んでください。' };
+
+  /* 受け取る形式は、サイトに載せられる3つだけにします。
+     image/ で始まれば何でも通していたので、SVGのように中に命令を書ける
+     ファイルまで、誰でも見られる場所に置けてしまいました。 */
+  const ext = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[mime];
+  if (!ext) return { ok: false, error: 'JPEG・PNG・WebP の画像をお選びください。' };
+
+  /* 大きさの上限。画面側で長辺1200pxに縮めてから送っていますが、
+     受け口は公開されているので、ここでも見ておきます。
+     base64 の文字数は、元の大きさのおよそ4/3です。 */
+  if (body.length * 3 / 4 > MAX_IMAGE_BYTES) {
+    return { ok: false, error: '画像が大きすぎます。もう少し小さい写真をお選びください。' };
+  }
 
   // 元のファイル名は日本語や重複でつまずくので、用途＋日時で付け直す
-  const ext  = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
   const slot = String(d.slot || 'image').replace(/[^A-Za-z0-9_-]/g, '') || 'image';
   const stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd-HHmmss');
   const name = slot + '-' + stamp + '.' + ext;
