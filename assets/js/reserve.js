@@ -551,6 +551,23 @@ async function submitReservation() {
     reservation = buildReservation();
     // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
     const sent = await sendToEndpoint({ type: 'reserve', ...reservation });
+    /* 端末側で作った予約番号が、別のお客様のものとぶつかっていた場合は
+       店舗側で振り直されます。台帳と食い違わないよう、返ってきた番号を採用します。 */
+    if (sent.ok && sent.code && sent.code !== reservation.code) {
+      reservation.code = sent.code;
+    }
+    /* 店舗側で「その枠はもう埋まっている」と判断された場合は、
+       予約として保存せず日時の選び直しに戻す。
+       画面側の確認をすり抜けて同時に押されたときにここへ来る。 */
+    if (sent.taken) {
+      btn.disabled = false;
+      btn.textContent = 'この内容で予約する';
+      alert(sent.error || 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。');
+      state.time = null;
+      await Remote.load(true);
+      goTo(3);
+      return;
+    }
     reservation.delivered = sent.ok;
     reservation.deliveryError = sent.ok ? '' : (sent.error || '');
     Store.add(reservation);

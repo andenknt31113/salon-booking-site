@@ -166,6 +166,39 @@ function doGet() {
    ============================================================ */
 function doReserve_(sheet, d) {
   const c = d.customer || {};
+
+  /* 予約番号は端末側で作っています。端末は自分が取った予約しか知らないため、
+     別のお客様と同じ番号になる可能性が残ります。ここで台帳と突き合わせます。
+
+     すでに同じ番号がある場合は2通りです。
+     ・同じ方の再送（送信は届いたが応答が返らず、もう一度送られた）
+       → 二重に書かず、そのまま成功として返す
+     ・別の方と番号がぶつかった
+       → 新しい番号を振り直し、その番号を端末に返す */
+  const dup = findRowByCode_(sheet, d.code);
+  if (dup !== -1) {
+    const hcol = n => HEADERS.indexOf(n);
+    const before = sheet.getRange(dup, 1, 1, HEADERS.length).getValues()[0];
+    const sameGuest = digits_(before[hcol('電話番号')]) === digits_(c.tel)
+      && normalizeDate_(before[hcol('来店日')]) === normalizeDate_(d.date)
+      && normalizeTime_(before[hcol('開始')]) === normalizeTime_(d.time);
+    if (sameGuest) return { ok: true, code: d.code, duplicate: true };
+    d.code = issueCode_(sheet);
+  }
+
+  /* 枠の最終確認。
+     画面側でも送信直前に見ていますが、2人がほぼ同時に押した場合は
+     どちらも「空いている」と判断してしまいます。
+     ここは doPost が順番待ちしたあとなので、ここで見れば必ず片方が弾かれます。 */
+  if (isTaken_(sheet, normalizeDate_(d.date), normalizeTime_(d.time),
+               Number(d.totalMinutes) || 30, d.staffId || '', d.code)) {
+    return {
+      ok: false,
+      taken: true,
+      error: 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。別の日時をお選びください。'
+    };
+  }
+
   const menuText = (d.menus || []).map(m => m.name).join(' / ');
   const eventId = addToCalendar_(d, c, menuText);
 
@@ -960,6 +993,20 @@ function getSheet_() {
     sheet.setColumnWidth(HEADERS.indexOf('ご要望') + 1, 260);
   }
   return sheet;
+}
+
+/* 台帳にまだ無い予約番号を作る */
+function issueCode_(sheet) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  for (let n = 0; n < 50; n++) {
+    let code = 'LM-';
+    for (let i = 0; i < 5; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    if (findRowByCode_(sheet, code) === -1) return code;
+  }
+  // ここまで来ることはまず無いが、必ず一意になる形で返す
+  return 'LM-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HHmmss');
 }
 
 function findRowByCode_(sheet, code) {

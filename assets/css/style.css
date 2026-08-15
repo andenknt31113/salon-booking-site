@@ -48,6 +48,22 @@ body {
   line-height: 1.75;
   font-size: 15px;
   letter-spacing: .02em;
+  /* 途中で改行できない長い文字列（URLや英単語）を、店舗がメニュー名や説明に
+     入れることがある。break-word では最小幅の計算に効かないため、
+     グリッドの列ごと画面外まで広がってしまう。anywhere は最小幅にも効く。 */
+  overflow-wrap: anywhere;
+}
+/* 金額・予約番号は途中で折り返させない（¥19,800 が 2行に割れると読めない） */
+.price-now, .menu-row-price, .price-list, .summary-total,
+.done-code, .booking-code, .header-tel {
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+/* ただし金額の代わりに出す文言は日本語の長文なので、折り返せないと
+   カード全体を押し広げてしまう。上の指定を打ち消す。 */
+.price-quote {
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 img { max-width: 100%; display: block; }
 /* hidden 属性は必ず効かせる。

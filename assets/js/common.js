@@ -37,10 +37,13 @@ function toMinutes(hhmm) {
 function toHHMM(min) {
   return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
 }
-/** 所要時間の表示（90 -> '1時間30分'） */
+/** 所要時間の表示（90 -> '1時間30分'）
+ *  シートに数字以外が入っていても「NaN分」と出さない */
 function formatDuration(min) {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
+  const total = Number(min);
+  if (!Number.isFinite(total) || total <= 0) return `${SALON.business.slotMinutes}分`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   if (h && m) return `${h}時間${m}分`;
   if (h) return `${h}時間`;
   return `${m}分`;
@@ -402,6 +405,18 @@ const Remote = {
  *  スプレッドシートの「メニュー」「おすすめメニュー」シートに行があれば、
  *  そちらを優先して使います。無ければ data.js の内容のまま動きます。
  * ============================================================ */
+/* シートは人が手で書く場所なので、数字の欄に数字以外が入ることがある。
+   そのまま使うと合計が NaN になり、金額も所要時間も出せなくなる。 */
+function normalizeItem(m) {
+  const price = Number(m.price);
+  const minutes = Number(m.minutes);
+  return {
+    ...m,
+    price: Number.isFinite(price) && price > 0 ? price : 0,
+    minutes: Number.isFinite(minutes) && minutes > 0 ? minutes : SALON.business.slotMinutes
+  };
+}
+
 const Catalog = {
   loaded: false,
   source: 'local',   // 'local' = data.js / 'sheet' = スプレッドシート
@@ -421,11 +436,13 @@ const Catalog = {
 
       // 中身があるときだけ差し替える（空のシートで消えてしまわないように）
       if (Array.isArray(data.categories) && data.categories.length) {
-        SALON.menuCategories = data.categories;
+        SALON.menuCategories = data.categories.map(c => ({
+          ...c, items: (c.items || []).map(normalizeItem)
+        }));
         this.source = 'sheet';
       }
       if (Array.isArray(data.coupons) && data.coupons.length) {
-        SALON.coupons = data.coupons;
+        SALON.coupons = data.coupons.map(normalizeItem);
         this.source = 'sheet';
       }
       if (Array.isArray(data.styles) && data.styles.length) {
