@@ -119,6 +119,25 @@ tryOne('60日後ちょうど', base({ date: day(60) }),
 tryOne('3時間の施術（9:00〜12:00）', base({ time: '09:00', totalMinutes: 180 }),
   (o, row, m, l) => o.ok ? ok(l + 'は通る') : note(l, 'が断られる：' + o.error));
 
+/* 日本語入力を切り替えずに打つと、数字も記号も全角になります。
+   番号は合っているのに断られる、が起きないことを確かめます。 */
+tryOne('全角の電話番号 ０９０…', base({ customer: { name: 'あ', tel: '０９０１１１１２２２２' } }),
+  (o, row, m, l) => {
+    if (!o.ok) return note(l, 'で断られる：' + o.error);
+    const v = String(row[col('電話番号')]).replace(/^'/, '');
+    /[０-９]/.test(v) ? note(l, `台帳に全角のまま「${v}」が入る（そこから発信できません）`)
+                     : ok(`${l}でも通り、台帳には「${v}」と入る`);
+  });
+tryOne('全角ハイフンの電話番号 ０９０ー…', base({ customer: { name: 'あ', tel: '０９０ー１１１１ー２２２２' } }),
+  (o, row, m, l) => o.ok ? ok(l + 'でも通る') : note(l, 'で断られる：' + o.error));
+tryOne('全角のメール ａ＠ｂ．ｃｏ', base({ customer: { name: 'あ', tel: '09011112222', email: 'ａ＠ｂ．ｃｏ' } }),
+  (o, row, m, l) => {
+    if (!o.ok) return note(l, 'で断られる：' + o.error);
+    const v = String(row[col('メール')]);
+    /[＠．ａ-ｚ]/.test(v) ? note(l, `台帳に全角のまま「${v}」が入る（送っても届きません）`)
+                        : ok(`${l}でも通り、台帳には「${v}」と入る`);
+  });
+
 console.log('\n【本物の Code.gs】受け付けてはいけない入力');
 tryOne('過去の日付', base({ date: '2020-01-01' }),
   (o, row, m, l) => o.ok ? note(l, '台帳に書かれる') : ok(l + 'は断られる'));
@@ -186,8 +205,26 @@ console.log('\n【照会】');
   r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'090-1111-2222' });
   r.out.ok ? ok('ハイフン付きでも照会できる') : note('照会', 'ハイフン付きだと照会できない');
 
+  /* 予約番号は控えを見ながら打ちます。日本語入力のままだと
+     「LM-」が「ＬＭー」になり、iPhoneでは小文字にもなります。
+     番号自体は合っているので、通してあげないと問い合わせになります。 */
   r = run('doLookup_', makeSheet([row()]), { code:'lm-aaaaa', tel:'09011112222' });
-  console.log(`  小文字の予約番号 → ${r.out.ok ? '照会できる' : '照会できない'}`);
+  r.out.ok ? ok('小文字で打っても照会できる') : note('照会', '小文字だと照会できない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'ＬＭー'+'ＡＡＡＡＡ', tel:'09011112222' });
+  r.out.ok ? ok('全角で打っても照会できる') : note('照会', '全角だと照会できない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'LMAAAAA', tel:'09011112222' });
+  r.out.ok ? ok('ハイフンを抜いても照会できる') : note('照会', 'ハイフンを抜くと照会できない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:' LM-AAAAA ', tel:'09011112222' });
+  r.out.ok ? ok('前後に空白があっても照会できる') : note('照会', '空白が混ざると照会できない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'', tel:'09011112222' });
+  r.out.ok ? note('照会', '予約番号が空でも何かが返る') : ok('予約番号が空なら照会できない');
+
+  r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'０９０１１１１２２２２' });
+  r.out.ok ? ok('全角の電話番号でも照会できる') : note('照会', '全角の電話番号だと照会できない');
 
   const res = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222' }).out;
   const keys = res.reservation ? Object.keys(res.reservation) : [];
@@ -221,8 +258,17 @@ console.log('\n【日時変更】');
   r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222', date: day(21), time:'03:00', minutes:60 });
   r.out.ok ? note('日時変更', '営業時間外に変更できる') : ok('営業時間外には変更できない');
 
+  r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', date: day(21), time:'10:00', minutes:60 });
+  r.out.ok ? note('日時変更', '電話番号を送らなければ誰でも変更できる') : ok('電話番号なしでは変更できない');
+
+  r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'', date: day(21), time:'10:00', minutes:60 });
+  r.out.ok ? note('日時変更', '電話番号が空でも変更できる') : ok('電話番号が空でも変更できない');
+
   r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222', date: day(21), time:'10:00', minutes:60 });
   r.out.ok ? ok('本人なら変更できる') : note('日時変更', '本人でもできない: ' + JSON.stringify(r.out));
+
+  r = run('doChange_', makeSheet([row()]), { code:'lm-aaaaa', tel:'090-1111-2222', date: day(21), time:'10:00', minutes:60 });
+  r.out.ok ? ok('小文字・ハイフン付きでも変更できる') : note('日時変更', '打ち方のゆれで変更できない');
 }
 
 console.log('\n【口コミ】');
@@ -247,6 +293,100 @@ console.log('\n【口コミ】');
   r.out.ok ? note('口コミ', '同じ予約から何度でも投稿できる') : ok('同じ予約からは1回だけ');
 }
 
+
+/* ここから先は店側の入口です。合言葉と、端末に残す合い札を確かめます。
+   台帳のある表ではなく、空の表に対して呼びます。断ることだけが要点なので、
+   中身は要りません。 */
+function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
+  const made = {};
+  const mk = name => {
+    const d = [];
+    return { getName: () => name, getLastRow: () => d.length, getLastColumn: () => 3,
+      appendRow: r => d.push(r),
+      getRange: () => ({ getValues: () => d, setValue(){}, setValues(){}, clearContent(){},
+        setFontWeight: () => ({ setBackground: () => {} }), setNote(){},
+        setFontLine: () => ({ setFontColor: () => {} }) }),
+      setFrozenRows(){}, setColumnWidth(){}, clear(){}, deleteRows(){}, _data: d };
+  };
+  const ss = { getSheetByName: n => (made[n] = made[n] || null), insertSheet: n => (made[n] = mk(n)) };
+  const ctx = {
+    console: { log(){}, warn(){}, error(){} },
+    MailApp: { sendEmail: () => {} }, UrlFetchApp: { fetch: () => {} },
+    CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (k in store ? store[k] : null),
+      setProperty: (k, v) => { store[k] = v; },
+      deleteProperty: k => { delete store[k]; },
+      getKeys: () => Object.keys(store) }) },
+    LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } },
+    DriveApp: {},
+    ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
+    Utilities: { formatDate: d => new Date(d).toISOString().slice(0, 10),
+      getUuid: () => 'uuid-' + (seq++), computeDigest: () => [1, 2, 3],
+      DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
+      newBlob: () => ({}), base64Decode: () => [], base64Encode: () => '' }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(src + `;globalThis.__a = ${fnName};`, ctx);
+  let out;
+  try { out = ctx.__a(payload); } catch (e) { out = { ok: false, threw: String(e && e.message) }; }
+  return { out, store };
+}
+
+console.log('\n【店側の入口】合言葉');
+{
+  let r = admin('doAdminData_', {});
+  r.out.ok ? note('合言葉なし', '台帳が読める') : ok('合言葉なしでは読めない');
+
+  r = admin('doAdminData_', { password: '' });
+  r.out.ok ? note('空の合言葉', '台帳が読める') : ok('空の合言葉では読めない');
+
+  r = admin('doAdminData_', { password: 'chigau' });
+  r.out.ok ? note('違う合言葉', '台帳が読める') : ok('違う合言葉では読めない');
+
+  r = admin('doAdminData_', { password: 'himitsu' });
+  r.out.ok ? ok('正しい合言葉なら読める') : note('正しい合言葉', '読めない：' + JSON.stringify(r.out));
+
+  /* 合言葉を入れ忘れたまま公開してしまったときに、
+     「無い＝素通り」になっていないかを見ます。 */
+  r = admin('doAdminData_', { password: '' }, {});
+  r.out.ok ? note('合言葉を設定していない', '誰でも台帳が読める') : ok('合言葉を設定していなければ誰も読めない');
+
+  r = admin('doAdminData_', { token: 'にせの合い札' });
+  r.out.ok ? note('でたらめな合い札', '台帳が読める') : ok('でたらめな合い札では読めない');
+}
+
+console.log('\n【店側の入口】合い札');
+{
+  const login = admin('doAdminLogin_', { password: 'himitsu', remember: true });
+  const token = login.out.token;
+  if (!token) note('合い札', '「この端末を記憶する」を選んでも出ない');
+  else {
+    let r = admin('doAdminData_', { token }, login.store);
+    r.out.ok ? ok('出した合い札で読める') : note('合い札', '出したのに読めない');
+
+    r = admin('doAdminData_', { token: token + 'x' }, login.store);
+    r.out.ok ? note('合い札', '1文字変えても読める（当てられます）') : ok('合い札を1文字変えると読めない');
+  }
+  const no = admin('doAdminLogin_', { password: 'himitsu', remember: false });
+  no.out.token ? note('合い札', '記憶しない選択なのに端末に残る') : ok('記憶しない選択なら合い札を出さない');
+
+  const bad = admin('doAdminLogin_', { password: 'chigau', remember: true });
+  bad.out.ok ? note('入店', '違う合言葉でも入れる') : ok('違う合言葉では入れない');
+}
+
+console.log('\n【店側の入口】保存');
+{
+  let r = admin('doAdminSave_', { target: 'menus', rows: [] });
+  r.out.ok ? note('合言葉なしの保存', 'メニューを消せてしまう') : ok('合言葉なしでは保存できない');
+
+  r = admin('doAdminSave_', { password: 'himitsu', target: '../../etc', rows: [] });
+  r.out.ok ? note('知らない保存先', '受け付ける') : ok('知らない保存先は断る');
+
+  r = admin('doAdminSave_', { password: 'himitsu', target: '予約一覧', rows: [] });
+  r.out.ok ? note('保存先に予約台帳', '予約を全部消せてしまう') : ok('予約台帳は保存先にできない');
+}
 
 console.log('\n' + '='.repeat(52));
 if (found.length) {

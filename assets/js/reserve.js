@@ -356,6 +356,31 @@ const VALIDATORS = {
   agree: v => v === true
 };
 
+/* 日本語入力のままでも困らないように、読み取れる形に直します。
+
+   打っている最中に書き換えると、変換の途中で文字が飛んだり、
+   カーソルが末尾へ跳んだりします。ですから直すのは、その欄から
+   離れたときと、送る直前だけです。直した内容は入力欄にも書き戻し、
+   お客様自身が「これで送られる」と確かめられるようにします。 */
+const TIDY = {
+  name: v => v.trim(),
+  kana: v => toKatakana(v).trim(),
+  tel: v => normalizeTel(v),
+  email: v => normalizeEmail(v)
+};
+
+function tidyField(input) {
+  const made = TIDY[input && input.name];
+  if (!made) return;
+  const next = made(input.value);
+  if (next !== input.value) input.value = next;
+}
+
+function tidyForm() {
+  const form = $('#customer-form');
+  Object.keys(TIDY).forEach(k => { if (form[k]) tidyField(form[k]); });
+}
+
 function readForm() {
   const form = $('#customer-form');
   return {
@@ -385,6 +410,7 @@ function fillForm() {
 }
 
 function validateForm(showErrors = true) {
+  tidyForm();
   const c = readForm();
   state.customer = c;
   let firstInvalid = null;
@@ -463,6 +489,13 @@ function initStep4() {
     saveDraft();
   });
   form.addEventListener('change', () => {
+    state.customer = readForm();
+    saveDraft();
+  });
+  // 欄から離れたときに、全角の数字や半角カナをそっと直す
+  form.addEventListener('focusout', e => {
+    if (!e.target || !TIDY[e.target.name]) return;
+    tidyField(e.target);
     state.customer = readForm();
     saveDraft();
   });

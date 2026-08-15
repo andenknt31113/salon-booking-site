@@ -78,7 +78,16 @@ function parsePrice(v) {
   const n = Number(t.replace(/[^0-9.]/g, ''));
   return { value: isNaN(n) ? 0 : n, from: /[〜~]/.test(t) };
 }
-const digits = v => String(v ?? '').replace(/\D/g, '');
+/* 本番（gas/Code.gs）と同じ読み取り方をします。
+   ここを甘くすると、試験は通るのに本番では通らない、という
+   いちばん困る食い違いが起きます。 */
+const halfWidth = v => String(v ?? '')
+  .replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  .replace(/　/g, ' ');
+const digits = v => halfWidth(v).replace(/\D/g, '');
+/* 予約番号は英数字だけを見て、大文字に揃えて突き合わせます */
+const codeKey = v => halfWidth(v).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+const sameCode = (a, b) => !!codeKey(a) && codeKey(a) === codeKey(b);
 
 /* シート行を GAS と同じ形に変換する */
 function buildMenu() {
@@ -145,6 +154,18 @@ http.createServer((req, res) => {
     req.on('end', () => {
       const d = JSON.parse(body);
       if (d.type === 'slowmode') { SLOW.ms = Number(d.ms) || 0; const t = SLOW.ms; SLOW.ms = 0; const r = { ok: true, ms: t }; reply(res, r); SLOW.ms = t; return; }
+
+      /* テスト用：台帳を空に戻す。
+
+         このサーバーは立ち上げっぱなしにできるので、前に流した試験の
+         予約が残ります。すると「空いているはずの時間が埋まっている」と
+         いう、サイトのせいではない失敗が出ます。
+         試験のはじめにここを呼んで、まっさらから始めます。 */
+      if (d.type === 'reset') {
+        LEDGER.length = 0; SHEET_REVIEW.length = 0; UPLOADS.length = 0;
+        TOKENS.clear(); SLOW.ms = 0; FAIL.on = false;
+        return reply(res, { ok: true });
+      }
 
       // テスト用：受信側が失敗を返す状態を作る
       if (d.type === 'failmode') { FAIL.on = !!d.on; return reply(res, { ok:true, fail: FAIL.on }); }
@@ -250,7 +271,7 @@ http.createServer((req, res) => {
 
       // テスト用：来店済みの状態を作る
       if (d.type === 'backdate') {
-        const r = LEDGER.find(x => x.code === d.code);
+        const r = LEDGER.find(x => sameCode(x.code, d.code));
         if (r) { const y = new Date(); y.setDate(y.getDate()-1); r.date = y.toISOString().slice(0,10); }
         return reply(res, { ok:!!r });
       }
@@ -258,14 +279,14 @@ http.createServer((req, res) => {
       if (d.type === 'review') {
         const body = String(d.body||'').trim();
         if (!body) return reply(res, { ok:false, error:'ご感想をご入力ください。' });
-        const r = LEDGER.find(x => x.code === d.code);
+        const r = LEDGER.find(x => sameCode(x.code, d.code));
         if (!r || digits(r.customer?.tel) !== digits(d.tel)) {
           return reply(res, { ok:false, error:'ご予約が確認できませんでした。' });
         }
         if (r.cancelled) return reply(res, { ok:false, error:'キャンセルされたご予約には投稿いただけません。' });
         const visit = new Date(r.date + 'T' + r.time + ':00');
         if (visit.getTime() > Date.now()) return reply(res, { ok:false, error:'ご来店後にご投稿いただけます。' });
-        if (SHEET_REVIEW.some(x => x['予約番号'] === d.code)) {
+        if (SHEET_REVIEW.some(x => sameCode(x['予約番号'], d.code))) {
           return reply(res, { ok:false, error:'このご予約にはすでにご感想をいただいています。ありがとうございます。' });
         }
         SHEET_REVIEW.push({ 投稿日: new Date().toISOString().slice(0,10), 予約番号: d.code,
@@ -276,7 +297,7 @@ http.createServer((req, res) => {
       }
 
       if (d.type === 'change') {
-        const r = LEDGER.find(x => x.code === d.code);
+        const r = LEDGER.find(x => sameCode(x.code, d.code));
         if (!r) return reply(res, { ok:false, error:'該当する予約が見つかりません' });
         if (d.tel && digits(r.customer?.tel) !== digits(d.tel)) {
           return reply(res, { ok:false, error:'ご予約が確認できませんでした。' });
@@ -286,7 +307,7 @@ http.createServer((req, res) => {
         // 同じ担当の同じ時間に別の予約がないか
         const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
         const start = toMin(d.time), end = start + (Number(d.minutes)||30);
-        const taken = LEDGER.some(x => !x.cancelled && x.code !== d.code
+        const taken = LEDGER.some(x => !x.cancelled && !sameCode(x.code, d.code)
           && x.date === d.date && (x.staffId||null) === (r.staffId||null)
           && start < toMin(x.endTime) && toMin(x.time) < end);
         if (taken) return reply(res, { ok:false, error:'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' });
@@ -302,7 +323,7 @@ http.createServer((req, res) => {
       }
 
       if (d.type === 'lookup') {
-        const r = LEDGER.find(x => x.code === d.code);
+        const r = LEDGER.find(x => sameCode(x.code, d.code));
         if (!r || digits(r.customer?.tel) !== digits(d.tel)) {
           return reply(res, { ok: false, error: 'ご予約が見つかりませんでした。' });
         }
@@ -319,7 +340,7 @@ http.createServer((req, res) => {
       }
 
       if (d.type === 'cancel') {
-        const t = LEDGER.find(r => r.code === d.code);
+        const t = LEDGER.find(r => sameCode(r.code, d.code));
         if (!t) return reply(res, { ok: false, error: 'not found' });
         /* 電話番号は必ず確認する（本物と同じ。省略できると他人がキャンセルできる）。
            ただし店（管理ページ）からは、パスワードで通す。 */
@@ -343,7 +364,7 @@ http.createServer((req, res) => {
       {
         const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
         const start = toMin(d.time), end = start + (Number(d.totalMinutes)||30);
-        const taken = LEDGER.some(x => !x.cancelled && x.code !== d.code
+        const taken = LEDGER.some(x => !x.cancelled && !sameCode(x.code, d.code)
           && x.date === d.date && (x.staffId||'') === (d.staffId||'')
           && start < toMin(x.endTime) && toMin(x.time) < end);
         if (taken) return reply(res, { ok:false, taken:true,
@@ -352,7 +373,7 @@ http.createServer((req, res) => {
 
       // 本物と同じ重複・衝突の扱い
       {
-        const dup = LEDGER.find(r => r.code === d.code);
+        const dup = LEDGER.find(r => sameCode(r.code, d.code));
         if (dup) {
           const same = digits(dup.customer?.tel) === digits(d.customer?.tel)
             && dup.date === d.date && dup.time === d.time;

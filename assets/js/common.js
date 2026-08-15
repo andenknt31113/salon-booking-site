@@ -80,6 +80,61 @@ function stars(score) {
   return '★'.repeat(full) + '☆'.repeat(5 - full);
 }
 
+/* ============================================================
+ *  入力のゆれをならす
+ *
+ *  日本語入力を切り替えずに打つと、数字も記号も全角になります。
+ *  フリガナはひらがなで書く方も、半角カナで書く方もいます。
+ *  そのたびに「入力し直してください」と出すのは、こちらの都合です。
+ *  読み取れるものは、こちらで直してから受け取ります。
+ * ============================================================ */
+const KANA_HALF = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+const KANA_FULL = 'ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+const VOICED = (() => {
+  const m = { 'ｳﾞ': 'ヴ' };
+  'ｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾊﾋﾌﾍﾎ'.split('').forEach((c, i) => { m[c + 'ﾞ'] = 'ガギグゲゴザジズゼゾダヂヅデドバビブベボ'[i]; });
+  'ﾊﾋﾌﾍﾎ'.split('').forEach((c, i) => { m[c + 'ﾟ'] = 'パピプペポ'[i]; });
+  return m;
+})();
+
+/** 全角の英数字・記号を半角に、全角スペースを空白に */
+function toHalfWidth(v) {
+  return String(v ?? '')
+    .replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/　/g, ' ');
+}
+
+/** ひらがな・半角カナをカタカナに揃える */
+function toKatakana(v) {
+  const t = String(v ?? '');
+  let out = '';
+  for (let i = 0; i < t.length; i++) {
+    const pair = t.slice(i, i + 2);
+    if (VOICED[pair]) { out += VOICED[pair]; i++; continue; }
+    const j = KANA_HALF.indexOf(t[i]);
+    if (j !== -1) { out += KANA_FULL[j]; continue; }
+    // ひらがなはカタカナへ（ぁ〜ゖ）
+    const code = t.charCodeAt(i);
+    out += (code >= 0x3041 && code <= 0x3096) ? String.fromCharCode(code + 0x60) : t[i];
+  }
+  return out;
+}
+
+/** 電話番号：全角と、いろいろな形の「ー」を半角に揃える */
+function normalizeTel(v) {
+  return toHalfWidth(v).replace(/[‐‑‒–—―ー−ｰ]/g, '-').replace(/\s+/g, '').trim();
+}
+
+/** メールアドレス：全角のまま送られると届きません */
+function normalizeEmail(v) {
+  return toHalfWidth(v).replace(/\s/g, '').trim();
+}
+
+/** 予約番号：小文字・全角・「ー」で打っても同じ番号として扱う */
+function normalizeCode(v) {
+  return toHalfWidth(v).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+}
+
 /* ---------- マスタ参照ヘルパー ---------- */
 const allMenuItems = () => SALON.menuCategories.flatMap(c => c.items);
 const findMenu = id => allMenuItems().find(m => m.id === id) || SALON.coupons.find(c => c.id === id) || null;

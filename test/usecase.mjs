@@ -64,6 +64,11 @@ async function book(p, { name, tel, menuIndex = 0, slotIndex = 0 }) {
 }
 
 try {
+/* 試験用サーバーを立ち上げっぱなしにしていると、前回の予約が残ります。
+   空いているはずの時間が埋まって見え、サイトのせいではない失敗が出ます。
+   まっさらから始めます。 */
+await post({ type: 'reset' }).catch(() => {});
+
 /* ============================================================
    UC1 はじめてのお客様が、料金を見てから予約する
    ============================================================ */
@@ -633,6 +638,56 @@ console.log('\n【UC18】入力の途中で画面が読み込み直される');
     (await p.locator('#summary-body').innerText()).includes(chosen.replace(/^［[^］]*］/, '')), true);
   check('UC18', '日時も残っている', await p.evaluate(() => !!(state.date && state.time)), true);
   await p.context().close();
+}
+
+/* ============================================================
+   UC19 日本語入力を切り替えずに入力する
+   ============================================================ */
+console.log('\n【UC19】日本語入力のまま、全角で打ってしまうお客様');
+{
+  /* スマホで日本語入力のまま数字を打つと「０９０」に、
+     「@」は「＠」になります。フリガナをひらがなで書く方もいます。
+     ご本人にとっては正しく打っているので、ここで断られると
+     「予約できない店」になってしまいます。 */
+  const p = await newPhone('UC19');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+  await p.locator('button[data-date][data-time]:not([disabled])').nth(40).click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
+
+  const saved19 = p.locator('#saved-profile');
+  if (await saved19.isVisible()) { await p.click('#profile-edit'); await p.waitForTimeout(200); }
+  await p.fill('#f-name', '全角 太郎');
+  await p.fill('#f-kana', 'ぜんかく たろう');           // ひらがなで書いた
+  await p.fill('#f-tel', '０９０ー１１１１ー９９９９');   // 全角＋長音符
+  await p.fill('#f-email', 'ｚｅｎ＠ｅｘａｍｐｌｅ．ｃｏｍ');
+  await p.locator('#f-email').blur(); await p.waitForTimeout(300);
+
+  check('UC19', '電話番号が半角に直る', await p.inputValue('#f-tel'), '090-1111-9999');
+  check('UC19', 'フリガナがカタカナに直る', await p.inputValue('#f-kana'), 'ゼンカク タロウ');
+  check('UC19', 'メールが半角に直る', await p.inputValue('#f-email'), 'zen@example.com');
+
+  await p.locator('label.radio-chip:has-text("初めて")').first().click();
+  await p.locator('.checkbox-line > span').click();
+  await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(600);
+  check('UC19', '確認画面まで進める', await p.evaluate(
+    () => [...document.querySelectorAll('.reserve-panel.is-active')].map(x => x.dataset.panel).join()), '5');
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(1800);
+  const code19 = (await p.locator('#done-code').innerText()).trim();
+  check('UC19', '予約できる', /^LM-/.test(code19), true);
+  await p.context().close();
+
+  /* 控えを見ながら打ち直すときも、同じことが起きます */
+  const other = await newPhone('UC19-別の端末');
+  await other.goto(B + '/mypage.html'); await other.waitForTimeout(1300);
+  await other.fill('#lookup-code', code19.toLowerCase().replace('-', 'ー'));
+  await other.fill('#lookup-tel', '０９０１１１１９９９９');
+  await other.click('#lookup-btn'); await other.waitForTimeout(1600);
+  check('UC19', '小文字・全角で打っても照会できる',
+    await other.locator('#lookup-result .booking-card').count(), 1);
+  await other.context().close();
 }
 
 /* ============================================================

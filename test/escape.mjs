@@ -13,6 +13,10 @@ const found = [];
 const note = (t, m) => { found.push(`${t}（${m}）`); console.log(`  ❌ ${t} — ${m}`); };
 const ok = t => console.log(`  ✅ ${t}`);
 
+/* 前に流した試験の予約が残っていると、空き枠が見つからず失敗します */
+await fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ type: 'reset' }) }).catch(() => {});
+
 const br = await chromium.launch(
   process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
 const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });

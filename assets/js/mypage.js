@@ -90,7 +90,7 @@ function bookingCard(r) {
 function render() {
   let list = Store.all();
   if (filterCode) {
-    list = list.filter(r => r.code.toUpperCase().includes(filterCode.toUpperCase()));
+    list = list.filter(r => normalizeCode(r.code).includes(normalizeCode(filterCode)));
   }
 
   const upcoming = list.filter(r => !isPast(r) && r.status !== 'cancelled')
@@ -150,8 +150,11 @@ function renderLookupResult(r) {
 
 async function doLookup() {
   const btn = $('#lookup-btn');
-  const code = $('#lookup-code').value.trim();
-  const tel = $('#lookup-tel').value.trim();
+  /* 日本語入力のまま打つと「LM-」が「ＬＭー」になります。
+     番号は合っているので、直してから照会します。 */
+  const code = normalizeCode($('#lookup-code').value);
+  const tel = normalizeTel($('#lookup-tel').value);
+  $('#lookup-tel').value = tel;
   const err = $('#lookup-error');
 
   err.style.display = 'none';

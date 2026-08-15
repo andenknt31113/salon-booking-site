@@ -356,9 +356,12 @@ function checkReserve_(sheet, d) {
   if (!isFinite(price) || price < 0 || price > MAX_PRICE) return '金額が正しくありません。';
 
   if (!String(c.name || '').trim()) return 'お名前をご入力ください。';
-  const tel = String(c.tel || '').replace(/[^0-9]/g, '');
+  /* 全角のままの番号（０９０…）も digits_ で読み取ります。
+     日本語入力を切り替え忘れただけで断られるのは、お客様には
+     理由の分からない失敗になります。 */
+  const tel = digits_(c.tel);
   if (!/^0\d{9,10}$/.test(tel)) return '電話番号をご確認ください。';
-  const email = String(c.email || '').trim();
+  const email = halfWidth_(c.email).trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'メールアドレスをご確認ください。';
 
   const menuText = (d.menus || []).map(m => m && m.name).filter(Boolean).join(' / ')
@@ -441,8 +444,11 @@ function doReserve_(sheet, d) {
     Number(d.totalPrice) || 0,
     cell_(c.name, LIMITS.name),
     cell_(c.kana, LIMITS.kana),
-    "'" + String(c.tel || '').slice(0, LIMITS.tel),   // 先頭の0が消えないよう文字列として保存
-    cell_(c.email, LIMITS.email),
+    /* 先頭の0が消えないよう文字列として保存します。
+       全角のまま台帳に入ると、店の端末からその番号に発信できません。
+       半角に直したうえで、読みやすさのためハイフンは残します。 */
+    "'" + telText_(c.tel).slice(0, LIMITS.tel),
+    cell_(halfWidth_(c.email), LIMITS.email),
     cell_(c.visit, LIMITS.visit),
     cell_(c.request, LIMITS.request),
     '予約確定',
@@ -825,7 +831,7 @@ function doReview_(sheet, d) {
   // 同じ予約からの二重投稿を防ぐ
   if (rv.getLastRow() > 1) {
     const codes = rv.getRange(2, REVIEW_HEADERS.indexOf('予約番号') + 1, rv.getLastRow() - 1, 1).getValues();
-    if (codes.some(function (x) { return String(x[0]) === String(d.code); })) {
+    if (codes.some(function (x) { return codeKey_(x[0]) && codeKey_(x[0]) === codeKey_(d.code); })) {
       return { ok: false, error: 'このご予約にはすでにご感想をいただいています。ありがとうございます。' };
     }
   }
@@ -912,6 +918,19 @@ function doLookup_(sheet, d) {
 }
 
 /** 数字だけを取り出して比較する（ハイフン・全角・先頭の ' を無視） */
+/* 全角の英数字・記号を半角に直します。
+   日本語入力のままメールアドレスを打つと「＠」になり、そのままでは届きません。 */
+function halfWidth_(v) {
+  return String(v == null ? '' : v)
+    .replace(/[！-～]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/　/g, ' ');
+}
+
+/* 台帳に残す電話番号。半角に直し、ハイフンは読みやすさのため残します。 */
+function telText_(v) {
+  return halfWidth_(v).replace(/[‐‑‒–—―ー−ｰ]/g, '-').replace(/[^0-9\-+()]/g, '').trim();
+}
+
 function digits_(v) {
   return String(v == null ? '' : v)
     .replace(/^'/, '')
@@ -936,9 +955,13 @@ function doChange_(sheet, d) {
   const col = n => HEADERS.indexOf(n);
   const before = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
 
-  // 照会経由の変更は電話番号の一致を確認する
-  if (d.tel && digits_(before[col('電話番号')]) !== digits_(d.tel)) {
-    return { ok: false, error: 'ご予約が確認できませんでした。' };
+  /* キャンセルと同じで、日時の変更も本人確認を省略できません。
+     以前は「電話番号が送られてきたときだけ」見ていたため、
+     番号を空にして送れば他人の予約を動かせる状態でした。
+     店（管理ページ）からの変更はパスワードで通します。 */
+  if (!isAdmin_(d)
+      && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
+    return { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
   }
   if (String(before[col('状態')] || '') === 'キャンセル') {
     return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
@@ -1405,11 +1428,27 @@ function issueCode_(sheet) {
   return 'LM-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HHmmss');
 }
 
+/* 予約番号の「見た目のゆれ」を吸収します。
+
+   お客様は日本語入力のまま打つことがあります。そのとき「-」は「ー」や
+   「－」になり、英字は小文字や全角になります。番号は合っているのに
+   「見つかりません」と出るのがいちばん困るので、英数字だけを取り出して
+   大文字に揃えたものどうしを突き合わせます。 */
+function codeKey_(v) {
+  return String(v == null ? '' : v)
+    .replace(/^'/, '')
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase();
+}
+
 function findRowByCode_(sheet, code) {
+  const key = codeKey_(code);
+  if (!key) return -1;              // 空欄が空行に当たらないようにします
   const last = sheet.getLastRow();
   if (last < 2) return -1;
   const codes = sheet.getRange(2, 1, last - 1, 1).getValues();
-  const i = codes.findIndex(r => String(r[0]).trim() === String(code).trim());
+  const i = codes.findIndex(r => codeKey_(r[0]) === key);
   return i === -1 ? -1 : i + 2;
 }
 
