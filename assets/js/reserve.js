@@ -20,19 +20,32 @@ const state = {
 };
 
 /* ---------- 下書きの保存・復元 ---------- */
+/* IDだけでなく「名前」も一緒に控えます。
+   メニューをスプレッドシート管理にすると、同じメニューでもIDが変わります
+   （cp01 → sc0）。IDだけだと、読み込み直したときに選択が消えます。 */
+function draftNames() {
+  const coupon = state.couponId
+    ? (SALON.coupons.find(c => c.id === state.couponId) || {}).title : '';
+  const menus = state.menuIds
+    .map(id => (allMenuItems().find(m => m.id === id) || {}).name)
+    .filter(Boolean);
+  return { couponName: coupon || '', menuNames: menus };
+}
+
 function saveDraft() {
   try {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(state));
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...state, ...draftNames() }));
   } catch (e) { /* プライベートモード等では保存しない */ }
 }
 function loadDraft() {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
-    if (!raw) return;
+    if (!raw) return null;
     const saved = JSON.parse(raw);
-    if (saved.step === 6) return; // 完了済みの下書きは復元しない
+    if (saved.step === 6) return null; // 完了済みの下書きは復元しない
     Object.assign(state, saved, { calOffset: 0 });
-  } catch (e) { /* 破損時は無視 */ }
+    return saved;
+  } catch (e) { return null; }   // 破損時は無視
 }
 function clearDraft() {
   try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* noop */ }
@@ -65,15 +78,26 @@ function clearProfile() {
   try { localStorage.removeItem(PROFILE_KEY); } catch (e) { /* noop */ }
 }
 
-/* メニューをスプレッドシート管理に切り替えると、data.js 由来のID（cp01 など）と
-   シート由来のID（sc0 など）が変わります。下書きに残った古いIDを掃除しないと、
-   「選択済みに見えるのに合計が0円」という状態になるため取り除きます。 */
-function dropUnknownSelections() {
+/* 下書きに残っていたIDが、いまのメニューに無いことがあります。
+   スプレッドシート管理に切り替えるとIDが変わるためです（cp01 → sc0）。
+
+   そのまま消すと、読み込み直しただけで選択が消えて最初からになります。
+   まず**名前で**同じものを探し、見つからないときだけ諦めます。
+   （消さずに残すと「選択済みに見えるのに合計が0円」になります） */
+function reconcileSelections(saved) {
+  const byName = (list, name) => list.find(x => (x.title || x.name) === name);
+
   if (state.couponId && !SALON.coupons.some(c => c.id === state.couponId)) {
-    state.couponId = null;
+    const c = saved && saved.couponName ? byName(SALON.coupons, saved.couponName) : null;
+    state.couponId = c ? c.id : null;
   }
   const known = new Set(allMenuItems().map(m => m.id));
-  state.menuIds = state.menuIds.filter(id => known.has(id));
+  const names = (saved && saved.menuNames) || [];
+  state.menuIds = state.menuIds.map((id, i) => {
+    if (known.has(id)) return id;
+    const m = names[i] ? byName(allMenuItems(), names[i]) : null;
+    return m ? m.id : null;
+  }).filter(Boolean);
 }
 
 /* ---------- 集計 ---------- */
@@ -932,8 +956,8 @@ function remapSelection(before) {
 
 /* ---------- 起動 ---------- */
 document.addEventListener('DOMContentLoaded', () => {
-  loadDraft();
-  dropUnknownSelections();
+  const draft = loadDraft();
+  reconcileSelections(draft);
 
   /* 日時変更で来た場合は、下書きより変更対象を優先する。
      変更中の予約自身は空き枠の判定から除いておく（元の時間の前後を選べるように）。 */
@@ -950,7 +974,13 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     applyQueryParams();
     if (state.step === 6) state.step = 1;
-    if (!hasMenu()) state.step = 1;   // 選択が消えた場合は最初から
+    /* 選択が見当たらないときは最初からにします。
+       ただしシート管理のときは、この時点ではまだ data.js の内容しか無く、
+       IDが違うだけで「消えた」ように見えます。
+       名前で引き継げる見込みがあるなら、シートが届くまで判断を待ちます。 */
+    const mayRecover = !!SALON.reservationEndpoint && !!draft
+      && !!(draft.couponName || (draft.menuNames && draft.menuNames.length));
+    if (!hasMenu() && !mayRecover) state.step = 1;
   }
 
   // スタイリストが1名なら、その人を初めから選んでおく
@@ -978,16 +1008,27 @@ document.addEventListener('DOMContentLoaded', () => {
      先に掲載中の内容で描き、届いたら中身だけ入れ替えます。 */
   Catalog.load().then(source => {
     if (source !== 'sheet') return;
+    /* いま選ばれているものを、名前で新しいメニューに引き継ぎます。
+
+       読み込み直した直後は、まだ data.js の内容しか無い状態で
+       下書きを復元しています。そのとき引き継げなかったぶんは、
+       **下書きに残っている名前**で、ここでもう一度探します。
+       これをしないと、読み込み直しただけで選択が消えます。 */
+    const names = draftNames();
     const before = {
       couponId: state.couponId,
-      couponName: state.couponId
-        ? (SALON.coupons.find(c => c.id === state.couponId) || {}).title : '',
+      couponName: names.couponName || (draft && draft.couponName) || '',
       menuIds: [...state.menuIds],
-      menuNames: state.menuIds
-        .map(id => (allMenuItems().find(m => m.id === id) || {}).name)
-        .filter(Boolean)
+      menuNames: names.menuNames.length ? names.menuNames
+        : ((draft && draft.menuNames) || [])
     };
+    if (!before.couponId && before.couponName) before.couponId = 'pending';
+    if (!before.menuIds.length && before.menuNames.length) {
+      before.menuIds = before.menuNames.map(() => 'pending');
+    }
     remapSelection(before);
+    // 引き継げなかったときは、ここで最初に戻します（待っていた判断）
+    if (!hasMenu() && !changing) state.step = 1;
     initStep1();
     renderStaffChoices();
     if (state.step === 3) renderCalendar();

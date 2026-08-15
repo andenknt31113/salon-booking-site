@@ -6,6 +6,16 @@ import { dirname, join } from 'node:path';
 import vm from 'node:vm';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'gas', 'Code.gs'), 'utf8');
+
+/* 日付は実行日からの相対で作ります。
+   固定の日付を書くと、その日を過ぎた時点で
+   「受付範囲外」として断られ、試験が勝手に落ちます。 */
+const jstKey = t => {
+  const d = new Date(t + 9 * 3600 * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+};
+const day = n => jstKey(Date.now() + n * 864e5);
 const sent = [];
 
 function makeSheet(rows) {
@@ -47,7 +57,13 @@ function run(fnName, sheet, payload, patch) {
     DriveApp: {},
     ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
     Utilities: {
-      formatDate: (d, tz, f) => new Date(d).toISOString().slice(0, 10),
+      formatDate: (d, tz, f) => {
+        const jst = new Date(new Date(d).getTime() + 9 * 3600 * 1000);
+        const p = n => String(n).padStart(2, '0');
+        return f === 'HH:mm'
+          ? `${p(jst.getUTCHours())}:${p(jst.getUTCMinutes())}`
+          : `${jst.getUTCFullYear()}-${p(jst.getUTCMonth() + 1)}-${p(jst.getUTCDate())}`;
+      },
       getUuid: () => 'uuid', computeDigest: () => [1, 2, 3],
       DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
       newBlob: () => ({}), base64Decode: () => [], base64Encode: () => ''
@@ -78,7 +94,7 @@ function inspect(label, messages) {
   const sheet = makeSheet([]);
   const r = run('doReserve_', sheet, {
     code: 'LM-MAIL1', createdAt: new Date().toISOString(),
-    date: '2026-09-20', time: '10:00', endTime: '11:10', totalMinutes: 70,
+    date: day(10), time: '10:00', endTime: '11:10', totalMinutes: 70,
     menus: [{ name: 'カット' }], staffName: 'MATTEO', staffId: 'st01',
     nominationFee: 0, totalPrice: 6900,
     customer: { name: '山田 太郎', tel: '09011112222' }   // フリガナ・メール・来店回数・要望が無い
@@ -91,7 +107,7 @@ function inspect(label, messages) {
   const sheet = makeSheet([]);
   const r = run('doReserve_', sheet, {
     code: 'LM-MAIL2', createdAt: new Date().toISOString(),
-    date: '2026-09-21', time: '13:00', endTime: '16:00', totalMinutes: 180,
+    date: day(11), time: '13:00', endTime: '16:00', totalMinutes: 180,
     menus: [{ name: 'カット＋デザインカラー（ブリーチ系）' }],
     staffName: 'MATTEO', staffId: 'st01', nominationFee: 0,
     totalPrice: 0, totalLabel: 'お見積り',
@@ -106,7 +122,7 @@ function inspect(label, messages) {
   const sheet = makeSheet([]);
   const r = run('doReserve_', sheet, {
     code: 'LM-MAIL3', createdAt: new Date().toISOString(),
-    date: '2026-09-22', time: '09:00', endTime: '12:00', totalMinutes: 180,
+    date: day(12), time: '09:00', endTime: '12:00', totalMinutes: 180,
     menus: [
       { name: '【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ men\'s' },
       { name: '髪質改善トリートメント' }
@@ -121,15 +137,13 @@ function inspect(label, messages) {
 
 /* ---- 4. 日時変更 ---- */
 {
-  const far = new Date(); far.setDate(far.getDate() + 30);
-  const k = `${far.getFullYear()}-${String(far.getMonth()+1).padStart(2,'0')}-${String(far.getDate()).padStart(2,'0')}`;
+  const k = day(30);
   const sheet = makeSheet([{
     予約番号: 'LM-MAIL4', 来店日: k, 開始: '10:00', 終了: '11:10',
     メニュー: 'カット', 担当: 'MATTEO', 担当ID: 'st01', 合計金額: 6900,
     お名前: '高橋 次郎', 電話番号: "'09077778888", メール: 'z@example.com', 状態: '予約確定'
   }]);
-  const later = new Date(); later.setDate(later.getDate() + 31);
-  const k2 = `${later.getFullYear()}-${String(later.getMonth()+1).padStart(2,'0')}-${String(later.getDate()).padStart(2,'0')}`;
+  const k2 = day(31);
   const r = run('doChange_', sheet, { code: 'LM-MAIL4', tel: '09077778888',
     date: k2, time: '15:00', endTime: '16:10', minutes: 70 });
   console.log('\n返り値:', JSON.stringify(r.out));
@@ -138,8 +152,7 @@ function inspect(label, messages) {
 
 /* ---- 5. キャンセル ---- */
 {
-  const far = new Date(); far.setDate(far.getDate() + 30);
-  const k = `${far.getFullYear()}-${String(far.getMonth()+1).padStart(2,'0')}-${String(far.getDate()).padStart(2,'0')}`;
+  const k = day(30);
   const sheet = makeSheet([{
     予約番号: 'LM-MAIL5', 来店日: k, 開始: '10:00', 終了: '11:10',
     メニュー: 'カット', 担当: 'MATTEO', 担当ID: 'st01', 合計金額: 6900,
@@ -155,7 +168,7 @@ function inspect(label, messages) {
 {
   const payload = {
     code: 'LM-MAIL6', createdAt: new Date().toISOString(),
-    date: '2026-09-25', time: '15:00', endTime: '16:10', totalMinutes: 70,
+    date: day(13), time: '15:00', endTime: '16:10', totalMinutes: 70,
     menus: [{ name: 'メンズカット' }], staffName: 'MATTEO', staffId: 'st01',
     nominationFee: 0, totalPrice: 4000,
     customer: { name: '中村 四郎', kana: 'ナカムラ シロウ', tel: '09012120000',
@@ -184,8 +197,7 @@ function inspect(label, messages) {
    毎日トリガーで自動送信される、いちばん人の目に触れない文面です。
    ここが壊れていても誰も気づかないので、ここで見ておきます。 */
 {
-  const t = new Date(); t.setDate(t.getDate() + 1);
-  const k = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  const k = day(1);   // 受け口と同じ日本時間で「明日」
   const sheet = makeSheet([
     { 予約番号: 'LM-REM01', 来店日: k, 開始: '10:00', 終了: '11:10',
       メニュー: 'メンズカット', 担当: 'MATTEO', お名前: '前田 五郎',
@@ -195,7 +207,7 @@ function inspect(label, messages) {
       メニュー: 'メンズカット', 担当: 'MATTEO', お名前: 'キャンセル 六郎',
       メール: 'cancelled@example.com', 状態: 'キャンセル' },
     // 明後日ぶん → 今日は送らない
-    { 予約番号: 'LM-REM03', 来店日: '2099-01-01', 開始: '15:00', 終了: '16:00',
+    { 予約番号: 'LM-REM03', 来店日: day(40), 開始: '15:00', 終了: '16:00',
       メニュー: 'メンズカット', 担当: 'MATTEO', お名前: '来週 七郎',
       メール: 'later@example.com', 状態: '予約確定' },
     // 明日ぶんだがメールアドレスが無い → 送りようがない（落ちないこと）

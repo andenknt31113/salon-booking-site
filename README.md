@@ -148,9 +148,11 @@ GitHub Pages はサーバー処理を持たない静的ホスティングです�
 
 ```bash
 node test/mail.mjs          # メールの文面（ブラウザ不要）
+node test/backend.mjs       # 受け口におかしな入力を投げる（ブラウザ不要）
 node test/mock-gas.mjs      # Apps Script の代わりのテスト用サーバー
 node test/usecase.mjs       # 別のターミナルで実行
 node test/quality.mjs       # 構造化データ・OGP・操作しやすさ
+node test/escape.mjs        # お客様が書いた文字の出方（画面）
 node test/slow.mjs          # 通信が遅いときの表示
 ```
 

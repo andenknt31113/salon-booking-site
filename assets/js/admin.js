@@ -708,8 +708,15 @@ function exportCsv() {
     'お名前', '電話番号', 'メール', '来店回数', 'ご要望', '状態'];
   const body = list.map(r => [r.code, r.date, r.time, r.endTime, r.menu, r.staffName,
     r.price, r.name, r.tel, r.email, r.visit, r.request, r.status]);
+  /* 「=」「+」「-」「@」で始まる文字は、ExcelやGoogleスプレッドシートで
+     開いたときに数式として実行されます。お名前欄に式を書いて予約した人がいると、
+     このCSVを開いた店側の端末でそれが動きます。先頭に ' を足して文字に固定します。 */
+  const safe = v => {
+    const t = String(v ?? '');
+    return (/^[=+\-@]/.test(t) ? "'" + t : t).replace(/"/g, '""');
+  };
   const csv = [head, ...body]
-    .map(cols => cols.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+    .map(cols => cols.map(c => `"${safe(c)}"`).join(','))
     .join('\r\n');
   const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
   const a = document.createElement('a');

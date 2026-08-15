@@ -191,6 +191,15 @@ function doAdminAdd_(sheet, d) {
   if (!date || !time) return { ok: false, error: '来店日と開始時刻をご確認ください。' };
   if (!String(d.name || '').trim()) return { ok: false, error: 'お名前をご入力ください。' };
 
+  if (minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
+    return { ok: false, error: '所要時間が正しくありません。' };
+  }
+  if (timeToMin_(time) == null) return { ok: false, error: '開始時刻が正しくありません。' };
+  const price = Number(d.price || 0);
+  if (!isFinite(price) || price < 0 || price > MAX_PRICE) {
+    return { ok: false, error: '金額が正しくありません。' };
+  }
+
   const endTime = addMinutes_(time, minutes);
   const staffId = SALON_STAFF_ID;
 
@@ -217,12 +226,13 @@ function doAdminAdd_(sheet, d) {
     code,
     formatTime_(new Date().toISOString()),
     date, time, endTime, minutes,
-    menuText,
+    cell_(menuText, LIMITS.menu),
     SALON_STAFF_NAME, staffId,
     0,
     Number(d.price) || 0,
-    d.name, '', "'" + (d.tel || ''), '',
-    '電話・来店', d.memo || '',
+    cell_(d.name, LIMITS.name), '',
+    "'" + String(d.tel || '').slice(0, LIMITS.tel), '',
+    '電話・来店', cell_(d.memo, LIMITS.request),
     '予約確定',
     eventId
   ]);
@@ -236,6 +246,113 @@ function addMinutes_(hhmm, minutes) {
   const h = Math.floor(total / 60) % 24;
   const m = total % 60;
   return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);
+}
+
+
+/* ============================================================
+   受け取った内容の確認
+   ------------------------------------------------------------
+   この受け口は「全員」に公開されています（そうしないとお客様から
+   予約が届きません）。つまり画面を通さない送信も届きます。
+   台帳に書く前に、ここで必ず確かめます。
+   ============================================================ */
+
+/* 予約を受け付ける範囲。assets/js/data.js の business と合わせてください */
+const BOOKABLE_DAYS = 60;    // 何日先まで
+const MIN_MINUTES   = 15;    // 所要時間の下限
+const MAX_MINUTES   = 480;   // 所要時間の上限（8時間）
+const MAX_PRICE     = 1000000;
+
+/* 文字の上限。長すぎる文字は台帳もメールも読めなくします */
+const LIMITS = { name: 60, kana: 60, tel: 20, email: 120, visit: 20, request: 1000, menu: 300 };
+
+/* シートに文字を書くときは必ずこれを通します。
+
+   「=」「+」「-」「@」で始まる文字列は、スプレッドシートが
+   **数式として実行します**。お名前欄に =IMPORTXML(...) と書いて
+   送られると、店の台帳がその式を実行してしまいます。
+   先頭に ' を付けると、表示は変わらないまま、ただの文字になります。 */
+function cell_(v, limit) {
+  let t = String(v == null ? '' : v).trim();
+  if (limit && t.length > limit) t = t.slice(0, limit);
+  return /^[=+\-@]/.test(t) ? "'" + t : t;
+}
+
+/** 'HH:MM' として読めるか。読めれば分に、読めなければ null */
+function timeToMin_(v) {
+  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+/** 営業時間。設定シートを見て、読めなければ既定値 */
+function openHours_(sheet) {
+  let st = {};
+  try { st = readSettings_(sheet.getParent()) || {}; } catch (e) { st = {}; }
+  const open = timeToMin_(st['営業開始']);
+  const close = timeToMin_(st['営業終了']);
+  return {
+    open: open == null ? timeToMin_(DEFAULT_OPEN) : open,
+    close: close == null ? timeToMin_(DEFAULT_CLOSE) : close
+  };
+}
+const DEFAULT_OPEN  = '09:00';
+const DEFAULT_CLOSE = '22:00';
+
+/** 今日（日本時間）の yyyy-MM-dd */
+function todayKey_() {
+  return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+}
+
+/* 予約の内容を確かめる。問題があれば理由を返します。
+   お客様の画面はここを通る前に同じ確認をしていますが、
+   画面を通さない送信のために、ここでも見ます。 */
+function checkReserve_(sheet, d) {
+  const c = d.customer || {};
+
+  const date = normalizeDate_(d.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + 'T00:00:00+09:00').getTime())) {
+    return '来店日が正しくありません。';
+  }
+  /* 日付の引き算は、時差や夏時間で1日ずれることがあります。
+     どちらも日本時間の「暦の日付」なので、日数だけで比べます。 */
+  const dayNo = k => {
+    const p = String(k).split('-').map(Number);
+    return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000;
+  };
+  const ahead = dayNo(date) - dayNo(todayKey_());
+  if (ahead < 0) return 'すでに過ぎた日付です。';
+  if (ahead > BOOKABLE_DAYS) return `ご予約は${BOOKABLE_DAYS}日先まで承っております。`;
+
+  const start = timeToMin_(normalizeTime_(d.time));
+  if (start == null) return '開始時刻が正しくありません。';
+
+  const minutes = Number(d.totalMinutes);
+  if (!isFinite(minutes) || minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
+    return '所要時間が正しくありません。';
+  }
+
+  const h = openHours_(sheet);
+  if (start < h.open || start + minutes > h.close) {
+    return '営業時間外のご予約は承れません。';
+  }
+
+  const price = Number(d.totalPrice || 0);
+  if (!isFinite(price) || price < 0 || price > MAX_PRICE) return '金額が正しくありません。';
+
+  if (!String(c.name || '').trim()) return 'お名前をご入力ください。';
+  const tel = String(c.tel || '').replace(/[^0-9]/g, '');
+  if (!/^0\d{9,10}$/.test(tel)) return '電話番号をご確認ください。';
+  const email = String(c.email || '').trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'メールアドレスをご確認ください。';
+
+  const menuText = (d.menus || []).map(m => m && m.name).filter(Boolean).join(' / ')
+    || String(d.menuText || '').trim();
+  if (!menuText) return 'メニューをお選びください。';
+
+  return '';   // 問題なし
 }
 
 /** 設置確認用。ブラウザでURLを開くとこれが返ります */
@@ -268,6 +385,11 @@ function doReserve_(sheet, d) {
     d.code = issueCode_(sheet);
   }
 
+  /* 送られてきた内容そのものの確認。
+     受け口は公開されているので、画面を通さない送信も届きます。 */
+  const bad = checkReserve_(sheet, d);
+  if (bad) return { ok: false, error: bad };
+
   /* 枠の最終確認。
      画面側でも送信直前に見ていますが、2人がほぼ同時に押した場合は
      どちらも「空いている」と判断してしまいます。
@@ -290,24 +412,26 @@ function doReserve_(sheet, d) {
   const menuText = (d.menus || []).map(m => m.name).join(' / ');
   const eventId = addToCalendar_(d, c, menuText);
 
+  /* 文字は必ず cell_ を通します。
+     数式として実行されうる先頭文字（= + - @）を無害化し、長さも切ります。 */
   sheet.appendRow([
     d.code,
     formatTime_(d.createdAt),
-    d.date,
-    d.time,
-    d.endTime,
-    d.totalMinutes,
-    menuText,
-    d.staffName,
-    d.staffId || '',
-    d.nominationFee,
-    d.totalPrice,
-    c.name,
-    c.kana,
-    "'" + (c.tel || ''),   // 先頭の0が消えないよう文字列として保存
-    c.email,
-    c.visit,
-    c.request || '',
+    normalizeDate_(d.date),
+    normalizeTime_(d.time),
+    normalizeTime_(d.endTime),
+    Number(d.totalMinutes) || 0,
+    cell_(menuText, LIMITS.menu),
+    cell_(d.staffName, LIMITS.name),
+    cell_(d.staffId, 20),
+    Number(d.nominationFee) || 0,
+    Number(d.totalPrice) || 0,
+    cell_(c.name, LIMITS.name),
+    cell_(c.kana, LIMITS.kana),
+    "'" + String(c.tel || '').slice(0, LIMITS.tel),   // 先頭の0が消えないよう文字列として保存
+    cell_(c.email, LIMITS.email),
+    cell_(c.visit, LIMITS.visit),
+    cell_(c.request, LIMITS.request),
     '予約確定',
     eventId
   ]);
@@ -315,8 +439,12 @@ function doReserve_(sheet, d) {
   /* 欠けている項目で「undefined」と書かない。
      フォームでは必須にしていますが、この受け口は公開されているため
      項目が欠けたまま届くことがあります。 */
-  const or_ = (v, alt) => {
-    const t = String(v == null ? '' : v).trim();
+  /* 長さも切ります。台帳側だけ切ってメールに元の文字を使うと、
+     そこだけ何万文字にもなり、開けないメールが届きます。 */
+  const or_ = (v, alt, limit) => {
+    let t = String(v == null ? '' : v).trim();
+    const max = limit || 200;
+    if (t.length > max) t = t.slice(0, max) + '…';
     return t === '' ? (alt || '—') : t;
   };
   /* 金額が決まっていない予約（デザインカラー等）は「0円」と書かない。
@@ -349,7 +477,7 @@ function doReserve_(sheet, d) {
     menuText,
     priceLine,
     `TEL ${or_(c.tel)}`,
-    c.request ? `ご要望：${c.request}` : ''
+    c.request ? `ご要望：${or_(c.request, '', LIMITS.request)}` : ''
   ].filter(Boolean).join('\n'));
 
   const lineUrl = lineAddUrl_();
@@ -409,7 +537,7 @@ function addToCalendar_(d, c, menuText) {
           `電話：${c.tel || ''}`,
           `メール：${c.email || ''}`,
           `来店回数：${c.visit || ''}`,
-          `ご要望：${c.request || 'なし'}`,
+          `ご要望：${or_(c.request, 'なし', LIMITS.request)}`,
           `金額：${Number(d.totalPrice).toLocaleString()}円`
         ].join('\n'),
         location: SALON_ADDRESS
@@ -690,17 +818,18 @@ function doReview_(sheet, d) {
   }
 
   const score = Math.min(5, Math.max(1, Number(d.score) || 5));
+  // 口コミもお客様が書く文字なので、台帳と同じく数式として動かないようにします
   rv.appendRow([
     Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'),
-    d.code,
-    String(d.nickname || 'お客様').slice(0, 30),
-    String(d.age || '').slice(0, 10),
-    String(d.gender || '').slice(0, 10),
+    cell_(d.code, 20),
+    cell_(d.nickname || 'お客様', 30),
+    cell_(d.age, 10),
+    cell_(d.gender, 10),
     score,
-    String(d.title || '').slice(0, 60),
-    body,
-    String(r[col('担当')] || ''),
-    String(r[col('メニュー')] || ''),
+    cell_(d.title, 60),
+    cell_(body, LIMITS.request),
+    cell_(r[col('担当')], LIMITS.name),
+    cell_(r[col('メニュー')], LIMITS.menu),
     '未承認'
   ]);
 

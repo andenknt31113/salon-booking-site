@@ -596,6 +596,37 @@ console.log('\n【UC17】空いている時間が、勝手に埋まっていな�
 }
 
 /* ============================================================
+   UC18 入力の途中で画面が読み込み直される
+   ============================================================ */
+console.log('\n【UC18】入力の途中で画面が読み込み直される');
+{
+  /* スマホは、他のアプリを使っているあいだにタブを捨てて、
+     戻ったときに読み込み直すことがあります。お客様の操作ではありません。
+     そこで選択が消えると、最初からやり直しになります。 */
+  const p = await newPhone('UC18');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  const chosen = (await p.locator('#coupon-choices .selectable').first()
+    .locator('.selectable-title').innerText()).trim();
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+  await p.locator('button[data-date][data-time]:not([disabled])').nth(60).click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
+
+  await p.reload(); await p.waitForTimeout(2000);
+  check('UC18', '同じステップに戻る', await p.evaluate(
+    () => [...document.querySelectorAll('.reserve-panel.is-active')].map(x => x.dataset.panel).join()), '4');
+  check('UC18', '選んだメニューが残っている', await p.evaluate(
+    () => !!(state.couponId || state.menuIds.length)), true);
+  check('UC18', '合計金額が0円になっていない',
+    (await p.locator('#summary-total').innerText()).trim() !== '¥0', true);
+  check('UC18', '同じメニューが選ばれている',
+    (await p.locator('#summary-body').innerText()).includes(chosen.replace(/^［[^］]*］/, '')), true);
+  check('UC18', '日時も残っている', await p.evaluate(() => !!(state.date && state.time)), true);
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
