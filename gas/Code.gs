@@ -102,6 +102,10 @@ const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤ�
    ここがずれると、その予約が空席計算に入らず二重予約になります。 */
 const SALON_STAFF_ID   = 'st01';
 const SALON_STAFF_NAME = 'MATTEO';
+/* 同じ時間に何人まで受けられるか（席の数）。
+   1のあいだは、担当が誰であっても時間が重なれば「埋まっている」と見ます。
+   スタッフが増えて同時に2人受けられるようになったら、ここを2にしてください。 */
+const SEATS = 1;
 const SITE_URL      = 'https://andenknt31113.github.io/salon-booking-site/';
 /* LINE公式アカウントの友だち追加URL（https://lin.ee/xxxxxxx の形）。
    入れると予約確認メールの末尾にご案内が入ります。空なら何も足しません。
@@ -1097,10 +1101,18 @@ function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
   const end = start + minutes;
 
   return rows.some(r => {
-    if (String(r[col('予約番号')]) === ownCode) return false;
+    if (codeKey_(r[col('予約番号')]) === codeKey_(ownCode)) return false;
     if (String(r[col('状態')] || '') === 'キャンセル') return false;
     if (normalizeDate_(r[col('来店日')]) !== dateKey) return false;
-    if (String(r[col('担当ID')] || '') !== String(staffId || '')) return false;
+    /* 席の数で見ます。
+
+       以前は「担当が違えば別の予約」として素通りさせていました。
+       この店は席が1つなので、担当が誰であっても、時間が重なれば
+       同時には受けられません。指名なし（担当IDが空）で入った電話予約と、
+       サイトからの指名予約が、同じ時間に2件入る状態でした。
+       席が増えたら SEATS を増やしてください。 */
+    if (SEATS === 1) { /* 担当は問わない */ }
+    else if (String(r[col('担当ID')] || '') !== String(staffId || '')) return false;
     const s2 = toMin_(normalizeTime_(r[col('開始')]));
     const e2 = toMin_(normalizeTime_(r[col('終了')])) || (s2 + 30);
     return start < e2 && s2 < end;   // 重なっていれば埋まっている

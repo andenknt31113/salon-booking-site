@@ -308,7 +308,7 @@ http.createServer((req, res) => {
         const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
         const start = toMin(d.time), end = start + (Number(d.minutes)||30);
         const taken = LEDGER.some(x => !x.cancelled && !sameCode(x.code, d.code)
-          && x.date === d.date && (x.staffId||null) === (r.staffId||null)
+          && x.date === d.date   /* 席は1つ：担当が誰でも、重なれば埋まっている */
           && start < toMin(x.endTime) && toMin(x.time) < end);
         if (taken) return reply(res, { ok:false, error:'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' });
         if (hitsClosed(d.date, d.time, d.minutes)) {
@@ -365,7 +365,7 @@ http.createServer((req, res) => {
         const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
         const start = toMin(d.time), end = start + (Number(d.totalMinutes)||30);
         const taken = LEDGER.some(x => !x.cancelled && !sameCode(x.code, d.code)
-          && x.date === d.date && (x.staffId||'') === (d.staffId||'')
+          && x.date === d.date   /* 席は1つ：担当が誰でも、重なれば埋まっている */
           && start < toMin(x.endTime) && toMin(x.time) < end);
         if (taken) return reply(res, { ok:false, taken:true,
           error:'ご希望の時間は、ちょうど他のお客様のご予約が入りました。別の日時をお選びください。' });

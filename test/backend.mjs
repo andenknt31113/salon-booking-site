@@ -191,6 +191,43 @@ const row = (over={}) => ({
   メニュー:'カット', 担当:'MATTEO', 担当ID:'st01', 合計金額:6900,
   お名前:'照会 太郎', 電話番号:"'09011112222", メール:'a@b.co', 状態:'予約確定', ...over });
 
+/* ============================================================
+   席は1つ
+
+   電話で受けた予約は担当を空のまま入ることがあります。
+   以前は担当が違えば別の予約として扱っていたので、同じ時間に
+   電話予約とサイトからの予約が2件入りました。席は1つです。
+   ============================================================ */
+console.log('\n【二重予約】席は1つしかない');
+{
+  const at = day(12);
+  const taken = (over, payload) => {
+    const sheet = makeSheet([row(Object.assign({
+      来店日: at, 開始: '11:00', 終了: '12:00', '所要(分)': 60, 予約番号: 'LM-SEAT1' }, over))]);
+    return run('doReserve_', sheet, base(Object.assign({ date: at, time: '11:00', endTime: '12:00', totalMinutes: 60 }, payload))).out;
+  };
+
+  taken({}, {}).ok ? note('二重予約', '同じ担当・同じ時間に2件入る') : ok('同じ時間には二重に入らない');
+  taken({ 担当ID: '' }, {}).ok
+    ? note('二重予約', '電話予約（担当なし）の上に、サイトから予約が入る')
+    : ok('担当なしの電話予約があれば、その時間は取れない');
+  taken({ 担当ID: 'st01' }, { staffId: '' }).ok
+    ? note('二重予約', '指名なしで送れば、埋まっている時間に入れる')
+    : ok('指名なしで送っても、埋まっている時間には入れない');
+  taken({ 担当ID: 'st99' }, {}).ok
+    ? note('二重予約', '担当IDを変えれば、埋まっている時間に入れる')
+    : ok('担当IDを変えても、埋まっている時間には入れない');
+
+  /* 重なっていなければ、続けて受けられます */
+  const sheet = makeSheet([row({ 来店日: at, 開始: '11:00', 終了: '12:00', '所要(分)': 60, 予約番号: 'LM-SEAT2' })]);
+  run('doReserve_', sheet, base({ date: at, time: '12:00', endTime: '13:00', totalMinutes: 60 })).out.ok
+    ? ok('終わった直後（12:00）からは取れる') : note('12:00', 'が取れない（続けて受けられません）');
+
+  const cancelled = makeSheet([row({ 来店日: at, 開始: '11:00', 終了: '12:00', 状態: 'キャンセル', 予約番号: 'LM-SEAT3' })]);
+  run('doReserve_', cancelled, base({ date: at, time: '11:00', endTime: '12:00', totalMinutes: 60 })).out.ok
+    ? ok('キャンセルされた枠は取れる') : note('キャンセル済みの枠', 'が空きに戻らない');
+}
+
 console.log('\n【照会】');
 {
   let r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222' });

@@ -490,14 +490,19 @@ const Remote = {
     return this.loading;
   },
 
-  /** 他のお客様の予約でその枠が埋まっているか */
+  /** 他のお客様の予約でその枠が埋まっているか
+
+      席が1つの店では、担当が誰かに関わらず、時間が重なれば埋まっています。
+      電話で受けた予約（担当なしで入ることがあります）と、サイトからの
+      予約が、同じ時間に2件入らないようにするためです。 */
   isBusy(staffId, dateKey, time) {
     if (!this.booked) return false;
     const t = toMinutes(time);
+    const oneSeat = SALON.staff.length <= 1;
     return this.booked.some(b =>
       !Availability.isIgnoredSlot(b)
       && b.date === dateKey
-      && b.staffId === staffId
+      && (oneSeat || b.staffId === staffId)
       && t >= toMinutes(b.time)
       && t < toMinutes(b.time) + (b.minutes || SALON.business.slotMinutes));
   }
