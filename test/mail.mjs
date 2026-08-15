@@ -26,15 +26,14 @@ function makeSheet(rows) {
   const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
                 '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','ご要望','状態','カレンダーID'];
   const data = rows.map(r => HEAD.map(h => r[h] !== undefined ? r[h] : ''));
+  const all = () => [HEAD.slice()].concat(data);      // 本物と同じで1行目は見出し
   return {
     getLastRow: () => data.length + 1,
-    appendRow: r => data.push(r),
+    getLastColumn: () => HEAD.length,
+    appendRow: r => data.push(r.slice()),
     getRange: (row, col, nr, nc) => ({
-      getValues: () => {
-        if (row === 2 && nc === 1) return data.map(r => [r[0]]);           // 予約番号の列
-        if (nc === HEAD.length) return data.slice(row - 2, row - 2 + (nr || 1));
-        return [[]];
-      },
+      getValues: () => all().slice(row - 1, row - 1 + (nr || 1))
+        .map(r => r.slice(col - 1, col - 1 + (nc || r.length))),
       setValue: v => { if (data[row - 2]) data[row - 2][col - 1] = v; },
       setFontWeight: () => ({ setBackground: () => {} }),
       setFontLine: () => ({ setFontColor: () => {} }),

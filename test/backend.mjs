@@ -16,17 +16,18 @@ const src = readFileSync(join(R, 'gas', 'Code.gs'), 'utf8');
 const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
               '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','ご要望','状態','カレンダーID'];
 
-function makeSheet(rows = []) {
-  const data = rows.map(r => HEAD.map(h => (r[h] !== undefined ? r[h] : '')));
+/* 本物の台帳と同じで、1行目は見出しです。
+   店の人が列を足すこともあるので、見出しの並びを差し替えられるようにしてあります。 */
+function makeSheet(rows = [], head = HEAD) {
+  const data = rows.map(r => head.map(h => (r[h] !== undefined ? r[h] : '')));
+  const all = () => [head.slice()].concat(data);       // 1行目＝見出し
   const sheet = {
     getLastRow: () => data.length + 1,
-    appendRow: r => data.push(r),
+    getLastColumn: () => head.length,
+    appendRow: r => data.push(r.slice()),
     getRange: (row, col, nr, nc) => ({
-      getValues: () => {
-        if (row === 2 && nc === 1) return data.map(r => [r[0]]);
-        if (nc === HEAD.length) return data.slice(row - 2, row - 2 + (nr || 1));
-        return [[]];
-      },
+      getValues: () => all().slice(row - 1, row - 1 + (nr || 1))
+        .map(r => r.slice(col - 1, col - 1 + (nc || r.length))),
       setValue: v => { if (data[row - 2]) data[row - 2][col - 1] = v; },
       setFontWeight: () => ({ setBackground: () => {} }),
       setFontLine: () => ({ setFontColor: () => {} }),
@@ -34,7 +35,9 @@ function makeSheet(rows = []) {
     }),
     setFrozenRows: () => {}, setColumnWidth: () => {},
     getParent: () => ({ getSheetByName: () => null, insertSheet: () => sheet }),
-    _data: data
+    _head: head, _data: data,
+    /* 見出しの名前で読み直す。列の並びが変わっても、試験のほうがずれません。 */
+    at: (rowIndex, name) => data[rowIndex][head.indexOf(name)]
   };
   return sheet;
 }
@@ -226,6 +229,48 @@ console.log('\n【二重予約】席は1つしかない');
   const cancelled = makeSheet([row({ 来店日: at, 開始: '11:00', 終了: '12:00', 状態: 'キャンセル', 予約番号: 'LM-SEAT3' })]);
   run('doReserve_', cancelled, base({ date: at, time: '11:00', endTime: '12:00', totalMinutes: 60 })).out.ok
     ? ok('キャンセルされた枠は取れる') : note('キャンセル済みの枠', 'が空きに戻らない');
+}
+
+/* ============================================================
+   店の人が台帳に列を足したら
+
+   台帳は毎日開く場所です。「メモ」や「支払い」の列を足したくなるのは
+   自然なことで、止める理由もありません。決め打ちの順番で読んでいると、
+   そこから先が全部1つずれます。電話番号の欄からメールを読み、
+   状態の欄から要望を読む台帳になり、画面には何も出ません。
+   ============================================================ */
+console.log('\n【台帳】店の人が列を足しても崩れないか');
+{
+  /* お名前の前に「メモ」、いちばん後ろに「支払い」を足した台帳 */
+  const HEAD2 = HEAD.slice(0, HEAD.indexOf('お名前')).concat(['メモ'])
+    .concat(HEAD.slice(HEAD.indexOf('お名前'))).concat(['支払い']);
+
+  const sheet = makeSheet([], HEAD2);
+  const at = day(9);
+  const made = run('doReserve_', sheet, base({ date: at, time: '14:00', endTime: '15:00', totalMinutes: 60,
+    customer: { name: '列 太郎', kana: 'レツ タロウ', tel: '09022223333', email: 'r@example.com', visit: '初めて' } })).out;
+  made.ok ? ok('列を足した台帳にも予約できる') : note('列を足した台帳', 'に予約できない：' + made.error);
+
+  String(sheet.at(0, 'お名前')) === '列 太郎'
+    ? ok('お名前が「お名前」の列に入る') : note('お名前', `が別の列に入る（${JSON.stringify(sheet._data[0])}）`);
+  String(sheet.at(0, '電話番号')).replace(/^'/, '') === '09022223333'
+    ? ok('電話番号が「電話番号」の列に入る') : note('電話番号', `が別の列に入る（${sheet.at(0, '電話番号')}）`);
+  String(sheet.at(0, '状態')) === '予約確定'
+    ? ok('状態が「状態」の列に入る') : note('状態', `が別の列に入る（${sheet.at(0, '状態')}）`);
+  String(sheet.at(0, 'メモ')) === '' && String(sheet.at(0, '支払い')) === ''
+    ? ok('店の人が足した列は空のまま') : note('足した列', 'に別の値が入る');
+
+  const code2 = made.code;
+  run('doLookup_', sheet, { code: code2, tel: '09022223333' }).out.ok
+    ? ok('列を足した台帳でも照会できる') : note('列を足した台帳', 'では照会できない');
+  run('doLookup_', sheet, { code: code2, tel: '09099999999' }).out.ok
+    ? note('列を足した台帳', 'では他人の電話番号でも見える') : ok('列を足しても、他人の電話番号では見えない');
+  run('doReserve_', sheet, base({ date: at, time: '14:30', endTime: '15:30', totalMinutes: 60 })).out.ok
+    ? note('列を足した台帳', 'では重なりを見落とす') : ok('列を足しても、重なりは見つけられる');
+  run('doCancel_', sheet, { code: code2, tel: '09022223333' }).out.ok
+    ? ok('列を足した台帳でもキャンセルできる') : note('列を足した台帳', 'ではキャンセルできない');
+  String(sheet.at(0, '状態')) === 'キャンセル'
+    ? ok('キャンセルが「状態」の列に書かれる') : note('キャンセル', 'が別の列に書かれる');
 }
 
 console.log('\n【照会】');
@@ -598,7 +643,11 @@ function shop(sheetsInit = {}) {
       getName: () => name, getLastRow: () => data.length + 1,
       getLastColumn: () => (data[0] || []).length, appendRow: r => data.push(r),
       getRange: (rw, c, nr, nc) => ({
-        getValues: () => data.slice(rw - 2, rw - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || x.length))),
+        /* 本物のシートは、1行目が空でも「空の行」を返します。
+           ここで [] を返すと、本番では起きない失敗になります。 */
+        getValues: () => (rw === 1
+          ? [Array(nc || 1).fill('')]
+          : data.slice(rw - 2, rw - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || x.length)))),
         setValues: v => { v.forEach((r, i) => { data[rw - 2 + i] = r.slice(); }); },
         setValue() {}, clearContent: () => { data.length = 0; },
         setFontWeight: () => ({ setBackground: () => {} }), setNote() {},

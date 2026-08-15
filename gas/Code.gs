@@ -287,20 +287,21 @@ function doAdminAdd_(sheet, d) {
   const eventId = addToCalendar_(
     { date: date, time: time, endTime: endTime }, customer, menuText);
 
-  sheet.appendRow([
-    code,
-    formatTime_(new Date().toISOString()),
-    date, time, endTime, minutes,
-    cell_(menuText, LIMITS.menu),
-    SALON_STAFF_NAME, staffId,
-    0,
-    Number(d.price) || 0,
-    cell_(d.name, LIMITS.name), '',
-    "'" + String(d.tel || '').slice(0, LIMITS.tel), '',
-    '電話・来店', cell_(d.memo, LIMITS.request),
-    '予約確定',
-    eventId
-  ]);
+  sheet.appendRow(rowFor_(sheet, {
+    '予約番号': code,
+    '受付日時': formatTime_(new Date().toISOString()),
+    '来店日': date, '開始': time, '終了': endTime, '所要(分)': minutes,
+    'メニュー': cell_(menuText, LIMITS.menu),
+    '担当': SALON_STAFF_NAME, '担当ID': staffId,
+    '指名料': 0,
+    '合計金額': Number(d.price) || 0,
+    'お名前': cell_(d.name, LIMITS.name),
+    '電話番号': "'" + telText_(d.tel).slice(0, LIMITS.tel),
+    '来店回数': '電話・来店',
+    'ご要望': cell_(d.memo, LIMITS.request),
+    '状態': '予約確定',
+    'カレンダーID': eventId
+  }));
 
   return { ok: true, code: code, endTime: endTime };
 }
@@ -444,8 +445,8 @@ function doReserve_(sheet, d) {
        → 新しい番号を振り直し、その番号を端末に返す */
   const dup = findRowByCode_(sheet, d.code);
   if (dup !== -1) {
-    const hcol = n => HEADERS.indexOf(n);
-    const before = sheet.getRange(dup, 1, 1, HEADERS.length).getValues()[0];
+    const hcol = colIndex_(sheet);
+    const before = readRow_(sheet, dup);
     const sameGuest = digits_(before[hcol('電話番号')]) === digits_(c.tel)
       && normalizeDate_(before[hcol('来店日')]) === normalizeDate_(d.date)
       && normalizeTime_(before[hcol('開始')]) === normalizeTime_(d.time);
@@ -481,31 +482,34 @@ function doReserve_(sheet, d) {
   const eventId = addToCalendar_(d, c, menuText);
 
   /* 文字は必ず cell_ を通します。
-     数式として実行されうる先頭文字（= + - @）を無害化し、長さも切ります。 */
-  sheet.appendRow([
-    d.code,
-    formatTime_(d.createdAt),
-    normalizeDate_(d.date),
-    normalizeTime_(d.time),
-    normalizeTime_(d.endTime),
-    Number(d.totalMinutes) || 0,
-    cell_(menuText, LIMITS.menu),
-    cell_(d.staffName, LIMITS.name),
-    cell_(d.staffId, 20),
-    Number(d.nominationFee) || 0,
-    Number(d.totalPrice) || 0,
-    cell_(c.name, LIMITS.name),
-    cell_(c.kana, LIMITS.kana),
+     数式として実行されうる先頭文字（= + - @）を無害化し、長さも切ります。
+
+     並べる順番は台帳の見出しに合わせます。店の人が列を足していても、
+     それぞれの値が正しい列に入るようにするためです。 */
+  sheet.appendRow(rowFor_(sheet, {
+    '予約番号': d.code,
+    '受付日時': formatTime_(d.createdAt),
+    '来店日': normalizeDate_(d.date),
+    '開始': normalizeTime_(d.time),
+    '終了': normalizeTime_(d.endTime),
+    '所要(分)': Number(d.totalMinutes) || 0,
+    'メニュー': cell_(menuText, LIMITS.menu),
+    '担当': cell_(d.staffName, LIMITS.name),
+    '担当ID': cell_(d.staffId, 20),
+    '指名料': Number(d.nominationFee) || 0,
+    '合計金額': Number(d.totalPrice) || 0,
+    'お名前': cell_(c.name, LIMITS.name),
+    'フリガナ': cell_(c.kana, LIMITS.kana),
     /* 先頭の0が消えないよう文字列として保存します。
        全角のまま台帳に入ると、店の端末からその番号に発信できません。
        半角に直したうえで、読みやすさのためハイフンは残します。 */
-    "'" + telText_(c.tel).slice(0, LIMITS.tel),
-    cell_(halfWidth_(c.email), LIMITS.email),
-    cell_(c.visit, LIMITS.visit),
-    cell_(c.request, LIMITS.request),
-    '予約確定',
-    eventId
-  ]);
+    '電話番号': "'" + telText_(c.tel).slice(0, LIMITS.tel),
+    'メール': cell_(halfWidth_(c.email), LIMITS.email),
+    '来店回数': cell_(c.visit, LIMITS.visit),
+    'ご要望': cell_(c.request, LIMITS.request),
+    '状態': '予約確定',
+    'カレンダーID': eventId
+  }));
 
   /* 欠けている項目で「undefined」と書かない。
      フォームでは必須にしていますが、この受け口は公開されているため
@@ -645,8 +649,8 @@ function doAvailability_(sheet) {
   const last = sheet.getLastRow();
   if (last < 2) return { ok: true, booked: [] };
 
-  const rows = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
-  const col = name => HEADERS.indexOf(name);
+  const rows = readRows_(sheet);
+  const col = colIndex_(sheet);
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
   const booked = rows
@@ -857,8 +861,8 @@ function doReview_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
   if (row === -1) return { ok: false, error: 'ご予約が確認できませんでした。' };
 
-  const col = n => HEADERS.indexOf(n);
-  const r = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
+  const col = colIndex_(sheet);
+  const r = readRow_(sheet, row);
 
   if (digits_(r[col('電話番号')]) !== digits_(d.tel)) {
     return { ok: false, error: 'ご予約が確認できませんでした。' };
@@ -946,8 +950,8 @@ function doLookup_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
   if (row === -1) return { ok: false, error: 'ご予約が見つかりませんでした。' };
 
-  const r = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
-  const col = n => HEADERS.indexOf(n);
+  const r = readRow_(sheet, row);
+  const col = colIndex_(sheet);
 
   if (digits_(r[col('電話番号')]) !== digits_(d.tel)) {
     return { ok: false, error: 'ご予約が見つかりませんでした。' };
@@ -1005,8 +1009,8 @@ function doChange_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
   if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };
 
-  const col = n => HEADERS.indexOf(n);
-  const before = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
+  const col = colIndex_(sheet);
+  const before = readRow_(sheet, row);
 
   /* キャンセルと同じで、日時の変更も本人確認を省略できません。
      以前は「電話番号が送られてきたときだけ」見ていたため、
@@ -1142,8 +1146,8 @@ function deadlineMessage_() {
 function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
   const last = sheet.getLastRow();
   if (last < 2) return false;
-  const col = n => HEADERS.indexOf(n);
-  const rows = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+  const col = colIndex_(sheet);
+  const rows = readRows_(sheet);
 
   const start = toMin_(time);
   const end = start + minutes;
@@ -1176,8 +1180,8 @@ function doCancel_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
   if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };
 
-  const before = sheet.getRange(row, 1, 1, HEADERS.length).getValues()[0];
-  const col = n => HEADERS.indexOf(n);
+  const before = readRow_(sheet, row);
+  const col = colIndex_(sheet);
 
   /* お客様からのキャンセルは、電話番号の一致を必ず確認します。
      以前は「送られてきたときだけ」見ていたため、
@@ -1208,7 +1212,7 @@ function doCancel_(sheet, d) {
   const time = normalizeTime_(before[col('開始')]) || d.time || '';
 
   sheet.getRange(row, col('状態') + 1).setValue('キャンセル');
-  sheet.getRange(row, 1, 1, HEADERS.length)
+  sheet.getRange(row, 1, 1, headerRow_(sheet).length)
     .setFontLine('line-through')
     .setFontColor('#999999');
 
@@ -1265,10 +1269,10 @@ function doAdminData_(d) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getSheet_();
   const last = sheet.getLastRow();
-  const col = n => HEADERS.indexOf(n);
+  const col = colIndex_(sheet);
 
   const reservations = last < 2 ? [] :
-    sheet.getRange(2, 1, last - 1, HEADERS.length).getValues().map(r => ({
+    readRows_(sheet).map(r => ({
       code: String(r[col('予約番号')]),
       date: normalizeDate_(r[col('来店日')]),
       time: normalizeTime_(r[col('開始')]),
@@ -1503,6 +1507,53 @@ function readSettings_(ss) {
 function writeSettings_(ss, obj) {
   const rows = Object.keys(obj || {}).map(k => ({ '項目': k, '内容': obj[k] }));
   writeSheetRows_(ss, SETTING_SHEET, ['項目', '内容'], rows);
+}
+
+/* ============================================================
+   台帳の列の見つけ方
+
+   台帳は店の人が毎日開く場所です。「メモ」や「支払い」の列を
+   途中に足したくなるのは自然なことで、止める理由もありません。
+
+   ところが、決め打ちの順番で読んでいると、列が1つ増えただけで
+   全部が1つずれます。電話番号の欄からメールアドレスを読み、
+   状態の欄から要望を読む――そんな台帳になります。しかも画面には
+   何も出ません。ですから、位置ではなく見出しの名前で探します。
+   ============================================================ */
+function headerRow_(sheet) {
+  const width = Math.max(sheet.getLastColumn(), HEADERS.length);
+  const row = (sheet.getRange(1, 1, 1, width).getValues()[0] || [])
+    .map(v => String(v == null ? '' : v).trim());
+  // 見出しが空（作りたての台帳）なら、こちらの並びを使います
+  return row.some(Boolean) ? row : HEADERS.slice();
+}
+
+/** 見出しの名前から列番号（0始まり）を返す関数を作ります */
+function colIndex_(sheet) {
+  const head = headerRow_(sheet);
+  return function (name) {
+    const i = head.indexOf(name);
+    return i >= 0 ? i : HEADERS.indexOf(name);
+  };
+}
+
+/** 台帳の1行を、いまの列の並びのまま読みます */
+function readRow_(sheet, row) {
+  return sheet.getRange(row, 1, 1, headerRow_(sheet).length).getValues()[0];
+}
+
+/** 台帳の2行目以降を、いまの列の並びのまま読みます */
+function readRows_(sheet) {
+  const last = sheet.getLastRow();
+  if (last < 2) return [];
+  return sheet.getRange(2, 1, last - 1, headerRow_(sheet).length).getValues();
+}
+
+/** 見出し名で書いた値を、いまの列の並びに並べ替えます */
+function rowFor_(sheet, values) {
+  return headerRow_(sheet).map(function (h) {
+    return Object.prototype.hasOwnProperty.call(values, h) ? values[h] : '';
+  });
 }
 
 /* ============================================================
@@ -1841,8 +1892,8 @@ function sendReminders() {
   }
   props.setProperty('REMINDED_DATE', target);
 
-  const rows = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
-  const col = n => HEADERS.indexOf(n);
+  const rows = readRows_(sheet);
+  const col = colIndex_(sheet);
   let sent = 0;
 
   rows.forEach(r => {
