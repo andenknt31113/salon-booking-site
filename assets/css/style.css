@@ -93,12 +93,16 @@ table { border-collapse: collapse; width: 100%; }
 .wordmark { display: block; line-height: 1; }
 .wm-name {
   display: block;
-  font-family: Georgia, "Times New Roman", "Yu Mincho", serif;
+  /* Georgia は数字が既定でオールドスタイル（小文字と同じ高さ）になり、
+     ZER01 の「01」だけ小さく見えてしまう。数字が大文字高になる書体を先に置く。 */
+  font-family: "Times New Roman", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  font-variant-numeric: lining-nums;
+  font-feature-settings: "lnum" 1, "onum" 0;
   font-weight: 700; letter-spacing: .06em; color: var(--ink); white-space: nowrap;
 }
 .wm-num { color: inherit; }
 .wm-sub {
-  display: block; font-family: Georgia, "Times New Roman", serif;
+  display: block; font-family: "Times New Roman", "Hiragino Mincho ProN", Georgia, serif;
   font-weight: 700; text-transform: uppercase;
   color: var(--muted); white-space: nowrap;
 }
@@ -159,7 +163,9 @@ table { border-collapse: collapse; width: 100%; }
   width: 40px; height: 40px; flex: none; position: relative;
   border: 2px solid var(--ink); color: var(--ink);
   display: grid; place-items: center;
-  font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 16px;
+  font-family: "Times New Roman", "Hiragino Mincho ProN", Georgia, serif;
+  font-weight: 700; font-size: 16px;
+  font-variant-numeric: lining-nums; font-feature-settings: "lnum" 1;
 }
 .brand-mark::after {
   content: ""; position: absolute; inset: 3px; border: 1px solid var(--ink); opacity: .45;

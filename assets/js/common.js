@@ -380,12 +380,34 @@ const Catalog = {
         SALON.business.closedDates = data.closedDates;
         Availability._blocks.clear();
       }
+      // 管理ページから変更された店舗情報を反映する。
+      // ヘッダー・フッターはこれより先に描かれているため、描き直す。
+      if (data.settings) {
+        applySettings(data.settings);
+        renderHeader();
+        renderFooter();
+      }
     } catch (e) {
       console.warn('メニューを取得できませんでした。掲載中の内容で表示します。', e);
     }
     return this.source;
   }
 };
+
+/** 管理ページ（設定シート）の内容をサイトに反映する。
+ *  空欄の項目は data.js の値をそのまま使います。 */
+function applySettings(st) {
+  const set = (key, apply) => {
+    const v = st[key];
+    if (v !== undefined && String(v).trim() !== '') apply(String(v).trim());
+  };
+  set('電話番号', v => { SALON.tel = v; });
+  set('営業開始', v => { SALON.business.openTime = v; });
+  set('営業終了', v => { SALON.business.closeTime = v; });
+  set('最終受付', v => { SALON.business.lastOrder = v; });
+  set('キャッチコピー', v => { SALON.catch = v; });
+  if (st['お知らせ'] !== undefined) SALON.notice = String(st['お知らせ']).trim();
+}
 
 /** 予約番号と電話番号でご予約を照会する（ログインの代わり） */
 async function lookupReservation(code, tel) {

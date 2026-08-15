@@ -19,6 +19,23 @@ const SHEET_NAME    = '予約一覧';
 const MENU_SHEET    = 'メニュー';
 const COUPON_SHEET  = 'クーポン';
 const CLOSED_SHEET  = '休業日';
+const SETTING_SHEET = '設定';
+
+/* 管理者ページのパスワード。
+   ここに直接書かず、スクリプトプロパティに保存します。
+   Apps Script の「プロジェクトの設定 → スクリプト プロパティ」で
+   ADMIN_PASSWORD という名前で登録してください。
+   （サイトのソースには一切現れないため、パスワードが漏れません） */
+function adminPassword_() {
+  return PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD') || '';
+}
+
+/** 管理操作の認証。合っていなければ例外を投げる */
+function requireAdmin_(d) {
+  const pw = adminPassword_();
+  if (!pw) throw new Error('管理パスワードが未設定です。スクリプトプロパティに ADMIN_PASSWORD を登録してください。');
+  if (String(d.password || '') !== pw) throw new Error('パスワードが違います。');
+}
 
 const NOTIFY_EMAIL  = 'salon@example.com';       // 店舗の通知先メール（空にすると通知しません）
 const SALON_NAME    = 'ZER01 barber/lounge';
@@ -81,6 +98,9 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
 
     if (data.type === 'menu')         return json_(doMenu_());
+    if (data.type === 'adminLogin')   return json_(doAdminLogin_(data));
+    if (data.type === 'adminData')    return json_(doAdminData_(data));
+    if (data.type === 'adminSave')    return json_(doAdminSave_(data));
     if (data.type === 'availability') return json_(doAvailability_(getSheet_()));
     if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
     if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
@@ -273,7 +293,8 @@ function doMenu_() {
     ok: true,
     categories: readMenuSheet_(ss),
     coupons: readCouponSheet_(ss),
-    closedDates: readClosedSheet_(ss)
+    closedDates: readClosedSheet_(ss),
+    settings: readSettings_(ss)
   };
 }
 
@@ -457,6 +478,112 @@ function doCancel_(sheet, d) {
 }
 
 /* ============================================================
+   管理者ページ用
+   ============================================================ */
+function doAdminLogin_(d) {
+  requireAdmin_(d);
+  return { ok: true };
+}
+
+/** 管理者ページに必要な情報をまとめて返す */
+function doAdminData_(d) {
+  requireAdmin_(d);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getSheet_();
+  const last = sheet.getLastRow();
+  const col = n => HEADERS.indexOf(n);
+
+  const reservations = last < 2 ? [] :
+    sheet.getRange(2, 1, last - 1, HEADERS.length).getValues().map(r => ({
+      code: String(r[col('予約番号')]),
+      date: normalizeDate_(r[col('来店日')]),
+      time: normalizeTime_(r[col('開始')]),
+      endTime: normalizeTime_(r[col('終了')]),
+      menu: String(r[col('メニュー')] || ''),
+      staffName: String(r[col('担当')] || ''),
+      price: Number(r[col('合計金額')]) || 0,
+      name: String(r[col('お名前')] || ''),
+      tel: String(r[col('電話番号')] || '').replace(/^'/, ''),
+      email: String(r[col('メール')] || ''),
+      visit: String(r[col('来店回数')] || ''),
+      request: String(r[col('ご要望')] || ''),
+      status: String(r[col('状態')] || '')
+    })).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+
+  return {
+    ok: true,
+    reservations: reservations,
+    menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS),
+    coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS),
+    closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ']),
+    settings: readSettings_(ss)
+  };
+}
+
+/** 管理者ページからの保存。シートまるごと書き換える */
+function doAdminSave_(d) {
+  requireAdmin_(d);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (d.target === 'menus')   writeSheetRows_(ss, MENU_SHEET, MENU_HEADERS, d.rows);
+  else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
+  else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ'], d.rows);
+  else if (d.target === 'settings') writeSettings_(ss, d.rows);
+  else return { ok: false, error: '不明な保存先です: ' + d.target };
+
+  return { ok: true };
+}
+
+/** シートを見出し付きの配列として読む */
+function readSheetRows_(ss, name, headers) {
+  const sheet = ss.getSheetByName(name);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues()
+    .map(r => {
+      const o = {};
+      headers.forEach((h, i) => {
+        o[h] = (h === '休業日') ? normalizeDate_(r[i]) : (r[i] === '' ? '' : r[i]);
+      });
+      return o;
+    })
+    .filter(o => String(o[headers[0]] || '').trim() !== '');
+}
+
+/** 見出しを残して中身を入れ替える */
+function writeSheetRows_(ss, name, headers, rows) {
+  const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#f3efea');
+    sheet.setFrozenRows(1);
+  }
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).clearContent();
+  }
+  const body = (rows || [])
+    .map(r => headers.map(h => (r[h] === undefined || r[h] === null) ? '' : r[h]))
+    .filter(cells => String(cells[0]).trim() !== '');
+  if (body.length) sheet.getRange(2, 1, body.length, headers.length).setValues(body);
+}
+
+/** 設定シート（項目 / 内容 の2列） */
+function readSettings_(ss) {
+  const sheet = ss.getSheetByName(SETTING_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  const out = {};
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues().forEach(r => {
+    const k = String(r[0] || '').trim();
+    if (k) out[k] = r[1] === '' ? '' : r[1];
+  });
+  return out;
+}
+
+function writeSettings_(ss, obj) {
+  const rows = Object.keys(obj || {}).map(k => ({ '項目': k, '内容': obj[k] }));
+  writeSheetRows_(ss, SETTING_SHEET, ['項目', '内容'], rows);
+}
+
+/* ============================================================
    補助
    ============================================================ */
 function getSheet_() {
@@ -575,6 +702,17 @@ function setupMenuSheets() {
     closed.setColumnWidth(1, 130);
     closed.setColumnWidth(2, 260);
     closed.getRange('A2').setNote('日付を入れるとその日は予約できなくなります（例 2026-09-15）');
+  }
+
+  const setting = ss.getSheetByName(SETTING_SHEET) || ss.insertSheet(SETTING_SHEET);
+  if (setting.getLastRow() === 0) {
+    setting.appendRow(['項目', '内容']);
+    setting.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#f3efea');
+    setting.setFrozenRows(1);
+    setting.setColumnWidth(1, 150);
+    setting.setColumnWidth(2, 420);
+    [['電話番号', ''], ['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00'],
+     ['キャッチコピー', ''], ['お知らせ', '']].forEach(r => setting.appendRow(r));
   }
 
   const coupon = ss.getSheetByName(COUPON_SHEET) || ss.insertSheet(COUPON_SHEET);
