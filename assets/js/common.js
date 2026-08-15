@@ -275,7 +275,12 @@ const Availability = {
      毎日1〜3枠×になり、店は理由も分からないまま予約を取り逃がします。 */
   _blocks: new Map(),
   busyBlocks(staffId, dateKey) {
-    if (Remote.booked !== null) return [];   // 本物の台帳がある＝作り物は使わない
+    /* 受信先を設定していれば、本番です。作り物は一切使いません。
+       取得に失敗したとき（Apps Script が落ちている等）も同じです。
+       分からないものを「埋まっている」ことにすると、
+       実際には空いている時間をお客様に見せられなくなります。
+       重なりは送信時に受信先が弾くので、そちらに任せます（UC9）。 */
+    if (SALON.reservationEndpoint) return [];
     const ck = staffId + dateKey;
     if (this._blocks.has(ck)) return this._blocks.get(ck);
 

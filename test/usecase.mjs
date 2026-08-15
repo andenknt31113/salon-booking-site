@@ -560,6 +560,19 @@ console.log('\n【UC17】空いている時間が、勝手に埋まっていな�
   check('UC17', '作り物の先約が使われていない',
     await p.evaluate(() => Availability.busyBlocks('st01', '2099-06-01').length), 0);
 
+  /* 受信先が落ちて空席状況が取れなかったときも、作り物で埋めてはいけません。
+     分からないものを「埋まっている」ことにすると、
+     実際には空いている時間をお客様に見せられなくなります。 */
+  check('UC17', '取得に失敗したときも作り物で埋めない', await p.evaluate(() => {
+    const before = Remote.booked;
+    Remote.booked = null;                       // 取得失敗と同じ状態にする
+    Availability._blocks.clear();
+    const n = Availability.busyBlocks('st01', '2099-06-02').length;
+    Remote.booked = before;
+    Availability._blocks.clear();
+    return n;
+  }), 0);
+
   /* 予約が1件も無い先の日は、営業時間内のすべての枠が取れるはずです。
      ここまでの試験で埋まった日を避けたいので、台帳に無い日を選びます。
      （当日締め切り・休業日の影響も避けるため、十分先から探します） */
