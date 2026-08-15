@@ -13,13 +13,27 @@ function isPast(r) {
   return dt.getTime() < Date.now();
 }
 
-/** キャンセル可能か（前日18時まで） */
+/* 変更・キャンセルの受付期限。設定は data.js の business.cancelDeadline。
+   ここを通っても、Apps Script 側でもう一度確認します
+   （期限の直前にページを開いたまま、しばらくして押された場合のため）。 */
+function deadlineOf(dateKey) {
+  const rule = SALON.business.cancelDeadline || { daysBefore: 1, hour: 18 };
+  const d = fromKey(dateKey);
+  d.setDate(d.getDate() - rule.daysBefore);
+  d.setHours(rule.hour, 0, 0, 0);
+  return d;
+}
+function deadlineLabel() {
+  const rule = SALON.business.cancelDeadline || { daysBefore: 1, hour: 18 };
+  return rule.daysBefore === 1
+    ? `前日${rule.hour}時`
+    : `${rule.daysBefore}日前の${rule.hour}時`;
+}
+
+/** 変更・キャンセルができるか */
 function isCancellable(r) {
   if (r.status === 'cancelled' || isPast(r)) return false;
-  const deadline = fromKey(r.date);
-  deadline.setDate(deadline.getDate() - 1);
-  deadline.setHours(18, 0, 0, 0);
-  return Date.now() < deadline.getTime();
+  return Date.now() < deadlineOf(r.date).getTime();
 }
 
 /* 日時変更の受け渡し（CHANGE_KEY は common.js で定義） */
@@ -55,7 +69,7 @@ function bookingCard(r) {
     ? changeBtn(r.code)
       + `<button class="btn btn-ghost btn-sm" type="button" data-cancel="${esc(r.code)}">この予約をキャンセルする</button>`
     : (!cancelled && !past)
-      ? '<p style="font-size:12px;color:var(--ink-3);">※変更・キャンセルの受付期限を過ぎています。お手数ですが店舗までご連絡ください。</p>'
+      ? `<p style="font-size:12px;color:var(--ink-3);">※ネットでの変更・キャンセルは${deadlineLabel()}までです。お手数ですが店舗までご連絡ください。</p>`
       : reviewLink;
 
   return `
@@ -104,10 +118,7 @@ function renderLookupResult(r) {
   dt.setMinutes(toMinutes(r.time));
   const past = dt.getTime() < Date.now();
 
-  const deadline = fromKey(r.date);
-  deadline.setDate(deadline.getDate() - 1);
-  deadline.setHours(18, 0, 0, 0);
-  const canCancel = !cancelled && !past && Date.now() < deadline.getTime();
+  const canCancel = !cancelled && !past && Date.now() < deadlineOf(r.date).getTime();
 
   const chip = cancelled
     ? '<span class="status-chip is-cancelled">キャンセル済み</span>'
@@ -132,7 +143,7 @@ function renderLookupResult(r) {
              <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>
            </div>`
         : (!cancelled && !past)
-          ? '<p style="font-size:12px;color:var(--muted);margin-top:12px;">※変更・キャンセルの受付期限を過ぎています。店舗までご連絡ください。</p>'
+          ? `<p style="font-size:12px;color:var(--muted);margin-top:12px;">※ネットでの変更・キャンセルは${deadlineLabel()}までです。店舗までご連絡ください。</p>`
           : ''}
     </article>`;
 }
@@ -179,6 +190,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   render();
 
+  // 受付期限の案内を、設定に合わせた文言にする
+  const note = $('#deadline-note');
+  if (note) {
+    note.insertAdjacentHTML('afterbegin',
+      `ネットでの変更・キャンセルは<b>${deadlineLabel()}まで</b>です。それ以降は`);
+  }
+
   $('#search-btn').addEventListener('click', () => {
     filterCode = $('#search-code').value.trim();
     render();
@@ -213,6 +231,12 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = true;
     const code = btn.dataset.lookupCancel;
     const res = await sendToEndpoint({ type: 'cancel', code, tel: $('#lookup-tel').value.trim() });
+    if (res.deadline) {
+      btn.disabled = false;
+      alert(res.error);
+      await doLookup();   // 期限切れの表示に描き直す
+      return;
+    }
     if (!res.ok && !res.noEndpoint) {
       btn.disabled = false;
       alert('キャンセルを店舗に送信できませんでした。'
@@ -265,7 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
     alert('ご予約が見つかりませんでした。お手数ですが、もう一度照会してください。');
   });
 
-  document.addEventListener('click', e => {
+  document.addEventListener('click', async e => {
     const btn = e.target.closest('[data-cancel]');
     if (!btn) return;
     const code = btn.dataset.cancel;
@@ -277,8 +301,19 @@ document.addEventListener('DOMContentLoaded', () => {
       `※この操作は取り消せません。`
     );
     if (!ok) return;
+
+    btn.disabled = true;
+    const res = await sendCancellation(r); // 予約台帳の状態も「キャンセル」に更新する
+    btn.disabled = false;
+
+    if (res.deadline) { alert(res.error); render(); return; }
+    if (!res.ok && !res.noEndpoint) {
+      alert('キャンセルを店舗に送信できませんでした。'
+        + (res.error ? `\n（${res.error}）` : '')
+        + '\n\nお手数ですが、もう一度お試しいただくか、店舗までご連絡ください。');
+      return;
+    }
     Store.cancel(code);
-    sendCancellation(r); // 予約台帳の状態も「キャンセル」に更新する
     render();
   });
 });

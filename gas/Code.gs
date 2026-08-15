@@ -73,6 +73,13 @@ function revokeAllAdminTokens() {
   console.log('記憶させた端末をすべて解除しました');
 }
 
+/* 変更・キャンセルの受付期限。「来店日の CANCEL_DEADLINE_DAYS_BEFORE 日前の
+   CANCEL_DEADLINE_HOUR 時」まで受け付けます（初期値＝前日18時）。
+   ★サイト側（assets/js/data.js の business.cancelDeadline）と同じ値にしてください。
+   Apps Script からは data.js を読めないため、2か所に書いてあります。 */
+const CANCEL_DEADLINE_DAYS_BEFORE = 1;
+const CANCEL_DEADLINE_HOUR = 18;
+
 const NOTIFY_EMAIL  = 'zer01.barber@gmail.com';  // 店舗の通知先メール（空にすると通知しません）
 const SALON_NAME    = 'ZER01 barber/lounge';
 const SALON_TEL     = '';                        // ★要確認（未確認のうちは空のまま）
@@ -671,6 +678,10 @@ function doChange_(sheet, d) {
   if (String(before[col('状態')] || '') === 'キャンセル') {
     return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
   }
+  // 変更前の来店日で判定する（間近の予約を遠い日へ逃がすのも受付期限の対象）
+  if (!withinDeadline_(before[col('来店日')])) {
+    return { ok: false, deadline: true, error: deadlineMessage_() };
+  }
 
   const newDate = normalizeDate_(d.date);
   const newTime = normalizeTime_(d.time);
@@ -739,6 +750,28 @@ function doChange_(sheet, d) {
   return { ok: true };
 }
 
+/* 変更・キャンセルの受付期限内か。
+   画面側でも判定していますが、期限の直前にページを開いたまま
+   しばらくしてから押されると、画面の判定はすり抜けます。 */
+function withinDeadline_(dateKey) {
+  const d = normalizeDate_(dateKey);
+  if (!d) return true;   // 日付が読めないものは弾かない（店舗側で対応してもらう）
+  const parts = d.split('-');
+  const limit = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  limit.setDate(limit.getDate() - CANCEL_DEADLINE_DAYS_BEFORE);
+  limit.setHours(CANCEL_DEADLINE_HOUR, 0, 0, 0);
+  return Date.now() < limit.getTime();
+}
+
+function deadlineMessage_() {
+  const when = CANCEL_DEADLINE_DAYS_BEFORE === 1
+    ? '前日' + CANCEL_DEADLINE_HOUR + '時'
+    : CANCEL_DEADLINE_DAYS_BEFORE + '日前の' + CANCEL_DEADLINE_HOUR + '時';
+  return 'ネットでの変更・キャンセルは' + when + 'までとなっております。'
+    + 'お手数ですが店舗までご連絡ください。'
+    + (SALON_TEL ? '（TEL ' + SALON_TEL + '）' : '');
+}
+
 /* その枠が既に埋まっているか（自分自身の予約は除く） */
 function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
   const last = sheet.getLastRow();
@@ -775,6 +808,13 @@ function doCancel_(sheet, d) {
   // 照会経由のキャンセルは電話番号の一致を確認する
   if (d.tel && digits_(before[col('電話番号')]) !== digits_(d.tel)) {
     return { ok: false, error: 'ご予約が確認できませんでした。' };
+  }
+  if (String(before[col('状態')] || '') === 'キャンセル') {
+    // すでにキャンセル済み。二重に通知やメールを送らない。
+    return { ok: true, alreadyCancelled: true };
+  }
+  if (!withinDeadline_(before[col('来店日')])) {
+    return { ok: false, deadline: true, error: deadlineMessage_() };
   }
 
   const email = String(before[col('メール')] || '');

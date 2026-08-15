@@ -542,7 +542,9 @@ async function submitReservation() {
     if (!sent.ok && !sent.noEndpoint) {
       btn.disabled = false;
       btn.textContent = 'この日時に変更する';
-      alert(deliveryFailureMessage(sent, '変更'));
+      // 受付期限切れ・枠の埋まりは、送信できなかったのとは理由が違う
+      alert(sent.deadline || sent.taken ? sent.error : deliveryFailureMessage(sent, '変更'));
+      if (sent.taken) { state.time = null; await Remote.load(true); goTo(3); }
       return;
     }
     reservation.delivered = sent.ok;

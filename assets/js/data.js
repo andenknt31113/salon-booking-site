@@ -89,7 +89,11 @@ const SALON = {
     closedDates: [],          // 出張・臨時休業日を '2026-08-20' の形式で追加
     bookableDays: 60,
     minLeadHours: 2,
-    calendarDays: 14
+    calendarDays: 14,
+    /* ネットでの変更・キャンセルの受付期限。
+       既定は「前日18時まで」。daysBefore を 2 にすれば2日前の18時までになります。
+       ★Apps Script 側（gas/Code.gs の CANCEL_DEADLINE_*）と同じ値にしてください。 */
+    cancelDeadline: { daysBefore: 1, hour: 18 }
   },
 
   /* ---------- 予約データの送信先 ----------
