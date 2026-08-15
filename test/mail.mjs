@@ -180,6 +180,38 @@ function inspect(label, messages) {
   }
 }
 
+/* ---- 7. 前日リマインド ----
+   毎日トリガーで自動送信される、いちばん人の目に触れない文面です。
+   ここが壊れていても誰も気づかないので、ここで見ておきます。 */
+{
+  const t = new Date(); t.setDate(t.getDate() + 1);
+  const k = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  const sheet = makeSheet([
+    { 予約番号: 'LM-REM01', 来店日: k, 開始: '10:00', 終了: '11:10',
+      メニュー: 'メンズカット', 担当: 'MATTEO', お名前: '前田 五郎',
+      メール: 'rem@example.com', 状態: '予約確定' },
+    // 明日ぶんだが、キャンセル済み → 送ってはいけない
+    { 予約番号: 'LM-REM02', 来店日: k, 開始: '13:00', 終了: '14:00',
+      メニュー: 'メンズカット', 担当: 'MATTEO', お名前: 'キャンセル 六郎',
+      メール: 'cancelled@example.com', 状態: 'キャンセル' },
+    // 明後日ぶん → 今日は送らない
+    { 予約番号: 'LM-REM03', 来店日: '2099-01-01', 開始: '15:00', 終了: '16:00',
+      メニュー: 'メンズカット', 担当: 'MATTEO', お名前: '来週 七郎',
+      メール: 'later@example.com', 状態: '予約確定' },
+    // 明日ぶんだがメールアドレスが無い → 送りようがない（落ちないこと）
+    { 予約番号: 'LM-REM04', 来店日: k, 開始: '17:00', 終了: '18:00',
+      メニュー: 'メンズカット', 担当: 'MATTEO', お名前: 'メール無し 八郎',
+      メール: '', 状態: '予約確定' }
+  ]);
+  const r = run('sendReminders', sheet, null);
+  inspect('7. 前日リマインド', r.sent);
+
+  const to = r.sent.map(m => m.宛先);
+  if (!to.includes('rem@example.com')) problems.push('7. 明日のお客様にリマインドが送られていない');
+  if (to.includes('cancelled@example.com')) problems.push('7. キャンセル済みにリマインドを送っている');
+  if (to.includes('later@example.com')) problems.push('7. 明日以外のお客様にも送っている');
+}
+
 console.log('\n' + '='.repeat(52));
 if (problems.length) {
   console.log('見つかった問題:\n  ' + problems.join('\n  '));

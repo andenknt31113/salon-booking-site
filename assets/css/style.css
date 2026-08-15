@@ -691,6 +691,18 @@ table { border-collapse: collapse; width: 100%; }
 }
 .booking-name { font-size: 15px; font-weight: 700; margin-top: 2px; }
 .booking-name small { font-size: 11.5px; font-weight: 400; color: var(--muted); margin-left: 9px; }
+/* 予定表に混ぜて出す「受けない時間帯」。予約カードとは別物だと分かる見た目にします */
+.closed-block {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
+  border: 1px dashed var(--line); border-left: 2px solid var(--muted);
+  border-radius: var(--radius); padding: 14px 18px; margin-bottom: 13px;
+  background: repeating-linear-gradient(
+    -45deg, transparent, transparent 7px, var(--panel-2) 7px, var(--panel-2) 14px);
+  font-size: 13px; color: var(--text-2);
+}
+.closed-block .booking-time { color: var(--muted); }
+.closed-block.is-allday { justify-content: center; font-weight: 700; }
+
 /* お客様タブ */
 .customer-name { font-size: 16px; font-weight: 700; }
 .customer-history { margin-top: 12px; border-top: 1px solid var(--line-2); padding-top: 10px; }
@@ -834,8 +846,37 @@ table { border-collapse: collapse; width: 100%; }
   * { transition-duration: .01ms !important; }
 }
 
+/* 印刷。店で予約票を出す・台帳を紙で持つ場合に、読める形にします。
+   画面の黒背景をそのまま刷ると、インクを使い切ったうえに読めません。 */
 @media print {
-  .site-header, .site-footer, .sp-cta, .panel-actions, .breadcrumb, .draft-banner { display: none !important; }
+  .site-header, .site-footer, .sp-cta, .step-cta, .panel-actions,
+  .breadcrumb, .draft-banner, .preview-note, .steps, .summary,
+  .toolbar, .tabs, .line-invite, #gate, .saved-profile-actions,
+  .btn, button { display: none !important; }   /* 紙の上では押せません */
+
+  html, body { background: #fff !important; color: #000 !important; }
+  body { padding: 0 !important; font-size: 11pt; }
+  .container, .container-narrow { max-width: none; padding: 0; }
+  .section, .page-head { padding: 0 !important; background: #fff !important; border: 0 !important; }
+  .page-head h1 { margin-bottom: 4pt; }
+  .stat, .booking-request { background: #fff !important; border: 1px solid #999 !important; }
+
+  /* 枠線は残す。中身の色は落とす */
+  .booking-card, .closed-block, .confirm-table, .selectable, .notice {
+    background: #fff !important; border-color: #999 !important;
+    box-shadow: none !important; break-inside: avoid;
+  }
+  .day-heading { break-after: avoid; border-color: #000 !important; }
+  .day-badge { background: #fff !important; color: #000 !important; border: 1px solid #000; }
+  .booking-time, .booking-name, .done-code, .price-now { color: #000 !important; }
+  .booking-detail, .booking-request, .day-count { color: #333 !important; }
+
+  /* リンクは押せないので、行き先を紙に出します */
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #555; }
+  a[href^="tel:"]::after, a[href^="#"]::after, .btn::after { content: ""; }
+
+  /* 予約票として1件ずつ切り離せるように */
+  .booking-card { page-break-inside: avoid; margin-bottom: 8pt; }
 }
 
 /* ============================================================

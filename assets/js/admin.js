@@ -166,37 +166,79 @@ function dayHeading(date) {
   return { label, text: formatDateJa(date) };
 }
 
+/* 休業日タブで入れた「受けない時間帯」を、その日の予定に混ぜて返します。
+   設定したのに予定表に出てこないと、入れたこと自体を忘れて
+   「なぜかこの時間だけ予約が来ない」と悩むことになります。 */
+function closedBlocksOn(date) {
+  return (adminData.closedDates || [])
+    .filter(r => r['休業日'] === date && r['開始'] && r['終了'])
+    .map(r => ({ 受付停止: true, date, time: r['開始'], endTime: r['終了'], memo: r['メモ'] || '' }));
+}
+function closedAllDay(date) {
+  return (adminData.closedDates || [])
+    .some(r => r['休業日'] === date && !(r['開始'] && r['終了']));
+}
+
 function renderReservations() {
   const list = filteredReservations();
-  if (!list.length) {
-    $('#admin-rows').innerHTML = '<p class="empty-state">該当する予約はありません。</p>';
-    return;
-  }
 
   /* 来店日ごとにまとめ、早い順に並べます。
      カードが縦に並ぶだけだと、その日が何件なのか数えないと分かりません。
      朝いちばんに開いて「今日は何時から何件か」を見るのが主な使い方なので、
      日付で区切って件数を添えます。 */
   const byDate = new Map();
-  [...list]
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
-    .forEach(r => {
-      if (!byDate.has(r.date)) byDate.set(r.date, []);
-      byDate.get(r.date).push(r);
-    });
+  list.forEach(r => {
+    if (!byDate.has(r.date)) byDate.set(r.date, []);
+    byDate.get(r.date).push(r);
+  });
 
-  $('#admin-rows').innerHTML = [...byDate].map(([date, rows]) => {
+  // 予約が1件も無い日でも、受付を止めているならその日は出します
+  const dateFilter = $('#filter-date').value;
+  (adminData.closedDates || []).forEach(r => {
+    const d = r['休業日'];
+    if (!d || (dateFilter && d !== dateFilter)) return;
+    if (!byDate.has(d)) byDate.set(d, []);
+  });
+
+  if (!byDate.size) {
+    $('#admin-rows').innerHTML = '<p class="empty-state">該当する予約はありません。</p>';
+    return;
+  }
+
+  $('#admin-rows').innerHTML = [...byDate.keys()].sort().map(date => {
+    const rows = byDate.get(date);
     const h = dayHeading(date);
     const live = rows.filter(r => r.status !== 'キャンセル').length;
-    const count = live ? `${live}件` : `キャンセル${rows.length}件のみ`;
+    const allDay = closedAllDay(date);
+    /* 休みにした日に予約が残っていることがあります（先に入っていた分）。
+       件数を隠すと気づけないので、両方まとめて出します。 */
+    const count = allDay
+      ? (live ? `終日お休み・予約${live}件あり` : '終日お休み')
+      : live ? `${live}件`
+        : rows.length ? `キャンセル${rows.length}件のみ` : '予約なし';
+
+    // 予約と「受けない時間帯」を、時刻順に混ぜて並べます
+    const items = rows.concat(closedBlocksOn(date))
+      .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
     return `
       <div class="day-heading">
         ${h.label ? `<span class="day-badge">${esc(h.label)}</span>` : ''}
         <span class="day-date">${esc(h.text)}</span>
         <span class="day-count">${esc(count)}</span>
       </div>
-      ${rows.map(reservationCard).join('')}`;
+      ${allDay ? `<div class="closed-block is-allday">この日は終日、予約を受け付けていません${
+        live ? '（下のご予約は、休みにする前に入っていたものです）' : ''}</div>` : ''}
+      ${items.map(x => (x.受付停止 ? closedCard(x) : reservationCard(x))).join('')}`;
   }).join('');
+}
+
+function closedCard(c) {
+  return `
+    <div class="closed-block">
+      <span class="booking-time">${esc(c.time)}〜${esc(c.endTime)}</span>
+      <span>予約を受け付けていません${c.memo ? `（${esc(c.memo)}）` : ''}</span>
+    </div>`;
 }
 
 function reservationCard(r) {
@@ -578,6 +620,12 @@ async function save(target) {
     return;
   }
   if (res.stamps) stamps = { ...res.stamps };
+  /* 休業日は予約一覧にも出しているので、保存したらそちらも描き直します。
+     保存したのに予定表が前のままだと、保存できたのか分かりません。 */
+  if (target === 'closed') {
+    adminData.closedDates = edits.closed.map(r => ({ ...r }));
+    renderReservations();
+  }
   ok.textContent = '保存しました。サイトに反映されています。';
   ok.style.display = 'block';
 }
