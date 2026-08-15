@@ -223,10 +223,12 @@ function initHome() {
   } else {
     $('.hero-rating').hidden = true;
   }
-  // トップの大きい写真。設定されていればストライプの意匠に重ねる
+  /* トップの大きい写真。
+     has-photo は「写真が読めたとき」だけ付けます（wireImageFallbacks が付ける）。
+     先に付けてしまうと、写真が無いときに暗い膜と白文字だけが残り、
+     地の意匠より読みにくい画面になります。 */
   const hero = $('.hero');
   if (hero && SALON.heroImage) {
-    hero.classList.add('has-photo');
     hero.insertAdjacentHTML('afterbegin',
       `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="" />`);
   }

@@ -754,6 +754,15 @@ table { border-collapse: collapse; width: 100%; }
 .hero.has-photo h1,
 .hero.has-photo .wm-name { color: var(--on-ink); }
 .hero.has-photo .hero-label { border-top-color: rgba(241, 236, 224, .3); }
+/* 写真の上では、枠線ボタンの臙脂色が沈んで読めなくなる */
+.hero.has-photo .btn-outline {
+  border-color: rgba(241, 236, 224, .7);
+  color: var(--on-ink);
+}
+.hero.has-photo .btn-outline:hover {
+  border-color: var(--on-ink);
+  background: rgba(241, 236, 224, .12);
+}
 
 /* 地図へのボタン（サロン情報の下） */
 .map-actions { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
