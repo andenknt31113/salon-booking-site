@@ -602,7 +602,7 @@ function doAvailability_(sheet) {
     .map(r => ({
       date: normalizeDate_(r[col('来店日')]),
       time: normalizeTime_(r[col('開始')]),
-      minutes: Number(r[col('所要(分)')]) || 30,
+      minutes: parseMinutes_(r[col('所要(分)')], 30),
       staffId: String(r[col('担当ID')] || '') || null
     }))
     .filter(b => b.date && b.time && b.date >= today);
@@ -688,7 +688,7 @@ function readMenuSheet_(ss) {
       name: name,
       price: p.value,
       priceFrom: p.from,
-      minutes: Number(r[col('所要(分)')]) || 30,
+      minutes: parseMinutes_(r[col('所要(分)')], 30),
       note: String(r[col('説明')] || ''),
       image: String(r[col('画像')] || '').trim()
     });
@@ -720,7 +720,7 @@ function readCouponSheet_(ss) {
       price: p.value,
       priceFrom: p.from,
       listPrice: list,
-      minutes: Number(r[col('所要(分)')]) || 30,
+      minutes: parseMinutes_(r[col('所要(分)')], 30),
       terms: String(r[col('条件')] || ''),
       image: String(r[col('画像')] || '').trim()
     });
@@ -871,18 +871,19 @@ function doReview_(sheet, d) {
    数値のほか「4000〜」「¥4,000〜」のような書き方も受け取ります。
    「〜」を付けると、サイトでも「¥4,000〜」と出ます。
    空欄・0 は「カウンセリングでお見積り」として扱われます。 */
+/* 価格。「¥4,000〜」「4000円」「４０００」のどれで書かれても読みます。 */
 function parsePrice_(v) {
-  const s = String(v == null ? '' : v).trim();
-  const from = /[〜~]/.test(s);
+  const s = halfWidth_(v).trim();
+  const from = /[〜~]/.test(String(v == null ? '' : v));
   const n = Number(s.replace(/[^0-9.]/g, ''));
   return { value: isNaN(n) ? 0 : n, from: from };
 }
 
 /** 「表示」列の判定。空欄は表示扱い。×・✕・x・非表示・FALSE は非表示 */
 function isShown_(v) {
-  const s = String(v == null ? '' : v).trim().toLowerCase();
+  const s = halfWidth_(v).trim().toLowerCase();
   if (s === '') return true;
-  return !['×', '✕', 'x', '✗', '非表示', 'false', 'no', 'off', '0'].includes(s);
+  return !['×', '✕', '✖', '✗', 'x', '非表示', '非公開', '休止', '停止', 'false', 'no', 'off', '0'].includes(s);
 }
 
 /* ============================================================
@@ -907,7 +908,7 @@ function doLookup_(sheet, d) {
       date: normalizeDate_(r[col('来店日')]),
       time: normalizeTime_(r[col('開始')]),
       endTime: normalizeTime_(r[col('終了')]),
-      totalMinutes: Number(r[col('所要(分)')]) || 30,
+      totalMinutes: parseMinutes_(r[col('所要(分)')], 30),
       menuText: String(r[col('メニュー')] || ''),
       staffName: String(r[col('担当')] || ''),
       totalPrice: Number(r[col('合計金額')]) || 0,
@@ -1491,14 +1492,37 @@ function mailCustomer_(email, subject, body) {
   }
 }
 
+/* 日付の書き方をそろえます。
+
+   休業日はスプレッドシートに店長が手で書きます。そのとき
+   「2026/9/1」「2026年9月1日」のように書くのがふつうです。
+   ここで読めないと、休みにしたはずの日に予約が入ります。
+   静かに間違えるので、いちばん気づきにくい壊れ方です。 */
 function normalizeDate_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
-  return String(v || '').trim();
+  const s = halfWidth_(v).trim();
+  const m = s.match(/^(\d{4})\D{1,3}(\d{1,2})\D{1,3}(\d{1,2})\D?$/);
+  if (!m) return s;
+  const p = n => (n.length < 2 ? '0' + n : n);
+  return m[1] + '-' + p(m[2]) + '-' + p(m[3]);
 }
 
+/* 時刻も同じです。「9:00」「9時」「０９：００」を同じものとして読みます。 */
 function normalizeTime_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'HH:mm');
-  return String(v || '').trim();
+  const s = halfWidth_(v).trim();
+  const m = s.match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
+  if (!m) return s;
+  const p = n => (String(n).length < 2 ? '0' + n : String(n));
+  return p(m[1]) + ':' + p(m[2] || '00');
+}
+
+/* 「所要(分)」は数字だけで書かれるとは限りません。
+   「60分」や全角の「６０」を読み落とすと、施術の長さが既定の30分に
+   なり、次のお客様と重なります。 */
+function parseMinutes_(v, fallback) {
+  const n = parseInt(halfWidth_(v).replace(/[^0-9]/g, ''), 10);
+  return isFinite(n) && n > 0 ? n : fallback;
 }
 
 function parseDateTime_(dateKey, time) {

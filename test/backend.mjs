@@ -294,6 +294,120 @@ console.log('\n【口コミ】');
 }
 
 
+/* ============================================================
+   シートに手で書いた値を、どこまで読めるか
+
+   休業日もメニューも、最後は店長がスプレッドシートに手で書きます。
+   「2026/9/1」「60分」「４０００」――どれもふつうの書き方です。
+   ここで読み落とすと、休みにしたはずの日に予約が入ったり、
+   施術の長さが30分に化けて次のお客様と重なったりします。
+   しかも画面には何も出ません。だから毎回ここを見ます。
+   ============================================================ */
+function readSheets(sheets, fnName) {
+  const ctx = {
+    console: { log(){}, warn(){}, error(){} },
+    MailApp: { sendEmail(){} }, UrlFetchApp: { fetch(){} },
+    CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty(){}, deleteProperty(){}, getKeys: () => [] }) },
+    LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
+    DriveApp: {}, ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
+    Utilities: {
+      formatDate: (d, tz, f) => {
+        const j = new Date(new Date(d).getTime() + 9 * 3600e3);
+        const p = n => String(n).padStart(2, '0');
+        return f === 'HH:mm' ? `${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`
+          : `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`;
+      },
+      getUuid: () => 'uuid', computeDigest: () => [1], DigestAlgorithm: { MD5: 'md5' },
+      Charset: { UTF_8: 'utf8' }, newBlob: () => ({}), base64Decode: () => [], base64Encode: () => ''
+    }
+  };
+  vm.createContext(ctx);
+  /* 日付型のセルは、この中で作らないと本物と同じ扱いになりません
+     （別の器で作った Date は instanceof Date が成り立ちません）。 */
+  ctx.__mk = rows => rows.map(r => r.map(c => (c && c.__date
+    ? vm.runInContext(`new Date(${c.__date})`, ctx) : c)));
+  const built = {};
+  Object.keys(sheets).forEach(name => {
+    const rows = ctx.__mk(sheets[name]);
+    built[name] = {
+      getLastRow: () => rows.length + 1,
+      getLastColumn: () => (rows[0] || []).length,
+      getRange: (r, c, nr, nc) => ({
+        getValues: () => rows.slice(r - 2, r - 2 + nr).map(x => x.slice(c - 1, c - 1 + nc))
+      })
+    };
+  });
+  ctx.__ss = { getSheetByName: n => built[n] || null, insertSheet: () => null };
+  ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ctx.__ss, getUi: () => { throw new Error('no ui'); } };
+  vm.runInContext(src + `;globalThis.__s = ${fnName};`, ctx);
+  try { return ctx.__s(ctx.__ss); } catch (e) { return { threw: String(e && e.message) }; }
+}
+/* 日付型のセルを表す印。上の readSheets が本物の Date に変えます。 */
+const dateCell = ms => ({ __date: ms });
+
+console.log('\n【シート】休業日の書き方');
+{
+  const want = '2026-09-01';
+  const cases = [
+    ['2026-09-01', '2026-09-01'],
+    ['2026/09/01', '2026/09/01'],
+    ['2026/9/1', '2026/9/1'],
+    ['2026-9-1', '2026-9-1'],
+    ['2026年9月1日', '2026年9月1日'],
+    ['前後に空白', ' 2026-09-01 '],
+    ['日付として入力（セルが日付型）', dateCell(Date.UTC(2026, 8, 1) - 9 * 3600e3)]
+  ];
+  for (const [label, cell] of cases) {
+    const got = readSheets({ '休業日': [[cell, '', '']] }, 'readClosedSheet_');
+    const hit = Array.isArray(got) && got.some(x => x === want || (x && x.date === want));
+    hit ? ok(`休業日「${label}」は休みとして読める`)
+        : note(`休業日「${label}」`, 'が読めない → 休みにしたはずの日に予約が入ります');
+  }
+}
+
+console.log('\n【シート】受けない時間帯の書き方');
+{
+  for (const [label, s, e] of [['9:00', '9:00', '12:00'], ['09:00', '09:00', '12:00'],
+                               ['全角', '０９：００', '１２：００'], ['9時', '9時', '12時']]) {
+    const got = readSheets({ '休業日': [['2026-09-01', s, e]] }, 'readClosedSheet_');
+    const band = Array.isArray(got) && got[0] && got[0].start === '09:00' && got[0].end === '12:00';
+    band ? ok(`時間帯「${label}」は 09:00〜12:00 として読める`)
+         : note(`時間帯「${label}」`, `が帯にならない（${JSON.stringify(got)}）`);
+  }
+  const allDay = readSheets({ '休業日': [['2026-09-01', '', '']] }, 'readClosedSheet_');
+  allDay[0] === '2026-09-01' ? ok('時間を空けておけば終日休みになる') : note('終日休み', 'にならない');
+}
+
+console.log('\n【シート】メニューの価格と所要時間');
+{
+  const menu = (price, min) => ({ 'メニュー': [['カット', 'テスト', price, min, '', '', '○']] });
+  const item = g => (g && g[0] && g[0].items[0]) || {};
+  for (const [label, cell] of [['4000', 4000], ['4,000', '4,000'], ['¥4,000', '¥4,000'],
+                               ['4000円', '4000円'], ['４０００（全角）', '４０００'], ['4000〜', '4000〜']]) {
+    const v = item(readSheets(menu(cell, 60), 'readMenuSheet_')).price;
+    v === 4000 ? ok(`価格「${label}」は 4000円と読める`) : note(`価格「${label}」`, `${v} と読まれる`);
+  }
+  const from = item(readSheets(menu('4000〜', 60), 'readMenuSheet_')).priceFrom;
+  from ? ok('「4000〜」は「〜から」として扱う') : note('「4000〜」', 'の「〜」が消える');
+
+  for (const [label, cell] of [['60', 60], ['60分', '60分'], ['６０（全角）', '６０']]) {
+    const v = item(readSheets(menu(4000, cell), 'readMenuSheet_')).minutes;
+    v === 60 ? ok(`所要「${label}」は 60分と読める`)
+             : note(`所要「${label}」`, `${v}分と読まれる → 次のお客様と重なります`);
+  }
+}
+
+console.log('\n【シート】隠したいときの書き方');
+{
+  const shown = cell => !!readSheets({ 'メニュー': [['カット', 'テスト', 4000, 60, '', '', cell]] }, 'readMenuSheet_');
+  for (const c of ['×', '✕', '✖', 'x', 'X', '非表示', '休止', ' × ']) {
+    shown(c) ? note(`「${c}」`, 'と書いても掲載されたまま') : ok(`「${c}」と書けば隠れる`);
+  }
+  shown('○') ? ok('「○」なら掲載される') : note('「○」', 'と書いたのに隠れる');
+  shown('') ? ok('空欄なら掲載される') : note('空欄', 'だと隠れる');
+}
+
 /* ここから先は店側の入口です。合言葉と、端末に残す合い札を確かめます。
    台帳のある表ではなく、空の表に対して呼びます。断ることだけが要点なので、
    中身は要りません。 */
