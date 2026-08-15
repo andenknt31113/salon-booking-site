@@ -141,6 +141,7 @@ GitHub Pages はサーバー処理を持たない静的ホスティングです�
 そのまま自動試験にしてあります（12シナリオ／35項目）。
 
 ```bash
+node test/mail.mjs          # メールの文面（ブラウザ不要）
 node test/mock-gas.mjs      # Apps Script の代わりのテスト用サーバー
 node test/usecase.mjs       # 別のターミナルで実行
 ```

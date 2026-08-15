@@ -231,35 +231,48 @@ function doReserve_(sheet, d) {
     eventId
   ]);
 
+  /* 欠けている項目で「undefined」と書かない。
+     フォームでは必須にしていますが、この受け口は公開されているため
+     項目が欠けたまま届くことがあります。 */
+  const or_ = (v, alt) => {
+    const t = String(v == null ? '' : v).trim();
+    return t === '' ? (alt || '—') : t;
+  };
+  /* 金額が決まっていない予約（デザインカラー等）は「0円」と書かない。
+     店舗が無料と受け取ってしまうため。 */
+  const priceLine = d.totalLabel && !Number(d.totalPrice)
+    ? d.totalLabel
+    : `${Number(d.totalPrice || 0).toLocaleString()}円（税込）`;
+
   notify_(
-    `【新規予約】${d.date} ${d.time} ${c.name}様`,
+    `【新規予約】${d.date} ${d.time} ${or_(c.name, 'お客様')}様`,
     [
       `予約番号：${d.code}`,
       `来店日時：${d.date} ${d.time}〜${d.endTime}（約${d.totalMinutes}分）`,
       `メニュー：${menuText}`,
-      `担当　　：${d.staffName}`,
+      `担当　　：${or_(d.staffName)}`,
       '',
-      `お名前　：${c.name} 様（${c.kana}）`,
-      `電話番号：${c.tel}`,
-      `メール　：${c.email}`,
-      `来店回数：${c.visit}`,
-      `合計金額：${Number(d.totalPrice).toLocaleString()}円（税込）`,
-      `ご要望　：${c.request || 'なし'}`
+      `お名前　：${or_(c.name, 'お客様')} 様（${or_(c.kana)}）`,
+      `電話番号：${or_(c.tel)}`,
+      `メール　：${or_(c.email)}`,
+      `来店回数：${or_(c.visit)}`,
+      `合計金額：${priceLine}`,
+      `ご要望　：${or_(c.request, 'なし')}`
     ].join('\n')
   );
 
   notifyLine_([
     '【新規予約】',
     `${d.date} ${d.time}〜${d.endTime}`,
-    `${c.name} 様（${c.visit}）`,
+    `${or_(c.name, 'お客様')} 様（${or_(c.visit)}）`,
     menuText,
-    `${Number(d.totalPrice).toLocaleString()}円`,
-    `TEL ${c.tel}`,
+    priceLine,
+    `TEL ${or_(c.tel)}`,
     c.request ? `ご要望：${c.request}` : ''
   ].filter(Boolean).join('\n'));
 
   mailCustomer_(c.email, `ご予約を承りました（${d.date} ${d.time}）`, [
-    `${c.name} 様`,
+    `${or_(c.name, 'お客様')} 様`,
     '',
     `この度は${SALON_NAME}へのご予約をありがとうございます。`,
     '下記の内容で承りました。',
@@ -268,8 +281,8 @@ function doReserve_(sheet, d) {
     `ご予約番号：${d.code}`,
     `ご来店日時：${d.date} ${d.time}〜${d.endTime}`,
     `メニュー　：${menuText}`,
-    `ご担当　　：${d.staffName}`,
-    `合計金額　：${Number(d.totalPrice).toLocaleString()}円（税込）`,
+    `ご担当　　：${or_(d.staffName)}`,
+    `合計金額　：${priceLine}`,
     '───────────────',
     '',
     '【ご予約の確認・キャンセル】',
@@ -817,8 +830,13 @@ function doCancel_(sheet, d) {
     return { ok: false, deadline: true, error: deadlineMessage_() };
   }
 
+  /* 日時とお名前は台帳から読む。
+     予約確認ページの照会からは予約番号と電話番号しか送られてこないため、
+     送られてきた値を当てにするとメールが「undefined」になる。 */
   const email = String(before[col('メール')] || '');
-  const name = d.name || String(before[col('お名前')] || '');
+  const name = String(before[col('お名前')] || '') || d.name || 'お客様';
+  const date = normalizeDate_(before[col('来店日')]) || d.date || '';
+  const time = normalizeTime_(before[col('開始')]) || d.time || '';
 
   sheet.getRange(row, col('状態') + 1).setValue('キャンセル');
   sheet.getRange(row, 1, 1, HEADERS.length)
@@ -827,13 +845,13 @@ function doCancel_(sheet, d) {
 
   removeFromCalendar_(String(before[col('カレンダーID')] || ''));
 
-  mailCustomer_(email, `ご予約をキャンセルしました（${d.date} ${d.time}）`, [
+  mailCustomer_(email, `ご予約をキャンセルしました（${date} ${time}）`, [
     `${name} 様`,
     '',
     '下記のご予約をキャンセルいたしました。',
     '',
     `ご予約番号：${d.code}`,
-    `ご来店日時：${d.date} ${d.time}〜`,
+    `ご来店日時：${date} ${time}〜`,
     '',
     'またのご利用をお待ちしております。',
     `ご予約はこちら： ${SITE_URL}`,
@@ -844,16 +862,16 @@ function doCancel_(sheet, d) {
 
   notifyLine_([
     '【キャンセル】',
-    `${d.date} ${d.time}〜`,
+    `${date} ${time}〜`,
     `${name} 様`,
     '枠が空きました。'
   ].join('\n'));
 
   notify_(
-    `【キャンセル】${d.date} ${d.time} ${name}様`,
+    `【キャンセル】${date} ${time} ${name}様`,
     [
       `予約番号：${d.code}`,
-      `来店日時：${d.date} ${d.time}〜`,
+      `来店日時：${date} ${time}〜`,
       `お名前　：${name} 様`,
       '',
       'キャンセルにより枠が空きました。'
