@@ -149,12 +149,18 @@ table { border-collapse: collapse; width: 100%; }
 .ph-photo {
   position: absolute; inset: 0; z-index: 2;
   width: 100%; height: 100%; object-fit: cover;
+  /* 読み込めたものだけ見せる（common.js が is-ready を付ける）。
+     display:none にすると遅延読み込みが永久に始まらないため、透明にして隠す。 */
+  opacity: 0;
 }
-/* ロゴ画像と文字ロゴの切り替え（画像が読めなければ文字ロゴに戻る） */
+.ph-photo.is-ready { opacity: 1; }
+/* ロゴ画像と文字ロゴの切り替え。
+   既定は文字ロゴ。画像が読めたときだけ is-image が付いて入れ替わる。 */
 .brand-lockup { display: block; min-width: 0; }
-.brand-lockup .wordmark { display: none; }
-.brand-lockup.is-fallback .brand-logo { display: none; }
-.brand-lockup.is-fallback .wordmark { display: block; }
+.brand-lockup .brand-logo { display: none; }
+.brand-lockup .wordmark { display: block; }
+.brand-lockup.is-image .brand-logo { display: block; }
+.brand-lockup.is-image .wordmark { display: none; }
 
 /* ============================================================
    ヘッダー
@@ -353,7 +359,13 @@ table { border-collapse: collapse; width: 100%; }
   width: 68px; height: 68px; object-fit: cover;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2);
 }
-/* 読み込めなかった画像は消し、写真なしの見た目に戻す（wireImageFallbacks が外す） */
+/* 写真は読み込めたときだけ出す。
+   置いていないパスを先に書いてあるため、既定では隠しておく。
+   こちらは列の幅ごと消したいので display:none。
+   そのぶん遅延読み込みが効かなくなるので、この2つは loading="lazy" を付けない。 */
+.menu-row-photo, .coupon-photo { display: none; }
+.menu-row.has-photo .menu-row-photo,
+.coupon.has-photo .coupon-photo { display: block; }
 .coupon.has-photo { grid-template-columns: 96px minmax(0, 1fr) auto; }
 .coupon-photo {
   width: 96px; height: 96px; object-fit: cover; align-self: start;

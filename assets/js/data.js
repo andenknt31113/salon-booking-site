@@ -20,6 +20,10 @@ const SALON = {
   logo: 'assets/logo.png',
   logoHeight: 38,        // ヘッダーでの表示高さ(px)
 
+  /* トップの一番上に大きく出る写真。
+     このパスに置くだけで出ます（無いあいだはストライプの意匠のまま）。 */
+  heroImage: 'assets/hero.jpg',
+
   name: 'ZER01',
   mark: '01',
   nameSub: 'barber/lounge',
@@ -92,15 +96,21 @@ const SALON = {
    */
   reservationEndpoint: '',
 
-  /* ---------- クーポン ----------
+  /* ---------- おすすめメニュー ----------
+     メニューページの一番上に大きく並ぶ、カット＋カラーなどの組み合わせ。
      価格・名称はホットペッパービューティー掲載どおり。
-     minutes（所要時間）は掲載がないため目安です。★要確認 */
+     割引ではないので「クーポン」ではなく「おすすめメニュー」として出しています。
+     listPrice を入れた場合だけ、その金額に取り消し線が付きます。
+     minutes（所要時間）は掲載がないため目安です。★要確認
+     ※ 中の変数名は coupons のままです（予約の下書きや共有リンクが
+        cp01 などのIDを持っているため、名前だけの変更で壊さないようにしています）。 */
   coupons: [
     {
       id: 'cp01', badge: '全員', tags: ['カット'],
       title: '【清潔感と品が続く】men\'s骨格補正カット＋眉カット',
       detail: '骨格・髪質・雰囲気を見極めた大人メンズカジュアル。眉カットまで整えます。',
       price: 6900, listPrice: null, minutes: 70,
+      image: 'assets/cp01.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -108,6 +118,7 @@ const SALON = {
       title: '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース',
       detail: 'カットに加え、トリートメントとヘッドスパまで。身だしなみをトータルで整えます。',
       price: 10000, listPrice: null, minutes: 110,
+      image: 'assets/cp02.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -115,6 +126,7 @@ const SALON = {
       title: '【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ men\'s',
       detail: '白髪を隠すのではなく活かす白髪ぼかし。伸びても境目が出にくく、自然で品のある仕上がりに。',
       price: 19800, listPrice: null, minutes: 150,
+      image: 'assets/cp03.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -122,6 +134,7 @@ const SALON = {
       title: '【地毛より綺麗】自然に柔らかく仕上げるメンズ縮毛矯正',
       detail: 'クセや広がりを抑えつつ、不自然にならない自然な質感に。動きと清潔感を残したナチュラルストレート。',
       price: 22000, listPrice: null, minutes: 180,
+      image: 'assets/cp04.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -129,6 +142,7 @@ const SALON = {
       title: '【毎朝のセット1分】品よく決まるお悩み解決メンズパーマ',
       detail: '直毛や動きが出にくい髪も、扱いやすく自然なメンズパーマに。セットが簡単になります。',
       price: 14500, listPrice: null, minutes: 120,
+      image: 'assets/cp05.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -136,6 +150,7 @@ const SALON = {
       title: '【彩で見せるワンランク上のお洒落を】カット＋カラー',
       detail: '髪の状態と仕上がりに合わせて薬剤を選び、品のある色味に仕上げます。',
       price: 14500, listPrice: null, minutes: 120,
+      image: 'assets/cp06.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -144,6 +159,7 @@ const SALON = {
       detail: '前髪や襟足など気になる部分のクセを抑えるベーシックストレート、'
         + 'または毛流れを作るアイロンパーマ。どちらかをお選びいただけます。',
       price: 19800, listPrice: null, minutes: 150,
+      image: 'assets/cp07.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -152,6 +168,7 @@ const SALON = {
       detail: 'ハイライト・インナーカラー・ブリーチオンカラーなど。'
         + '価格はデザインと髪の状態により変わるため、カウンセリングでお見積りいたします。',
       price: 0, listPrice: null, minutes: 180,
+      image: 'assets/cp08.jpg',
       terms: '価格はデザインにより変動します。カウンセリングでお見積りいたします。'
     },
     {
@@ -159,6 +176,7 @@ const SALON = {
       title: 'ダメージケアトリートメント',
       detail: 'カラーやパーマで傷んだ髪の内部を補修し、手ざわりと収まりを整えます。',
       price: 3300, listPrice: null, minutes: 40,
+      image: 'assets/cp09.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -167,6 +185,7 @@ const SALON = {
       detail: '広がるサイドを抑えるダウンパーマ、'
         + 'ぺたんとしがちなトップを立ち上げるアップパーマ。お悩みに合わせてお選びください。',
       price: 11000, listPrice: null, minutes: 90,
+      image: 'assets/cp10.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -175,6 +194,7 @@ const SALON = {
       detail: 'どのメニューが合うか分からない方へ。髪の状態とご希望をうかがい、'
         + '当日その場でメニューと料金をご提案します。',
       price: 0, listPrice: null, minutes: 30,
+      image: 'assets/cp11.jpg',
       terms: '施術内容が決まった時点で料金をご案内し、ご了承のうえで進めます。'
     },
     {
@@ -182,6 +202,7 @@ const SALON = {
       title: '眉毛WAX ＆ 眉毛パーマ',
       detail: 'WAXで不要な毛を取り、眉毛パーマで毛流れを整えます。顔まわりの印象が大きく変わります。',
       price: 6600, listPrice: null, minutes: 50,
+      image: 'assets/cp12.jpg',
       terms: '肌の状態によってはお受けできない場合があります。'
     },
     {
@@ -189,6 +210,7 @@ const SALON = {
       title: '髪質改善トリートメント',
       detail: '広がり・うねり・パサつきを抑え、扱いやすい髪に。継続すると質感が安定します。',
       price: 7000, listPrice: null, minutes: 60,
+      image: 'assets/cp13.jpg',
       terms: '髪の長さ・毛量により追加料金をいただく場合があります。'
     },
     {
@@ -196,11 +218,12 @@ const SALON = {
       title: 'ヘアセット',
       detail: '結婚式・撮影・イベントなど、大切な日のスタイリング。',
       price: 4000, listPrice: null, minutes: 40,
+      image: 'assets/cp14.jpg',
       terms: 'シャンプーは含まれません。'
     }
   ],
 
-  /* ---------- 通常メニュー ----------
+  /* ---------- 単品メニュー ----------
      名称・価格はホットペッパービューティー掲載どおり。
      priceFrom: true は掲載が「¥4,000〜」の形式のもの。
      minutes（所要時間）は掲載がないため目安です。★要確認 */
@@ -210,43 +233,43 @@ const SALON = {
       name: 'カット',
       items: [
         { id: 'm-cut1', name: 'メンテナンスカット', price: 4000, priceFrom: true, minutes: 40,
-          note: 'ツーブロック・刈り上げ・フェードのメンテナンス' },
+          note: 'ツーブロック・刈り上げ・フェードのメンテナンス', image: 'assets/m-cut1.jpg' },
         { id: 'm-cut2', name: 'カットコース', price: 7000, minutes: 70,
-          note: 'シャンプー・ブロー込みのカット' },
+          note: 'シャンプー・ブロー込みのカット', image: 'assets/m-cut2.jpg' },
         { id: 'm-cut3', name: 'ラグジュアリーカットコース', price: 10000, minutes: 110,
-          note: 'カット＋トリートメント＋ヘッドスパ' },
+          note: 'カット＋トリートメント＋ヘッドスパ', image: 'assets/m-cut3.jpg' },
         { id: 'm-cut4', name: '刈り上げ＋フェードメンテナンス', price: 4000, priceFrom: true, minutes: 40,
-          note: 'サイド・バックのみのお直し' }
+          note: 'サイド・バックのみのお直し', image: 'assets/m-cut4.jpg' }
       ]
     },
     {
       id: 'color',
       name: 'カラー',
       items: [
-        { id: 'm-col1', name: 'カット＋カラー', price: 14900, priceFrom: true, minutes: 120, note: '' },
+        { id: 'm-col1', name: 'カット＋カラー', price: 14900, priceFrom: true, minutes: 120, note: '', image: 'assets/m-col1.jpg' },
         { id: 'm-col2', name: '追加カラー', price: 7700, minutes: 60,
-          note: '他メニューと合わせてお受けするカラー' }
+          note: '他メニューと合わせてお受けするカラー', image: 'assets/m-col2.jpg' }
       ]
     },
     {
       id: 'perm',
       name: 'パーマ',
       items: [
-        { id: 'm-per1', name: 'カットコース＋パーマ', price: 14900, minutes: 130, note: '' }
+        { id: 'm-per1', name: 'カットコース＋パーマ', price: 14900, minutes: 130, note: '', image: 'assets/m-per1.jpg' }
       ]
     },
     {
       id: 'straight',
       name: '縮毛矯正',
       items: [
-        { id: 'm-str1', name: 'カット＋縮毛矯正', price: 19800, priceFrom: true, minutes: 180, note: '' }
+        { id: 'm-str1', name: 'カット＋縮毛矯正', price: 19800, priceFrom: true, minutes: 180, note: '', image: 'assets/m-str1.jpg' }
       ]
     },
     {
       id: 'treatment',
       name: 'トリートメント',
       items: [
-        { id: 'm-tre1', name: '髪質改善トリートメント', price: 7000, priceFrom: true, minutes: 60, note: '' }
+        { id: 'm-tre1', name: '髪質改善トリートメント', price: 7000, priceFrom: true, minutes: 60, note: '', image: 'assets/m-tre1.jpg' }
       ]
     }
   ],
@@ -276,12 +299,17 @@ const SALON = {
   ],
 
   /* ---------- スタイル ----------
-     image に写真のパスを入れると、その写真が表示されます。
-     例：{ ..., image: 'assets/style01.jpg' } */
+     image のパスにファイルを置くだけで写真が出ます。
+     ファイルが無いあいだはストライプの意匠が出るので、
+     置いた順に写真へ変わっていきます。
+     （詳しくは 画像の入れ方.md） */
   styles: [
-    { id: 'sy01', title: '白髪ぼかし・ホワイトメッシュ・ハイライトデザイン', length: 'カラー', staffId: 'st01', tags: ['白髪ぼかし', 'ホワイトメッシュ'], image: '', hue: 45 },
-    { id: 'sy02', title: 'スパイキーショート', length: 'ショート', staffId: 'st01', tags: ['ショート', 'フェード'], image: '', hue: 30 },
-    { id: 'sy03', title: 'シャドウパーマ・メンズパーマ・マッシュ', length: 'パーマ', staffId: 'st01', tags: ['パーマ', 'マッシュ'], image: '', hue: 205 }
+    { id: 'sy01', title: '白髪ぼかし・ホワイトメッシュ・ハイライトデザイン', length: 'カラー', staffId: 'st01', tags: ['白髪ぼかし', 'ホワイトメッシュ'], image: 'assets/style1.jpg', hue: 45 },
+    { id: 'sy02', title: 'スパイキーショート', length: 'ショート', staffId: 'st01', tags: ['ショート', 'フェード'], image: 'assets/style2.jpg', hue: 30 },
+    { id: 'sy03', title: 'シャドウパーマ・メンズパーマ・マッシュ', length: 'パーマ', staffId: 'st01', tags: ['パーマ', 'マッシュ'], image: 'assets/style3.jpg', hue: 205 },
+    { id: 'sy04', title: 'フェード・刈り上げ', length: 'フェード', staffId: 'st01', tags: ['フェード', '刈り上げ'], image: 'assets/style4.jpg', hue: 18 },
+    { id: 'sy05', title: 'メンズ縮毛矯正', length: '縮毛矯正', staffId: 'st01', tags: ['縮毛矯正', 'ナチュラル'], image: 'assets/style5.jpg', hue: 150 },
+    { id: 'sy06', title: '店内', length: '店内', staffId: null, tags: ['半個室', 'ドリンクサービス'], image: 'assets/style6.jpg', hue: 38 }
   ],
 
   /* ---------- 口コミ ----------

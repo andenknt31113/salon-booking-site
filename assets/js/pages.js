@@ -39,8 +39,8 @@ function couponCard(c) {
   const off = c.listPrice && c.listPrice > c.price
     ? `<div class="price-list">通常 ${yen(c.listPrice)}</div>` : '';
   return `
-    <article class="coupon${c.image ? ' has-photo' : ''}">
-      ${c.image ? `<img class="coupon-photo ph-photo-opt" src="${esc(c.image)}" alt="" loading="lazy" />` : ''}
+    <article class="coupon">
+      ${c.image ? `<img class="coupon-photo ph-photo-opt" src="${esc(c.image)}" alt="" />` : ''}
       <div>
         <span class="coupon-badge${badgeClass}">${esc(c.badge)}</span>
         <h3>${esc(c.title)}</h3>
@@ -53,7 +53,7 @@ function couponCard(c) {
           <div class="price-now">${priceLabel(c)}</div>
           <div class="price-min">所要 約${formatDuration(c.minutes)}</div>
         </div>
-        <a class="btn btn-primary btn-sm" href="reserve.html?menu=${encodeURIComponent(c.id)}">このクーポンで予約</a>
+        <a class="btn btn-primary btn-sm" href="reserve.html?menu=${encodeURIComponent(c.id)}">このメニューで予約</a>
       </div>
     </article>`;
 }
@@ -113,8 +113,8 @@ function reviewCard(r) {
 
 function menuGroupHtml(cat) {
   const rows = cat.items.map(m => `
-    <div class="menu-row${m.image ? ' has-photo' : ''}">
-      ${m.image ? `<img class="menu-row-photo ph-photo-opt" src="${esc(m.image)}" alt="" loading="lazy" />` : ''}
+    <div class="menu-row">
+      ${m.image ? `<img class="menu-row-photo ph-photo-opt" src="${esc(m.image)}" alt="" />` : ''}
       <div>
         <p class="menu-row-name">${esc(m.name)}</p>
         ${m.note ? `<p class="menu-row-note">${esc(m.note)}</p>` : ''}

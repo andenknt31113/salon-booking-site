@@ -19,7 +19,7 @@
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>管理ページ</span>
         </nav>
         <h1>管理ページ</h1>
-        <p>メニュー・クーポン・休業日・店舗情報を、この画面から変更できます。</p>
+        <p>メニュー・写真・休業日・店舗情報を、この画面から変更できます。</p>
       </div>
     </div>
 
@@ -56,8 +56,8 @@
         <div class="tabs" id="admin-tabs">
           <button class="tab" type="button" data-pane="reserve" aria-selected="true">予約一覧</button>
           <button class="tab" type="button" data-pane="closed" aria-selected="false">休業日</button>
-          <button class="tab" type="button" data-pane="menus" aria-selected="false">メニュー</button>
-          <button class="tab" type="button" data-pane="coupons" aria-selected="false">クーポン</button>
+          <button class="tab" type="button" data-pane="menus" aria-selected="false">単品メニュー</button>
+          <button class="tab" type="button" data-pane="coupons" aria-selected="false">おすすめメニュー</button>
           <button class="tab" type="button" data-pane="styles" aria-selected="false">写真</button>
           <button class="tab" type="button" data-pane="settings" aria-selected="false">店舗情報</button>
           <button class="btn btn-ghost btn-sm" type="button" id="forget-device"
@@ -100,14 +100,14 @@
           <button class="btn btn-primary btn-block" type="button" data-save="menus">メニューを保存</button>
         </div>
 
-        <!-- クーポン -->
+        <!-- おすすめメニュー -->
         <div class="admin-pane" data-pane="coupons" hidden>
           <p class="note" style="margin:0 0 16px;">
-            通常価格を入れると、その金額に取り消し線が付きます。空欄なら表示されません。
+            一番上に大きく並ぶメニューです。通常価格を入れた場合だけ、その金額に取り消し線が付きます。
           </p>
           <div id="coupon-rows"></div>
-          <button class="btn btn-ghost btn-sm" type="button" data-add="coupons">＋ クーポンを追加</button>
-          <button class="btn btn-primary btn-block" type="button" data-save="coupons">クーポンを保存</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-add="coupons">＋ おすすめメニューを追加</button>
+          <button class="btn btn-primary btn-block" type="button" data-save="coupons">おすすめメニューを保存</button>
         </div>
 
         <!-- 写真（ヘアカタログ・店内） -->

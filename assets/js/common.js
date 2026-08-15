@@ -345,8 +345,8 @@ const Remote = {
 };
 
 /* ============================================================
- *  メニュー・クーポンの取り込み
- *  スプレッドシートの「メニュー」「クーポン」シートに行があれば、
+ *  メニューの取り込み
+ *  スプレッドシートの「メニュー」「おすすめメニュー」シートに行があれば、
  *  そちらを優先して使います。無ければ data.js の内容のまま動きます。
  * ============================================================ */
 const Catalog = {
@@ -462,7 +462,7 @@ const NAV_ITEMS = [
   { href: 'index.html', label: 'サロンTOP' },
   { href: 'gallery.html', label: 'スタイル' },
   { href: 'staff.html', label: 'スタッフ' },
-  { href: 'menu.html', label: 'クーポン・メニュー' },
+  { href: 'menu.html', label: 'メニュー' },
   { href: 'reviews.html', label: '口コミ' },
   { href: 'reserve.html', label: '空席・予約' },
   { href: 'mypage.html', label: '予約確認' }
@@ -505,27 +505,45 @@ function brandLockup(opt = {}) {
 
 /** 画像が読み込めなかったときの取り扱いをまとめて設定する */
 function wireImageFallbacks(root = document) {
-  // ロゴ：読めなければ文字ロゴに戻す
+  /* ロゴ：文字ロゴを既定にして、画像が読めたときだけ差し替える。
+     「まず画像を出して、失敗したら文字に戻す」向きだと、
+     読み込みに失敗するまでのあいだ壊れた画像アイコンと alt 文字が出てしまう。 */
   $$('.brand-lockup img', root).forEach(img => {
-    const fallback = () => img.closest('.brand-lockup').classList.add('is-fallback');
-    img.addEventListener('error', fallback, { once: true });
-    if (img.complete && img.naturalWidth === 0) fallback();
-  });
-  // 写真：読めなければ取り除き、下のストライプの意匠を見せる
-  $$('.ph-photo', root).forEach(img => {
+    const useImage = () => img.closest('.brand-lockup')?.classList.add('is-image');
     const drop = () => img.remove();
+    if (img.complete) {
+      img.naturalWidth > 0 ? useImage() : drop();
+      return;
+    }
+    img.addEventListener('load', useImage, { once: true });
     img.addEventListener('error', drop, { once: true });
-    if (img.complete && img.naturalWidth === 0) drop();
   });
-  // メニュー・クーポンの写真は任意。読めなければ写真なしの並びに戻す
-  $$('.ph-photo-opt', root).forEach(img => {
-    const drop = () => {
-      const box = img.parentElement;
-      img.remove();
-      if (box) box.classList.remove('has-photo');
-    };
+  /* 写真：読めたときだけ見せる。
+     ロゴと同じ理由で「まず出して失敗したら消す」向きにはしない。
+     読み込みに失敗するまでのあいだ、壊れた画像が意匠の上に重なってしまう。 */
+  $$('.ph-photo', root).forEach(img => {
+    const show = () => img.classList.add('is-ready');
+    const drop = () => img.remove();
+    if (img.complete) {
+      img.naturalWidth > 0 ? show() : drop();
+      return;
+    }
+    img.addEventListener('load', show, { once: true });
     img.addEventListener('error', drop, { once: true });
-    if (img.complete && img.naturalWidth === 0) drop();
+  });
+  /* メニューの写真は任意。
+     置いてあるとは限らないパスを先に書いてあるので、
+     「読めたら写真の場所を空ける」向きにする。
+     先に場所を空けてから消すと、読み込みのたびに列がガタつく。 */
+  $$('.ph-photo-opt', root).forEach(img => {
+    const show = () => img.parentElement?.classList.add('has-photo');
+    const drop = () => img.remove();
+    if (img.complete) {
+      img.naturalWidth > 0 ? show() : drop();
+      return;
+    }
+    img.addEventListener('load', show, { once: true });
+    img.addEventListener('error', drop, { once: true });
   });
 }
 
@@ -590,7 +608,7 @@ function renderFooter() {
               <li><a href="index.html">サロンTOP</a></li>
               <li><a href="gallery.html">ヘアスタイル</a></li>
               <li><a href="staff.html">スタッフ一覧</a></li>
-              <li><a href="menu.html">クーポン・メニュー</a></li>
+              <li><a href="menu.html">メニュー</a></li>
               <li><a href="reviews.html">口コミ</a></li>
             </ul>
           </div>
