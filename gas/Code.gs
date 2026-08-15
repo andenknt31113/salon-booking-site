@@ -13,9 +13,9 @@
    ============================================================ */
 const SHEET_NAME    = '予約一覧';                // 台帳にするシート名
 const NOTIFY_EMAIL  = 'salon@example.com';       // 店舗の通知先メール（空にすると通知しません）
-const SALON_NAME    = 'ZER01 barber/lounge';     // メール件名の先頭に入ります
-const SALON_TEL     = '0297-00-0000';            // ★要確認
-const SALON_ADDRESS = '茨城県龍ケ崎市 MEGAドン・キホーテ龍ケ崎店 2F'; // ★要確認
+const SALON_NAME    = 'ZER01 barber & lounge';   // メール件名の先頭に入ります
+const SALON_TEL     = '';                        // ★要確認（未確認のうちは空のまま）
+const SALON_ADDRESS = '茨城県龍ケ崎市白羽1丁目';  // ★要確認（番地）
 const SITE_URL      = 'https://andenknt31113.github.io/salon-booking-site/';
 
 /* お客様へ予約確認メールを送るか（false にすると店舗への通知のみ） */
@@ -122,9 +122,9 @@ function doReserve_(sheet, d) {
     '前日18時を過ぎてからのご変更・キャンセルは、お手数ですがお電話ください。',
     '',
     `${SALON_NAME}`,
-    `TEL ${SALON_TEL}`,
+    SALON_TEL ? `TEL ${SALON_TEL}` : '',
     SALON_ADDRESS
-  ].join('\n'));
+  ].filter(Boolean).join('\n'));
 
   return { ok: true, code: d.code };
 }
@@ -195,8 +195,8 @@ function doCancel_(sheet, d) {
     `ご予約はこちら： ${SITE_URL}`,
     '',
     `${SALON_NAME}`,
-    `TEL ${SALON_TEL}`
-  ].join('\n'));
+    SALON_TEL ? `TEL ${SALON_TEL}` : ''
+  ].filter(Boolean).join('\n'));
 
   notify_(
     `【キャンセル】${d.date} ${d.time} ${d.name}様`,
@@ -311,9 +311,9 @@ function sendReminders() {
       'ご都合が変わられた場合は、お手数ですがお電話ください。',
       '',
       `${SALON_NAME}`,
-      `TEL ${SALON_TEL}`,
+      SALON_TEL ? `TEL ${SALON_TEL}` : '',
       SALON_ADDRESS
-    ].join('\n'));
+    ].filter(Boolean).join('\n'));
     sent++;
   });
 

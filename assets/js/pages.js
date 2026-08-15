@@ -128,7 +128,10 @@ function renderSalonInfo(host) {
     ['支払方法', SALON.payment],
     ['駐車場', SALON.parking]
   ];
-  host.innerHTML = rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
+  // 未確認で空にしてある項目は、行ごと出さない
+  host.innerHTML = rows
+    .filter(([, v]) => v)
+    .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
 }
 
 /* ---------- ページごとの初期化 ---------- */

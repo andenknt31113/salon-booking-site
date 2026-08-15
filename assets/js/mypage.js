@@ -74,8 +74,13 @@ function render() {
 
 document.addEventListener('DOMContentLoaded', () => {
   const tel = $('#tel-link');
-  tel.textContent = SALON.tel;
-  tel.href = 'tel:' + SALON.tel.replace(/-/g, '');
+  if (SALON.tel) {
+    tel.textContent = SALON.tel;
+    tel.href = 'tel:' + SALON.tel.replace(/-/g, '');
+  } else {
+    // 電話番号が未設定のあいだはリンクにしない
+    tel.replaceWith(document.createTextNode('店舗'));
+  }
 
   render();
 

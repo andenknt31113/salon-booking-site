@@ -401,10 +401,11 @@ function renderHeader() {
           </span>
         </a>
         <div class="header-actions">
+          ${SALON.tel ? `
           <a class="header-tel" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">
             <span>TEL / 受付 ${esc(SALON.business.openTime)}-${esc(SALON.business.closeTime)}</span>
             <strong>${esc(SALON.tel)}</strong>
-          </a>
+          </a>` : ''}
           <a class="btn btn-primary btn-sm" href="reserve.html">ネット予約</a>
         </div>
       </div>
@@ -423,10 +424,10 @@ function renderFooter() {
       <div class="container">
         <div class="footer-grid">
           <div>
-            <p class="footer-brand-name">${esc(SALON.name)} ${esc(SALON.branch)}</p>
+            <p class="footer-brand-name">${esc(SALON.name)} ${esc(SALON.nameSub || SALON.branch)}</p>
             <p>${esc(SALON.address)}</p>
             <p>${esc(SALON.access)}</p>
-            <p style="margin-top:10px;">TEL ${esc(SALON.tel)}</p>
+            ${SALON.tel ? `<p style="margin-top:10px;">TEL ${esc(SALON.tel)}</p>` : ''}
             <p>営業時間 ${esc(SALON.business.openTime)}〜${esc(SALON.business.closeTime)}（最終受付 ${esc(SALON.business.lastOrder)}）</p>
             <p>定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・') || 'なし'}</p>
           </div>
@@ -454,7 +455,7 @@ function renderFooter() {
       </div>
     </footer>
     <div class="sp-cta">
-      <a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>
+      ${SALON.tel ? `<a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>` : ''}
       <a class="btn btn-primary" href="reserve.html">24時間ネット予約</a>
     </div>`;
 }
