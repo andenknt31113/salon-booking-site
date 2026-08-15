@@ -7,7 +7,16 @@
 
 https://andenknt31113.github.io/salon-booking-site/
 
-`main` ブランチに push すると GitHub Actions が自動でデプロイします。
+### 初回だけ必要な設定
+
+GitHub Pages の有効化は、リポジトリ所有者が画面から1回だけ行う必要があります
+（外部ツールからは権限の都合で有効化できません）。
+
+1. リポジトリの **Settings** → 左メニューの **Pages** を開く
+2. **Source** を `Deploy from a branch` にする
+3. Branch を **`main`** / **`/(root)`** にして **Save**
+
+1分ほどで上記URLが開くようになります。以降は `main` に push するだけで自動的に反映されます。
 
 ## ファイル
 
@@ -16,7 +25,6 @@ https://andenknt31113.github.io/salon-booking-site/
 | `index.html` | ページ本体 |
 | `assets/style.css` | 見た目（スマホ基準） |
 | `assets/app.js` | **サロン設定 ＋ 予約の処理** |
-| `.github/workflows/pages.yml` | GitHub Pages への自動デプロイ |
 
 ## 中身
 
