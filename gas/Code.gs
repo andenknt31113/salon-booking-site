@@ -18,6 +18,7 @@
 const SHEET_NAME    = '予約一覧';
 const MENU_SHEET    = 'メニュー';
 const COUPON_SHEET  = 'クーポン';
+const CLOSED_SHEET  = '休業日';
 
 const NOTIFY_EMAIL  = 'salon@example.com';       // 店舗の通知先メール（空にすると通知しません）
 const SALON_NAME    = 'ZER01 barber/lounge';
@@ -271,8 +272,20 @@ function doMenu_() {
   return {
     ok: true,
     categories: readMenuSheet_(ss),
-    coupons: readCouponSheet_(ss)
+    coupons: readCouponSheet_(ss),
+    closedDates: readClosedSheet_(ss)
   };
+}
+
+/* 「休業日」シートに書いた日付を、予約できない日としてサイトに渡します。
+   出張や臨時休業はここに1行足すだけで塞げます。 */
+function readClosedSheet_(ss) {
+  const sheet = ss.getSheetByName(CLOSED_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues()
+    .map(r => normalizeDate_(r[0]))
+    .filter(Boolean);
 }
 
 function readMenuSheet_(ss) {
@@ -552,6 +565,16 @@ function setupMenuSheets() {
     menu.appendRow(['カット', 'メンズカット', 4000, 50, 'カット価格はこちらから', '○']);
     menu.setColumnWidth(2, 260);
     menu.setColumnWidth(5, 260);
+  }
+
+  const closed = ss.getSheetByName(CLOSED_SHEET) || ss.insertSheet(CLOSED_SHEET);
+  if (closed.getLastRow() === 0) {
+    closed.appendRow(['休業日', 'メモ']);
+    closed.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#f3efea');
+    closed.setFrozenRows(1);
+    closed.setColumnWidth(1, 130);
+    closed.setColumnWidth(2, 260);
+    closed.getRange('A2').setNote('日付を入れるとその日は予約できなくなります（例 2026-09-15）');
   }
 
   const coupon = ss.getSheetByName(COUPON_SHEET) || ss.insertSheet(COUPON_SHEET);

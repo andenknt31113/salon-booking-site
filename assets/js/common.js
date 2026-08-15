@@ -375,6 +375,11 @@ const Catalog = {
         SALON.coupons = data.coupons;
         this.source = 'sheet';
       }
+      // 休業日はシートを正とする（空なら休みなし、という指定も尊重する）
+      if (Array.isArray(data.closedDates)) {
+        SALON.business.closedDates = data.closedDates;
+        Availability._blocks.clear();
+      }
     } catch (e) {
       console.warn('メニューを取得できませんでした。掲載中の内容で表示します。', e);
     }
