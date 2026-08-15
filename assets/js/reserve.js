@@ -35,6 +35,17 @@ function clearDraft() {
   try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* noop */ }
 }
 
+/* メニューをスプレッドシート管理に切り替えると、data.js 由来のID（cp01 など）と
+   シート由来のID（sc0 など）が変わります。下書きに残った古いIDを掃除しないと、
+   「選択済みに見えるのに合計が0円」という状態になるため取り除きます。 */
+function dropUnknownSelections() {
+  if (state.couponId && !SALON.coupons.some(c => c.id === state.couponId)) {
+    state.couponId = null;
+  }
+  const known = new Set(allMenuItems().map(m => m.id));
+  state.menuIds = state.menuIds.filter(id => known.has(id));
+}
+
 /* ---------- 集計 ---------- */
 function selectedMenus() {
   const list = [];
@@ -489,8 +500,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   await Catalog.load();
 
   loadDraft();
+  dropUnknownSelections();
   applyQueryParams();
   if (state.step === 6) state.step = 1;
+  if (!hasMenu()) state.step = 1;   // 選択が消えた場合は最初から
 
   // スタイリストが1名なら、その人を初めから選んでおく
   if (SALON.staff.length === 1 && !state.staffChosen) {
