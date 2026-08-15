@@ -44,7 +44,7 @@ function bookingCard(r) {
       <p class="booking-when">${formatDateJa(r.date)} ${esc(r.time)}〜${esc(r.endTime || '')}</p>
       <p class="booking-detail">ご担当：${esc(r.staffName)}${r.nominationFee > 0 ? `（指名料 ${yen(r.nominationFee)}）` : ''}</p>
       <p class="booking-detail">メニュー：${r.menus.map(m => esc(m.name)).join(' ／ ')}</p>
-      <p class="booking-detail">合計：<strong>${yen(r.totalPrice)}</strong>（税込・約${formatDuration(r.totalMinutes)}）</p>
+      <p class="booking-detail">合計：<strong>${r.totalLabel || yen(r.totalPrice)}</strong>（${r.totalPrice ? '税込・' : ''}約${formatDuration(r.totalMinutes)}）</p>
       ${r.customer.request ? `<p class="booking-detail">ご要望：${esc(r.customer.request)}</p>` : ''}
       <div style="margin-top:14px;">${cancelBtn}</div>
     </article>`;
@@ -102,7 +102,7 @@ function renderLookupResult(r) {
       <p class="booking-detail">${esc(r.name)} 様</p>
       <p class="booking-detail">メニュー：${esc(r.menuText)}</p>
       <p class="booking-detail">ご担当：${esc(r.staffName)}</p>
-      <p class="booking-detail">合計：<strong>${yen(r.totalPrice)}</strong>（税込・約${formatDuration(r.totalMinutes)}）</p>
+      <p class="booking-detail">合計：<strong>${r.totalLabel || yen(r.totalPrice)}</strong>（${r.totalPrice ? '税込・' : ''}約${formatDuration(r.totalMinutes)}）</p>
       ${canCancel
         ? `<div style="margin-top:14px;">
              <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>

@@ -51,11 +51,11 @@ function selectedMenus() {
   const list = [];
   if (state.couponId) {
     const c = SALON.coupons.find(x => x.id === state.couponId);
-    if (c) list.push({ id: c.id, name: c.title, price: c.price, minutes: c.minutes, isCoupon: true });
+    if (c) list.push({ id: c.id, name: c.title, price: c.price, priceFrom: !!c.priceFrom, minutes: c.minutes, isCoupon: true });
   }
   state.menuIds.forEach(id => {
     const m = allMenuItems().find(x => x.id === id);
-    if (m) list.push({ id: m.id, name: m.name, price: m.price, minutes: m.minutes, isCoupon: false });
+    if (m) list.push({ id: m.id, name: m.name, price: m.price, priceFrom: !!m.priceFrom, minutes: m.minutes, isCoupon: false });
   });
   return list;
 }
@@ -73,6 +73,25 @@ function hasMenu() {
   return selectedMenus().length > 0;
 }
 
+/* 1件ぶんの金額表示。
+   price が 0 のものは金額が決まっていないので「お見積り」と出す。
+   priceFrom が true のものは掲載どおり「〜」を付ける。 */
+function priceText(m) {
+  return m.price ? yen(m.price) + (m.priceFrom ? '〜' : '') : 'お見積り';
+}
+
+/* 合計の表示。
+   すべて金額未定なら金額を出さず「お見積り」。
+   金額未定や「〜」が混ざっていれば、分かっている分に「〜」を付けて出す。 */
+function totalText() {
+  const menus = selectedMenus();
+  const total = totalPrice();
+  if (!menus.length) return yen(0);
+  const unsure = menus.some(m => !m.price || m.priceFrom);
+  if (!total) return 'お見積り';
+  return yen(total) + (unsure ? '〜' : '');
+}
+
 /* ============================================================
  *  STEP1: メニュー選択
  * ============================================================ */
@@ -81,7 +100,7 @@ function renderCouponChoices() {
     <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}">
       <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
       <span class="selectable-sub">${esc(c.detail)}</span>
-      <span class="selectable-meta"><strong>${yen(c.price)}</strong> ／ 約${formatDuration(c.minutes)}</span>
+      <span class="selectable-meta"><strong>${priceText(c)}</strong> ／ 約${formatDuration(c.minutes)}</span>
     </button>`).join('');
 }
 
@@ -93,7 +112,7 @@ function renderMenuChoices(catId) {
       <button class="selectable ${state.menuIds.includes(m.id) ? 'is-selected' : ''}" type="button" data-menu="${esc(m.id)}">
         <span class="selectable-title">${esc(m.name)}</span>
         ${m.note ? `<span class="selectable-sub">${esc(m.note)}</span>` : ''}
-        <span class="selectable-meta"><strong>${yen(m.price)}</strong> ／ 約${formatDuration(m.minutes)}</span>
+        <span class="selectable-meta"><strong>${priceText(m)}</strong> ／ 約${formatDuration(m.minutes)}</span>
       </button>`).join('')}
   `).join('');
 }
@@ -332,8 +351,8 @@ function reservationSummaryRows() {
   return [
     ['ご来店日時', `${formatDateJa(state.date)} ${state.time} 〜 ${end}（約${formatDuration(totalMinutes())}）`],
     ['ご担当', staffLabel(state.staffId) + (fee > 0 ? `（指名料 ${yen(fee)}）` : '')],
-    ['メニュー', menus.map(m => `${m.name}（${yen(m.price)}）`).join('<br />')],
-    ['合計金額', `<strong style="font-size:17px;color:var(--accent);">${yen(totalPrice())}</strong>（税込）`],
+    ['メニュー', menus.map(m => `${m.name}（${priceText(m)}）`).join('<br />')],
+    ['合計金額', `<strong style="font-size:17px;color:var(--accent);">${totalText()}</strong>${totalPrice() ? '（税込）' : ''}`],
     ['お名前', `${esc(state.customer.name)}（${esc(state.customer.kana)}）様`],
     ['電話番号', esc(state.customer.tel)],
     ['メールアドレス', esc(state.customer.email)],
@@ -358,9 +377,12 @@ function buildReservation() {
     endTime: toHHMM(toMinutes(state.time) + totalMinutes()),
     staffId: state.staffId,
     staffName: staffLabel(state.staffId),
-    menus: menus.map(m => ({ id: m.id, name: m.name, price: m.price, minutes: m.minutes })),
+    menus: menus.map(m => ({ id: m.id, name: m.name, price: m.price, priceFrom: m.priceFrom, minutes: m.minutes })),
     nominationFee: nominationFee(),
     totalPrice: totalPrice(),
+    /* 「お見積り」「¥7,000〜」など、金額をそのまま出せない場合の表示文字列。
+       完了画面・予約確認ページで ¥0 と出てしまわないように持たせる。 */
+    totalLabel: totalText(),
     totalMinutes: totalMinutes(),
     customer: { ...state.customer }
   };
@@ -395,7 +417,7 @@ async function submitReservation() {
     ['ご来店日時', `${formatDateJa(reservation.date)} ${reservation.time}〜`],
     ['ご担当', reservation.staffName],
     ['メニュー', reservation.menus.map(m => esc(m.name)).join('<br />')],
-    ['合計金額', `${yen(reservation.totalPrice)}（税込）`]
+    ['合計金額', `${reservation.totalLabel || yen(reservation.totalPrice)}${reservation.totalPrice ? '（税込）' : ''}`]
   ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
 
   clearDraft();
@@ -415,7 +437,7 @@ function updateSummary() {
   const rows = [];
 
   rows.push(['メニュー', menus.length
-    ? menus.map(m => `${esc(m.name)}<br /><small style="color:var(--ink-3)">${yen(m.price)}／約${formatDuration(m.minutes)}</small>`).join('<br />')
+    ? menus.map(m => `${esc(m.name)}<br /><small style="color:var(--ink-3)">${priceText(m)}／約${formatDuration(m.minutes)}</small>`).join('<br />')
     : '<span style="color:var(--ink-3)">未選択</span>']);
 
   rows.push(['ご担当', state.staffChosen
@@ -428,10 +450,13 @@ function updateSummary() {
 
   $('#summary-body').innerHTML = rows
     .map(([k, v]) => `<div class="summary-row"><dt>${k}</dt><dd>${v}</dd></div>`).join('');
-  $('#summary-total').textContent = yen(totalPrice());
-  $('#summary-note').textContent = menus.length
-    ? '※髪の長さ・毛量により追加料金をいただく場合がございます。'
-    : '※メニューをお選びいただくと合計金額が表示されます。';
+  $('#summary-total').textContent = totalText();
+  const hasQuote = menus.some(m => !m.price);
+  $('#summary-note').textContent = !menus.length
+    ? '※メニューをお選びいただくと合計金額が表示されます。'
+    : hasQuote
+      ? '※価格はカウンセリングのうえでお見積りいたします。'
+      : '※髪の長さ・毛量により追加料金をいただく場合がございます。';
 }
 
 function renderStep() {
@@ -475,9 +500,11 @@ function goTo(step) {
   window.scrollTo({ top: $('#steps').offsetTop - 130, behavior: 'smooth' });
 }
 
-/* ---------- URLパラメータからの事前選択 ---------- */
-function applyQueryParams() {
-  const params = new URLSearchParams(location.search);
+/* ---------- URLパラメータからの事前選択 ----------
+   search を渡さなければ現在のURLから読む。
+   全画面を1ファイルにまとめたプレビュー版から明示的に渡せるようにしてある。 */
+function applyQueryParams(search) {
+  const params = new URLSearchParams(search || location.search);
   const menu = params.get('menu');
   const staff = params.get('staff');
 

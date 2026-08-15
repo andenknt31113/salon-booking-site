@@ -110,7 +110,7 @@ function renderStats() {
   $('#stats').innerHTML = [
     ['本日のご予約', `${live.filter(r => r.date === today).length}件`],
     ['今後7日間', `${inWeek.length}件`],
-    ['7日間の売上見込', yen(inWeek.reduce((s, r) => s + r.price, 0))],
+    ['7日間の売上見込', yen(inWeek.reduce((s, r) => s + (Number(r.price) || 0), 0))],
     ['キャンセル', `${(adminData.reservations || []).filter(r => r.status === 'キャンセル').length}件`]
   ].map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join('');
 }

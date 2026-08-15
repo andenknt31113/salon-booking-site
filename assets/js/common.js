@@ -386,6 +386,7 @@ const Catalog = {
         applySettings(data.settings);
         renderHeader();
         renderFooter();
+        wireImageFallbacks();
       }
     } catch (e) {
       console.warn('メニューを取得できませんでした。掲載中の内容で表示します。', e);
@@ -468,15 +469,38 @@ function wordmarkHtml() {
 
 function brandLockup(opt = {}) {
   const size = opt.size || 'sm';
-  if (SALON.logo) {
-    return `<img class="brand-logo" src="${esc(SALON.logo)}" alt="${esc(SALON.name)}"
-              style="height:${opt.height || SALON.logoHeight || 34}px" />`;
-  }
-  return `
+  const wordmark = `
     <span class="wordmark wordmark-${size}">
       <span class="wm-name">${wordmarkHtml()}</span>
       ${SALON.nameSub ? `<span class="wm-sub">${esc(SALON.nameSub)}</span>` : ''}
     </span>`;
+
+  if (!SALON.logo) return wordmark;
+
+  /* ロゴ画像と文字ロゴの両方を出しておき、画像が読めなければ文字ロゴに戻す。
+     こうしておくと、画像ファイルを置くだけで自動的に切り替わります。 */
+  return `
+    <span class="brand-lockup">
+      <img class="brand-logo" src="${esc(SALON.logo)}" alt="${esc(SALON.name)}"
+           style="height:${opt.height || SALON.logoHeight || 34}px" />
+      ${wordmark}
+    </span>`;
+}
+
+/** 画像が読み込めなかったときの取り扱いをまとめて設定する */
+function wireImageFallbacks(root = document) {
+  // ロゴ：読めなければ文字ロゴに戻す
+  $$('.brand-lockup img', root).forEach(img => {
+    const fallback = () => img.closest('.brand-lockup').classList.add('is-fallback');
+    img.addEventListener('error', fallback, { once: true });
+    if (img.complete && img.naturalWidth === 0) fallback();
+  });
+  // 写真：読めなければ取り除き、下のストライプの意匠を見せる
+  $$('.ph-photo', root).forEach(img => {
+    const drop = () => img.remove();
+    img.addEventListener('error', drop, { once: true });
+    if (img.complete && img.naturalWidth === 0) drop();
+  });
 }
 
 function renderHeader() {
@@ -622,6 +646,7 @@ function applyDocumentTitle() {
 document.addEventListener('DOMContentLoaded', () => {
   renderHeader();
   renderFooter();
+  wireImageFallbacks();
   applyDocumentTitle();
   injectStructuredData();
 });

@@ -15,10 +15,23 @@ function placeholder(hue, label, cls) {
     </div>`;
 }
 
+/* 写真は意匠の上に重ねる。ファイルが無ければ img が取り除かれ、
+   下のストライプがそのまま見えるので、置くだけで切り替わります。 */
 function photoOrPlaceholder(item, label, cls, alt) {
-  return item.image
-    ? `<div class="${cls}"><img src="${esc(item.image)}" alt="${esc(alt)}" loading="lazy" /></div>`
-    : placeholder(item.hue, label, cls);
+  return `
+    <div class="${cls} ph" style="--ph-hue:${item.hue};">
+      <span class="ph-stripes" aria-hidden="true"></span>
+      ${label ? `<span class="ph-label">${esc(label)}</span>` : ''}
+      ${item.image ? `<img class="ph-photo" src="${esc(item.image)}" alt="${esc(alt)}" loading="lazy" />` : ''}
+    </div>`;
+}
+
+/* 価格の表示。
+   0 は「デザインにより変動」「相談」の意味なので金額を出さない。
+   priceFrom が true のものは「〜」を付ける（掲載が ¥4,000〜 の形式）。 */
+function priceLabel(item) {
+  if (!item.price) return '<span class="price-quote">カウンセリングでお見積り</span>';
+  return `${yen(item.price)}${item.priceFrom ? '〜' : ''}<small>（税込）</small>`;
 }
 
 function couponCard(c) {
@@ -36,7 +49,7 @@ function couponCard(c) {
       <div class="coupon-price">
         <div>
           ${off}
-          <div class="price-now">${yen(c.price)}<small>（税込）</small></div>
+          <div class="price-now">${priceLabel(c)}</div>
           <div class="price-min">所要 約${formatDuration(c.minutes)}</div>
         </div>
         <a class="btn btn-primary btn-sm" href="reserve.html?menu=${encodeURIComponent(c.id)}">このクーポンで予約</a>
@@ -52,12 +65,11 @@ function staffCard(s) {
 
   return `
     <article class="staff-card${solo}">
-      ${s.image
-        ? `<div class="avatar"><img src="${esc(s.image)}" alt="${esc(s.name)}" loading="lazy" /></div>`
-        : `<div class="avatar ph" style="--ph-hue:${s.hue};">
-             <span class="ph-stripes" aria-hidden="true"></span>
-             <span class="avatar-initial">${esc(s.name.slice(0, 1))}</span>
-           </div>`}
+      <div class="avatar ph" style="--ph-hue:${s.hue};">
+        <span class="ph-stripes" aria-hidden="true"></span>
+        <span class="avatar-initial">${esc(s.name.slice(0, 1))}</span>
+        ${s.image ? `<img class="ph-photo" src="${esc(s.image)}" alt="${esc(s.name)}" loading="lazy" />` : ''}
+      </div>
       <div class="staff-body">
         <p class="staff-role">${esc(s.role)}</p>
         <h3 class="staff-name">${esc(s.name)}</h3>
@@ -106,7 +118,7 @@ function menuGroupHtml(cat) {
         ${m.note ? `<p class="menu-row-note">${esc(m.note)}</p>` : ''}
       </div>
       <div class="menu-row-meta">
-        <p class="menu-row-price">${yen(m.price)}</p>
+        <p class="menu-row-price">${m.price ? yen(m.price) + (m.priceFrom ? '〜' : '') : 'ご相談'}</p>
         <p class="menu-row-time">約${formatDuration(m.minutes)}</p>
       </div>
     </div>`).join('');
@@ -162,6 +174,7 @@ function renderSalonInfo(host) {
 
 /* ---------- ページごとの初期化 ---------- */
 function initHome() {
+  const _wire = () => wireImageFallbacks();
   // 評価は実際に集まってから出す（rating が null のあいだは表示しない）
   if (SALON.rating) {
     $('#hero-score').textContent = SALON.rating.toFixed(1);
@@ -190,6 +203,7 @@ function initHome() {
     : '<p class="empty-state">口コミはまだ届いていません。ご来店後のアンケートにご協力いただけると励みになります。</p>';
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
+  _wire();
 }
 
 function initMenuPage() {
@@ -218,6 +232,7 @@ function initMenuPage() {
 
 function initStaffPage() {
   $('#staff-list').innerHTML = SALON.staff.map(staffCard).join('');
+  wireImageFallbacks();
 }
 
 function initGalleryPage() {
@@ -231,6 +246,7 @@ function initGalleryPage() {
   const draw = len => {
     const list = len === 'すべて' ? SALON.styles : SALON.styles.filter(s => s.length === len);
     host.innerHTML = list.map(styleCard).join('');
+    wireImageFallbacks(host);
   };
   draw('すべて');
 
