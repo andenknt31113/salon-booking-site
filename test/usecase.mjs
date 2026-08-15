@@ -288,7 +288,10 @@ console.log('\n【UC10】期限を過ぎてからキャンセルしようとす�
 {
   const today = key(new Date());
   await post({
-    type: 'reserve', code: 'LM-UC910', date: today, time: '23:30', endTime: '23:59', totalMinutes: 20,
+    /* 当日の予約は、何時のものでも受付期限（前日18時）を過ぎています。
+       営業時間内の時刻で作ります。営業時間外だとそもそも受け付けられず、
+       確かめたいこと（期限切れの断り方）にたどり着けません。 */
+    type: 'reserve', code: 'LM-UC910', date: today, time: '21:00', endTime: '21:20', totalMinutes: 20,
     menus: [{ name: 'テスト' }], staffId: 'stUC10', staffName: 'MATTEO', nominationFee: 0,
     totalPrice: 4000, createdAt: new Date().toISOString(),
     customer: { name: '期限 五郎', kana: 'キゲン', tel: '09011110011', email: 'a@b.c', visit: '初めて', request: '' }
@@ -807,6 +810,48 @@ console.log('\n【UC22】カレンダーに追加したファイルの中身');
   check('UC22', '終わりの時刻も入っている', ics.includes('DTEND;TZID=Asia/Tokyo:20260901T130000'), true);
   check('UC22', '予約番号が入っている', ics.includes('LM-ICS01'), true);
   await p.context().close();
+}
+
+/* ============================================================
+   UC23 店が営業時間を変える
+   ============================================================ */
+console.log('\n【UC23】営業終了を早めたら、その時間の枠が消えるか');
+{
+  /* 「今日は20時で閉める」を設定シートに入れたのに、
+     受け口が22時まで受け続ける、という食い違いが起きないことを見ます。
+     お客様の画面と、送ったときの判定が、同じでなければいけません。 */
+  const before = (await post({ type: 'adminData', password: PW })).settings || {};
+  await post({ type: 'adminSave', password: PW, target: 'settings',
+    stamp: (await post({ type: 'adminData', password: PW })).stamps.settings,
+    rows: { ...before, '営業終了': '20:00', '最終受付': '19:30' } });
+
+  const p = await newPhone('UC23');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+
+  const latest = await p.evaluate(() => {
+    const times = [...document.querySelectorAll('button[data-date][data-time]')].map(b => b.dataset.time);
+    return times.sort()[times.length - 1] || '';
+  });
+  check('UC23', '画面が新しい営業時間を読んでいる', await p.evaluate(() => SALON.business.closeTime), '20:00');
+  check('UC23', '20時より後の枠が出ていない', latest <= '20:00', true);
+
+  /* 画面を通さずに、閉店後の時間へ直接送ってみます */
+  const day23 = await p.evaluate(() =>
+    (document.querySelector('button[data-date][data-time]') || {}).dataset.date);
+  const late = await post({ type: 'reserve', code: 'LM-LATE1', createdAt: new Date().toISOString(),
+    date: day23, time: '21:00', endTime: '22:00', totalMinutes: 60,
+    menus: [{ name: 'カット' }], staffName: 'MATTEO', staffId: 'st01',
+    nominationFee: 0, totalPrice: 4000,
+    customer: { name: '閉店後 太郎', kana: 'ヘイテンゴ', tel: '09088887777', email: 'l@example.com', visit: '初めて' } });
+  check('UC23', '閉店後の時間に直接送っても断られる', late.ok, false);
+  await p.context().close();
+
+  // あと片付け
+  await post({ type: 'adminSave', password: PW, target: 'settings',
+    stamp: (await post({ type: 'adminData', password: PW })).stamps.settings, rows: before });
 }
 
 /* ============================================================

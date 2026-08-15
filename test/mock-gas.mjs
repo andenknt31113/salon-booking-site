@@ -368,6 +368,20 @@ http.createServer((req, res) => {
         return reply(res, { ok: true });
       }
 
+      /* 営業時間の外（画面を通さず送られてきた場合の砦）。
+         本物の Code.gs は設定シートの営業開始・営業終了を見て断ります。
+         ここを省くと、試験は通るのに本番では断られる（またはその逆）
+         という食い違いになります。 */
+      {
+        const toMin = t => { const m = String(t||'').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1]*60 + +m[2] : null; };
+        const open = toMin(SHEET_SETTINGS['営業開始']) ?? toMin('09:00');
+        const close = toMin(SHEET_SETTINGS['営業終了']) ?? toMin('22:00');
+        const start = toMin(d.time);
+        if (start === null || start < open || start + (Number(d.totalMinutes) || 30) > close) {
+          return reply(res, { ok:false, error:'営業時間外のご予約は承れません。' });
+        }
+      }
+
       // 休業日・受けない時間帯（画面を通さず送られてきた場合の砦）
       if (hitsClosed(d.date, d.time, d.totalMinutes)) {
         return reply(res, { ok:false,

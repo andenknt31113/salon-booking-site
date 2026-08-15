@@ -532,6 +532,86 @@ console.log('\n【シート】メニューの価格と所要時間');
   }
 }
 
+/* ============================================================
+   設定シートの営業時間
+
+   空いたセルに 20:00 と打つと、Googleはそれを「時刻」として覚えます。
+   見た目は 20:00 のままですが、中身は日付つきの値です。
+   読めないと営業時間の設定が黙って既定の22時に戻り、
+   閉めたはずの時間に予約が入ります。
+   ============================================================ */
+console.log('\n【設定】営業終了を 20:00 にしたつもり');
+{
+  const closeOf = cell => {
+    const out = readSheets({ '設定': [['営業開始', '09:00'], ['営業終了', cell]] }, 'readSettings_');
+    return out && out['営業終了'];
+  };
+  const cases = [
+    ['文字で「20:00」', '20:00'],
+    /* 時刻型のセル。本物のシートの時刻は日本時間なので、9時間ずらして作ります。 */
+    ['時刻として入力（セルが時刻型）', dateCell(Date.UTC(1899, 11, 30, 20 - 9, 0))],
+    ['「20時」', '20時'],
+    ['全角「２０：００」', '２０：００'],
+    ['「20:00〜」', '20:00〜']
+  ];
+  for (const [label, cell] of cases) {
+    const v = closeOf(cell);
+    v === '20:00' ? ok(`${label} → 20:00 として読める`)
+                  : note(`営業終了 ${label}`, `が「${v}」になる → 閉めたはずの時間に予約が入ります`);
+  }
+  const blank = readSheets({ '設定': [['営業終了', '']] }, 'readSettings_');
+  blank['営業終了'] === '' ? ok('空欄はそのまま空欄（掲載中の営業時間を使う）') : note('空欄', 'が空欄でなくなる');
+  const junk = readSheets({ '設定': [['営業終了', 'あとで決める']] }, 'readSettings_');
+  junk['営業終了'] === 'あとで決める' ? ok('読めない文字はそのまま返す（画面側が既定値に戻す）')
+                                    : note('読めない文字', `が「${junk['営業終了']}」に化ける`);
+}
+
+console.log('\n【設定】早く閉める日を設定したら、受け口も従うか');
+{
+  /* 設定シートで営業終了を20時にしたのに、受け口が22時まで受け続けると、
+     画面には出ない時間の予約が入ります。店は気づけません。 */
+  const withHours = (close, payload) => {
+    const ctx = {
+      console: { log() {}, warn() {}, error() {} },
+      MailApp: { sendEmail() {} }, UrlFetchApp: { fetch() {} },
+      CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+      PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {}, deleteProperty() {} }) },
+      LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+      DriveApp: {}, ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
+      Utilities: {
+        formatDate: (d, tz, f) => {
+          const j = new Date(new Date(d).getTime() + 9 * 3600e3);
+          const p = n => String(n).padStart(2, '0');
+          return f === 'HH:mm' ? `${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`
+            : `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`;
+        },
+        getUuid: () => 'uuid', computeDigest: () => [1], DigestAlgorithm: { MD5: 'md5' },
+        Charset: { UTF_8: 'utf8' }, newBlob: () => ({}), base64Decode: () => [], base64Encode: () => ''
+      }
+    };
+    const settingRows = [['営業開始', '09:00'], ['営業終了', close]];
+    const setting = {
+      getLastRow: () => settingRows.length + 1, getLastColumn: () => 2,
+      getRange: (r, c, nr, nc) => ({ getValues: () => (r === 1 ? [['項目', '内容']]
+        : settingRows.slice(r - 2, r - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || 2)))) })
+    };
+    const ledger = makeSheet();
+    const ss = { getSheetByName: n => (n === '設定' ? setting : null), insertSheet: () => null };
+    ledger.getParent = () => ss;
+    ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } };
+    vm.createContext(ctx);
+    vm.runInContext(src + ';globalThis.__h = doReserve_;', ctx);
+    try { return ctx.__h(ledger, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
+  };
+  const at = day(11);
+  withHours('20:00', base({ date: at, time: '21:00', endTime: '22:00', totalMinutes: 60 })).ok
+    ? note('早く閉める設定', 'をしても、受け口は22時まで受ける') : ok('20時で閉めると、21時の予約は断られる');
+  withHours('20:00', base({ date: at, time: '19:00', endTime: '20:00', totalMinutes: 60 })).ok
+    ? ok('20時ちょうどに終わる予約は通る') : note('20時に終わる予約', 'まで断られる');
+  withHours('20:00', base({ date: at, time: '19:30', endTime: '20:30', totalMinutes: 60 })).ok
+    ? note('閉店をまたぐ予約', 'が通ってしまう') : ok('閉店をまたぐ予約は断られる');
+}
+
 console.log('\n【シート】隠したいときの書き方');
 {
   const shown = cell => !!readSheets({ 'メニュー': [['カット', 'テスト', 4000, 60, '', '', cell]] }, 'readMenuSheet_');

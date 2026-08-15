@@ -623,7 +623,8 @@ function applySettings(st) {
      シートは手で書く場所なので「9時」「9:00〜」なども来ます。
      読めない値は無視して、data.js の値をそのまま使います。 */
   const time = v => {
-    const m = String(v).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
+    // 「２０：００」のような全角も、いったん半角にそろえてから読みます
+    const m = toHalfWidth(v).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
     if (!m) return null;
     const h = Number(m[1]);
     const mi = Number(m[2] || 0);

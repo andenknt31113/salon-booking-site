@@ -347,7 +347,9 @@ function cell_(v, limit) {
 
 /** 'HH:MM' として読めるか。読めれば分に、読めなければ null */
 function timeToMin_(v) {
-  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2}):(\d{2})$/);
+  /* 「9時」「２０：００」や、時刻型のセルも読めるようにそろえてから見ます。
+     ここが読めないと、営業時間の設定が黙って既定値に戻ります。 */
+  const m = normalizeTime_(v).match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
   const h = Number(m[1]), mi = Number(m[2]);
   if (h > 23 || mi > 59) return null;
@@ -1524,13 +1526,24 @@ function lineAddUrl_() {
 }
 
 /** 設定シート（項目 / 内容 の2列） */
+/* 時刻として書く項目。ここに入っているものは、セルが時刻型でも読めるようにします。
+
+   スプレッドシートの空いたセルに 20:00 と打つと、Googleは
+   それを「時刻」として覚えます。見た目は 20:00 のままですが、
+   中身は日付つきの値です。そのままでは読めず、営業時間の設定が
+   黙って既定の22時に戻り、閉めたはずの時間に予約が入ります。 */
+const TIME_SETTINGS = ['営業開始', '営業終了', '最終受付'];
+
 function readSettings_(ss) {
   const sheet = ss.getSheetByName(SETTING_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return {};
   const out = {};
   sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues().forEach(r => {
     const k = String(r[0] || '').trim();
-    if (k) out[k] = r[1] === '' ? '' : r[1];
+    if (!k) return;
+    if (r[1] === '') { out[k] = ''; return; }
+    /* サイトにもこの値がそのまま渡ります。読める形にして渡します。 */
+    out[k] = TIME_SETTINGS.indexOf(k) >= 0 ? (normalizeTime_(r[1]) || String(r[1])) : r[1];
   });
   return out;
 }
