@@ -115,6 +115,19 @@
             <section class="reserve-panel" data-panel="4" aria-labelledby="h-step4">
               <h2 class="section-title" id="h-step4" style="font-size:19px;margin-bottom:20px;">お客様情報をご入力ください</h2>
 
+              <!-- 前回この端末で予約された方の情報。無いときは出ません -->
+              <div class="saved-profile" id="saved-profile" hidden>
+                <p class="saved-profile-head">前回ご入力いただいた内容です。そのままお進みいただけます。</p>
+                <dl class="saved-profile-body" id="saved-profile-body"></dl>
+                <div class="saved-profile-actions">
+                  <button class="btn btn-outline btn-sm" type="button" id="profile-edit">別の内容で予約する</button>
+                  <button class="link-button" type="button" id="profile-clear">この端末から消す</button>
+                </div>
+                <p class="saved-profile-note">
+                  お客様の端末の中にだけ保存しています。店舗やインターネット上には送られません。
+                </p>
+              </div>
+
               <form id="customer-form" novalidate>
                 <div class="form-field" data-field="name">
                   <label for="f-name">お名前<span class="required">必須</span></label>

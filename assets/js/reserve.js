@@ -38,6 +38,33 @@ function clearDraft() {
   try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* noop */ }
 }
 
+/* ---------- お客様情報を「この端末」に覚えておく ----------
+   2回目以降の予約はLINEからこのページに来ていただく想定なので、
+   同じ端末なら名前・電話番号・メールを入力し直さずに済むようにします。
+   保存先はその端末の localStorage だけで、店やサーバーには送りません。
+   （LINEのアカウントと結びつけるにはLINEログインの契約が要るため、
+     まずは端末に覚えておく方式にしています） */
+const PROFILE_KEY = 'salon.customer.v1';
+
+function saveProfile(c) {
+  if (!c || !c.name || !c.tel) return;
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({
+      name: c.name, kana: c.kana, tel: c.tel, email: c.email
+    }));
+  } catch (e) { /* プライベートモード等では覚えない */ }
+}
+function loadProfile() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
+    if (!saved || !saved.name || !saved.tel) return null;
+    return saved;
+  } catch (e) { return null; }
+}
+function clearProfile() {
+  try { localStorage.removeItem(PROFILE_KEY); } catch (e) { /* noop */ }
+}
+
 /* メニューをスプレッドシート管理に切り替えると、data.js 由来のID（cp01 など）と
    シート由来のID（sc0 など）が変わります。下書きに残った古いIDを掃除しないと、
    「選択済みに見えるのに合計が0円」という状態になるため取り除きます。 */
@@ -328,6 +355,9 @@ function validateForm(showErrors = true) {
   });
 
   if (firstInvalid && showErrors) {
+    // 覚えてある内容を畳んで隠しているときに不備が見つかったら、
+    // 直せるように入力欄を開いてから案内する
+    if (firstInvalid.hidden) showProfileForm();
     firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const input = firstInvalid.querySelector('input, textarea');
     if (input) input.focus({ preventScroll: true });
@@ -335,9 +365,57 @@ function validateForm(showErrors = true) {
   return !firstInvalid;
 }
 
+/* 覚えてある内容を出しているあいだは、お名前〜メールの4項目を畳んでおきます。
+   ご来店回数・ご要望・同意チェックは毎回ご本人に選んでいただくので残します。 */
+const PROFILE_FIELDS = ['name', 'kana', 'tel', 'email'];
+
+function showProfileCard(p) {
+  $('#saved-profile-body').innerHTML = [
+    ['お名前', `${esc(p.name)}（${esc(p.kana)}）様`],
+    ['電話番号', esc(p.tel)],
+    ['メールアドレス', esc(p.email)]
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  $('#saved-profile').hidden = false;
+  PROFILE_FIELDS.forEach(f => { $(`[data-field="${f}"]`).hidden = true; });
+  // 入力するものがほとんど無いので、見出しも合わせる
+  $('#h-step4').textContent = 'お客様情報のご確認';
+}
+
+function showProfileForm() {
+  $('#saved-profile').hidden = true;
+  PROFILE_FIELDS.forEach(f => { $(`[data-field="${f}"]`).hidden = false; });
+  $('#h-step4').textContent = 'お客様情報をご入力ください';
+}
+
+function applySavedProfile() {
+  const p = loadProfile();
+  // 下書きに入力済みの内容があるときは、そちらを優先して邪魔しない
+  if (!p || state.customer.name) { showProfileForm(); return; }
+  Object.assign(state.customer, p);
+  // 前にこの端末から予約されている＝初めてではない
+  if (!state.customer.visit) state.customer.visit = '2回目以降';
+  fillForm();
+  showProfileCard(p);
+}
+
 function initStep4() {
   const form = $('#customer-form');
   fillForm();
+  applySavedProfile();
+
+  bindOnce('profile-edit', () => $('#profile-edit').addEventListener('click', () => {
+    showProfileForm();
+    form.name.focus();
+  }));
+  bindOnce('profile-clear', () => $('#profile-clear').addEventListener('click', () => {
+    clearProfile();
+    PROFILE_FIELDS.forEach(f => { form[f].value = ''; });
+    state.customer = readForm();
+    saveDraft();
+    showProfileForm();
+    form.name.focus();
+  }));
+
   form.addEventListener('input', () => {
     state.customer = readForm();
     saveDraft();
@@ -604,6 +682,8 @@ async function submitReservation() {
   if (calBtn) calBtn.onclick = () => downloadIcs(reservation);
 
   clearDraft();
+  // 次回この端末から予約されるときに入力し直さなくて済むように覚えておく
+  saveProfile(state.customer);
   state.step = 6;
   renderStep();
   btn.disabled = false;

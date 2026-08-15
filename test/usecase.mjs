@@ -42,6 +42,9 @@ async function book(p, { name, tel, menuIndex = 0, slotIndex = 0 }) {
   const time = await slot.getAttribute('data-time');
   await slot.click(); await p.waitForTimeout(400);
   await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(400);
+  // 前回の入力を覚えている端末では入力欄が畳まれているので開く
+  const saved = p.locator('#saved-profile');
+  if (await saved.isVisible()) { await p.click('#profile-edit'); await p.waitForTimeout(200); }
   await p.fill('#f-name', name); await p.fill('#f-kana', 'テスト');
   await p.fill('#f-tel', tel); await p.fill('#f-email', 'test@example.com');
   await p.locator('label.radio-chip:has-text("初めて")').first().click();
@@ -325,6 +328,55 @@ console.log('\n【UC12】通信が切れて、店に届かなかった');
     (await p.locator('#done-warning').innerText()).includes('ご連絡'), true);
   check('UC12', '予約番号は控えられる', /^LM-/.test(r.code), true);
   await post({ type: 'failmode', on: false });
+  await p.context().close();
+}
+
+/* ============================================================
+   UC13 2回目のお客様が、LINEから来て入力せずに予約する
+   ============================================================ */
+console.log('\n【UC13】2回目のお客様が、前回の入力のまま予約する');
+{
+  const p = await newPhone('UC13');
+  await book(p, { name: '常連 八郎', tel: '09011110014', slotIndex: 24 });
+
+  // LINEのメッセージから予約ページを開いた想定（同じ端末・同じブラウザ）
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
+  await p.locator('#coupon-choices .selectable').nth(1).click(); await p.waitForTimeout(400);
+  await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(700);
+  await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(900);
+  await p.locator('button[data-date][data-time]:not([disabled])').nth(27).click(); await p.waitForTimeout(400);
+  await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(500);
+
+  check('UC13', '前回の内容が出ている', await p.locator('#saved-profile').isVisible(), true);
+  const card = await p.locator('#saved-profile-body').innerText();
+  check('UC13', '名前が入っている', card.includes('常連 八郎'), true);
+  check('UC13', '電話番号が入っている', card.includes('09011110014'), true);
+  check('UC13', '名前の入力欄は畳まれている', await p.locator('#f-name').isVisible(), false);
+  check('UC13', '来店回数が2回目以降になっている',
+    await p.locator('input[name="visit"][value="2回目以降"]').isChecked(), true);
+  check('UC13', 'それでも同意チェックは自分で押す', await p.locator('#f-agree').isChecked(), false);
+
+  // 同意だけ押して、そのまま予約できる
+  await p.locator('#f-agree').check({ force: true });
+  await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(700);
+  check('UC13', '入力し直さずに確認へ進める',
+    (await p.locator('#confirm-body').innerText()).includes('常連 八郎'), true);
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(1900);
+  check('UC13', '2件目が取れる', /^LM-[A-Z0-9]{5}$/.test((await p.locator('#done-code').innerText()).trim()), true);
+
+  // 「この端末から消す」で本当に消える
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
+  await p.locator('#coupon-choices .selectable').nth(1).click(); await p.waitForTimeout(300);
+  await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(600);
+  await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(800);
+  await p.locator('button[data-date][data-time]:not([disabled])').nth(30).click(); await p.waitForTimeout(300);
+  await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(400);
+  await p.click('#profile-clear'); await p.waitForTimeout(300);
+  check('UC13', '消したら入力欄に戻る', await p.locator('#f-name').isVisible(), true);
+  check('UC13', '消したら名前も残らない', await p.inputValue('#f-name'), '');
+  await p.reload(); await p.waitForTimeout(1400);
+  check('UC13', '開き直しても戻ってこない',
+    await p.evaluate(() => localStorage.getItem('salon.customer.v1')), 'null');
   await p.context().close();
 }
 
