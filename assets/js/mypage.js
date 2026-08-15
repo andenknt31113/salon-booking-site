@@ -22,11 +22,7 @@ function isCancellable(r) {
   return Date.now() < deadline.getTime();
 }
 
-/* 日時変更の受け渡し。
-   予約内容をURLに載せるとお名前や電話番号が履歴に残るため、
-   この端末の中だけで渡します。 */
-const CHANGE_KEY = 'salon.changeTarget.v1';
-
+/* 日時変更の受け渡し（CHANGE_KEY は common.js で定義） */
 function startChange(reservation) {
   try {
     sessionStorage.setItem(CHANGE_KEY, JSON.stringify(reservation));

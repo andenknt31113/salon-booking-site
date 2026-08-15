@@ -79,6 +79,12 @@ const staffLabel = id => (id ? (findStaff(id)?.name ?? '不明') : '指名なし
  * ============================================================ */
 const STORE_KEY = 'salon.reservations.v1';
 
+/* 日時変更の受け渡し用。
+   予約確認ページが書き、予約ページが読みます。
+   予約の中身をURLに載せるとお名前や電話番号が履歴に残るため、
+   この端末の中だけで渡します。 */
+const CHANGE_KEY = 'salon.changeTarget.v1';
+
 let memory = null; // localStorage が使えない環境（プライベートモード等）での代替
 
 const Store = {

@@ -3,8 +3,6 @@
  * ============================================================ */
 
 const DRAFT_KEY = 'salon.reserveDraft.v1';
-const CHANGE_KEY = 'salon.changeTarget.v1';
-
 /* 日時変更モード。予約確認ページから渡された予約が入ります。
    null なら通常の新規予約です。 */
 let changing = null;
