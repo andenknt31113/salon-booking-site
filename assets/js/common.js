@@ -377,20 +377,27 @@ function renderHeader() {
   const host = $('#site-header');
   if (!host) return;
   const page = currentPage();
-  const initials = SALON.name.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'LS';
+  const initials = SALON.mark
+    || SALON.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()
+    || 'SL';
   const nav = NAV_ITEMS.map(item => {
     const cur = item.href === page ? ' aria-current="page"' : '';
     return `<li><a href="${item.href}"${cur}>${item.label}</a></li>`;
   }).join('');
 
+  const draft = SALON.draft
+    ? '<div class="draft-banner">準備中：メニュー・料金・店舗情報は仮の内容です</div>'
+    : '';
+
   host.innerHTML = `
+    ${draft}
     <header class="site-header">
       <div class="container header-top">
         <a class="brand" href="index.html">
           <span class="brand-mark" aria-hidden="true">${esc(initials)}</span>
           <span class="brand-text">
             <span class="brand-name">${esc(SALON.name)}</span>
-            <span class="brand-sub">${esc(SALON.branch)}</span>
+            <span class="brand-sub">${esc(SALON.nameSub || SALON.branch)}</span>
           </span>
         </a>
         <div class="header-actions">

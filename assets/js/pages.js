@@ -118,7 +118,7 @@ function renderSalonInfo(host) {
   const b = SALON.business;
   const closed = b.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・') || '年中無休';
   const rows = [
-    ['サロン名', `${SALON.name}（${SALON.nameJa}）${SALON.branch}`],
+    ['店名', `${SALON.name} ${SALON.nameSub || ''}（${SALON.nameJa}）`.trim()],
     ['電話番号', SALON.tel],
     ['住所', SALON.address],
     ['アクセス', SALON.access],
@@ -133,9 +133,14 @@ function renderSalonInfo(host) {
 
 /* ---------- ページごとの初期化 ---------- */
 function initHome() {
-  $('#hero-score').textContent = SALON.rating.toFixed(1);
-  $('#hero-stars').textContent = stars(SALON.rating);
-  $('#hero-count').textContent = `口コミ ${SALON.reviewCount.toLocaleString('ja-JP')}件`;
+  // 評価は実際に集まってから出す（rating が null のあいだは表示しない）
+  if (SALON.rating) {
+    $('#hero-score').textContent = SALON.rating.toFixed(1);
+    $('#hero-stars').textContent = stars(SALON.rating);
+    $('#hero-count').textContent = `口コミ ${SALON.reviewCount.toLocaleString('ja-JP')}件`;
+  } else {
+    $('.hero-rating').hidden = true;
+  }
   $('#hero-catch').textContent = SALON.catch;
   $('#hero-desc').textContent = SALON.description;
   $('#lead-hours').textContent = SALON.business.minLeadHours;
@@ -149,7 +154,9 @@ function initHome() {
   $('#home-coupons').innerHTML = SALON.coupons.slice(0, 3).map(couponCard).join('');
   $('#home-styles').innerHTML = SALON.styles.slice(0, 4).map(styleCard).join('');
   $('#home-staff').innerHTML = SALON.staff.map(staffCard).join('');
-  $('#home-reviews').innerHTML = SALON.reviews.slice(0, 2).map(reviewCard).join('');
+  $('#home-reviews').innerHTML = SALON.reviews.length
+    ? SALON.reviews.slice(0, 2).map(reviewCard).join('')
+    : '<p class="empty-state">口コミはまだ届いていません。ご来店後のアンケートにご協力いただけると励みになります。</p>';
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
 }
@@ -205,13 +212,16 @@ function initGalleryPage() {
 }
 
 function initReviewsPage() {
-  $('#review-summary').innerHTML = `
-    <div style="text-align:center;">
-      <div class="rating-score" style="color:var(--accent);font-size:44px;">${SALON.rating.toFixed(1)}</div>
-      <div class="stars" style="font-size:20px;">${stars(SALON.rating)}</div>
-      <p style="font-size:12.5px;color:var(--ink-3);margin-top:6px;">全 ${SALON.reviewCount.toLocaleString('ja-JP')}件の口コミ</p>
-    </div>`;
-  $('#review-list').innerHTML = SALON.reviews.map(reviewCard).join('');
+  $('#review-summary').innerHTML = SALON.rating
+    ? `<div style="text-align:center;">
+         <div class="rating-score" style="font-size:44px;">${SALON.rating.toFixed(1)}</div>
+         <div class="stars" style="font-size:20px;">${stars(SALON.rating)}</div>
+         <p style="font-size:12.5px;color:var(--muted);margin-top:6px;">全 ${SALON.reviewCount.toLocaleString('ja-JP')}件の口コミ</p>
+       </div>`
+    : '';
+  $('#review-list').innerHTML = SALON.reviews.length
+    ? SALON.reviews.map(reviewCard).join('')
+    : '<p class="empty-state">口コミはまだ届いていません。<br />ご来店後のアンケートにご協力いただけると励みになります。</p>';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
