@@ -634,26 +634,44 @@ console.log('\n【店側の入口】保存');
    口コミのほうは逆で、店側から変えてよいのは「載せるかどうか」だけです。
    文面や評価をこちらで直せると、それはもうお客様の声ではありません。
    ============================================================ */
+/* シートの中身は、配列そのままなら「見出しの無いシート」、
+   { head: [...], rows: [...] } なら「1行目が見出しのシート」として作ります。 */
 function shop(sheetsInit = {}) {
   const store = { ADMIN_PASSWORD: 'himitsu' };
   const sheets = {};
-  const mk = (name, rows = []) => {
+  const mk = (name, init = []) => {
+    const head = Array.isArray(init) ? null : (init.head || null);
+    const rows = Array.isArray(init) ? init : (init.rows || []);
     const data = rows.map(r => r.slice());
     return {
       getName: () => name, getLastRow: () => data.length + 1,
-      getLastColumn: () => (data[0] || []).length, appendRow: r => data.push(r),
+      getLastColumn: () => (head || data[0] || []).length, appendRow: r => data.push(r),
       getRange: (rw, c, nr, nc) => ({
         /* 本物のシートは、1行目が空でも「空の行」を返します。
            ここで [] を返すと、本番では起きない失敗になります。 */
         getValues: () => (rw === 1
-          ? [Array(nc || 1).fill('')]
+          ? [(head || Array(nc || 1).fill('')).slice(c - 1, c - 1 + (nc || (head || []).length || 1))]
           : data.slice(rw - 2, rw - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || x.length)))),
-        setValues: v => { v.forEach((r, i) => { data[rw - 2 + i] = r.slice(); }); },
-        setValue() {}, clearContent: () => { data.length = 0; },
+        /* 本物のシートと同じで、指定した範囲だけ書き換えます。
+           行まるごと差し替える作りにしていると、列ごとの書き込みで
+           他の列が消え、本番では起きない失敗になります。 */
+        setValues: v => {
+          v.forEach((r, i) => {
+            const target = data[rw - 2 + i] || (data[rw - 2 + i] = []);
+            r.forEach((val, j) => { target[c - 1 + j] = val; });
+          });
+        },
+        setValue() {},
+        clearContent: () => {
+          for (let i = 0; i < (nr || 1); i++) {
+            const target = data[rw - 2 + i];
+            if (target) for (let j = 0; j < (nc || 1); j++) target[c - 1 + j] = '';
+          }
+        },
         setFontWeight: () => ({ setBackground: () => {} }), setNote() {},
         setFontLine: () => ({ setFontColor: () => {} })
       }),
-      getDataRange: () => ({ getValues: () => data.map(r => r.slice()) }),
+      getDataRange: () => ({ getValues: () => (head ? [head.slice()] : []).concat(data.map(r => r.slice())) }),
       setFrozenRows() {}, setColumnWidth() {}, clear() {}, deleteRows() {}, _data: data
     };
   };
@@ -713,6 +731,35 @@ console.log('\n【店側の入口】2台で同時に開いていたら');
     ? note('印を付けない保存', 'は通る（外して送れば上書きできます）') : ok('印を付けない保存も断る');
 }
 
+console.log('\n【メニュー表】店の人が自分用の列を足していたら');
+{
+  /* メニュー表に「原価」を足して使っている、という状況です。
+     こちらが知らない列なので、読むときは無視し、保存のときも触りません。
+     保存のたびに消えるようでは、その列は使えません。 */
+  const HEAD3 = ['区分', '原価', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
+  const w = shop({ 'メニュー': { head: HEAD3, rows: [
+    ['カット', 1200, 'メンズカット', '4,000〜', 50, '', '', '○'],
+    ['スパ', 500, '炭酸スパ', 3000, 30, '', '', '○']
+  ] } });
+
+  const read = w.call('doAdminData_', { password: 'himitsu' });
+  const menus = read.menus || [];
+  (menus[0] && menus[0]['メニュー名'] === 'メンズカット')
+    ? ok('列を足しても、メニュー名を正しく読む')
+    : note('メニュー名', `を読み違える（${JSON.stringify(menus[0])}）`);
+  (menus[0] && String(menus[0]['価格']) === '4,000〜')
+    ? ok('列を足しても、価格を正しく読む') : note('価格', `を読み違える（${menus[0] && menus[0]['価格']}）`);
+
+  w.call('doAdminSave_', { password: 'himitsu', target: 'menus', stamp: read.stamps.menus, rows: [
+    { 区分: 'カット', メニュー名: 'メンズカット', 価格: 4500, '所要(分)': 50, 説明: '', 画像: '', 表示: '○' }
+  ]});
+  const after = w.sheets['メニュー']._data;
+  String(after[0][HEAD3.indexOf('価格')]) === '4500'
+    ? ok('保存した価格が「価格」の列に入る') : note('保存した価格', `が別の列に入る（${JSON.stringify(after[1])}）`);
+  String(after[0][HEAD3.indexOf('原価')]) === '1200'
+    ? ok('店の人が足した「原価」は消えない') : note('原価', `が消える（${JSON.stringify(after[0])}）`);
+}
+
 console.log('\n【口コミ】お客様の言葉は店側から変えられない');
 {
   const RVH = ['投稿日','予約番号','ニックネーム','年代','性別','評価','タイトル','本文','担当','メニュー','状態'];
@@ -749,8 +796,12 @@ console.log('\n【口コミ】お客様の言葉は店側から変えられな�
     ? note('来ていない口コミ', 'を足せる（作り話の口コミは景品表示法に触れます）')
     : ok('来ていない口コミは足せない');
 
+  /* 消したあとは、行そのものが残っていても中身が空であればかまいません
+     （本物のシートも、消すと空の行が残ります）。読み出す側から
+     見えなくなっていることを確かめます。 */
   saveReviews([]);
-  w.sheets['口コミ']._data.length === 0 ? ok('要らない口コミは消せる') : note('口コミ', 'が消せない');
+  const left = w.call('doAdminData_', { password: 'himitsu' }).reviews || [];
+  left.length === 0 ? ok('要らない口コミは消せる') : note('口コミ', `が消せない（${left.length}件残る）`);
 }
 
 console.log('\n【店側の入口】写真');

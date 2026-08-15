@@ -203,6 +203,7 @@ const COUPON_HEADERS = ['メニュー名', '価格', '通常価格', '所要(分
 const STYLE_HEADERS  = ['タイトル', '分類', 'タグ', '画像', '表示'];
 const REVIEW_HEADERS = ['投稿日', '予約番号', 'ニックネーム', '年代', '性別',
                         '評価', 'タイトル', '本文', '担当', 'メニュー', '状態'];
+const CLOSED_HEADERS = ['休業日', '開始', '終了', 'メモ'];
 
 /* ============================================================
    受信の入口
@@ -692,12 +693,16 @@ function readClosedSheet_(ss) {
   const sheet = ss.getSheetByName(CLOSED_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues()
+  /* 休業日シートも、列は見出しの名前で探します。
+     店の人が「メモ」を前に足しても、日付を読み違えないためです。 */
+  const head = sheetHeader_(sheet, CLOSED_HEADERS);
+  const at = h => { const i = head.indexOf(h); return i >= 0 ? i : CLOSED_HEADERS.indexOf(h); };
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues()
     .map(function (r) {
-      const date = normalizeDate_(r[0]);
+      const date = normalizeDate_(r[at('休業日')]);
       if (!date) return null;
-      const start = normalizeTime_(r[1]);
-      const end = normalizeTime_(r[2]);
+      const start = normalizeTime_(r[at('開始')]);
+      const end = normalizeTime_(r[at('終了')]);
       if (!start || !end || toMin_(end) <= toMin_(start)) return date;   // 終日
       return { date: date, start: start, end: end };
     })
@@ -723,8 +728,9 @@ function readMenuSheet_(ss) {
   const sheet = ss.getSheetByName(MENU_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return null;
 
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, MENU_HEADERS.length).getValues();
-  const col = n => MENU_HEADERS.indexOf(n);
+  const head = sheetHeader_(sheet, MENU_HEADERS);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const col = n => { const i = head.indexOf(n); return i >= 0 ? i : MENU_HEADERS.indexOf(n); };
   const groups = [];
 
   rows.forEach((r, i) => {
@@ -757,8 +763,9 @@ function readCouponSheet_(ss) {
   const sheet = ss.getSheetByName(COUPON_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return null;
 
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, COUPON_HEADERS.length).getValues();
-  const col = n => COUPON_HEADERS.indexOf(n);
+  const head = sheetHeader_(sheet, COUPON_HEADERS);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const col = n => { const i = head.indexOf(n); return i >= 0 ? i : COUPON_HEADERS.indexOf(n); };
   const out = [];
 
   rows.forEach((r, i) => {
@@ -791,8 +798,9 @@ function readStyleSheet_(ss) {
   const sheet = ss.getSheetByName(STYLE_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return null;
 
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, STYLE_HEADERS.length).getValues();
-  const col = n => STYLE_HEADERS.indexOf(n);
+  const head = sheetHeader_(sheet, STYLE_HEADERS);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const col = n => { const i = head.indexOf(n); return i >= 0 ? i : STYLE_HEADERS.indexOf(n); };
   const out = [];
 
   rows.forEach((r, i) => {
@@ -821,8 +829,9 @@ function readReviewSheet_(ss) {
   const sheet = ss.getSheetByName(REVIEW_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return null;
 
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, REVIEW_HEADERS.length).getValues();
-  const col = n => REVIEW_HEADERS.indexOf(n);
+  const head = sheetHeader_(sheet, REVIEW_HEADERS);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const col = n => { const i = head.indexOf(n); return i >= 0 ? i : REVIEW_HEADERS.indexOf(n); };
   const out = [];
 
   rows.forEach((r, i) => {
@@ -886,7 +895,9 @@ function doReview_(sheet, d) {
   }
   // 同じ予約からの二重投稿を防ぐ
   if (rv.getLastRow() > 1) {
-    const codes = rv.getRange(2, REVIEW_HEADERS.indexOf('予約番号') + 1, rv.getLastRow() - 1, 1).getValues();
+    const rvHead = sheetHeader_(rv, REVIEW_HEADERS);
+    const codeCol = (rvHead.indexOf('予約番号') >= 0 ? rvHead.indexOf('予約番号') : REVIEW_HEADERS.indexOf('予約番号')) + 1;
+    const codes = rv.getRange(2, codeCol, rv.getLastRow() - 1, 1).getValues();
     if (codes.some(function (x) { return codeKey_(x[0]) && codeKey_(x[0]) === codeKey_(d.code); })) {
       return { ok: false, error: 'このご予約にはすでにご感想をいただいています。ありがとうございます。' };
     }
@@ -894,19 +905,23 @@ function doReview_(sheet, d) {
 
   const score = Math.min(5, Math.max(1, Number(d.score) || 5));
   // 口コミもお客様が書く文字なので、台帳と同じく数式として動かないようにします
-  rv.appendRow([
-    Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'),
-    cell_(d.code, 20),
-    cell_(d.nickname || 'お客様', 30),
-    cell_(d.age, 10),
-    cell_(d.gender, 10),
-    score,
-    cell_(d.title, 60),
-    cell_(body, LIMITS.request),
-    cell_(r[col('担当')], LIMITS.name),
-    cell_(r[col('メニュー')], LIMITS.menu),
-    '未承認'
-  ]);
+  const rvHead2 = sheetHeader_(rv, REVIEW_HEADERS);
+  const rvValues = {
+    '投稿日': Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'),
+    '予約番号': cell_(d.code, 20),
+    'ニックネーム': cell_(d.nickname || 'お客様', 30),
+    '年代': cell_(d.age, 10),
+    '性別': cell_(d.gender, 10),
+    '評価': score,
+    'タイトル': cell_(d.title, 60),
+    '本文': cell_(body, LIMITS.request),
+    '担当': cell_(r[col('担当')], LIMITS.name),
+    'メニュー': cell_(r[col('メニュー')], LIMITS.menu),
+    '状態': '未承認'
+  };
+  rv.appendRow(rvHead2.map(function (h) {
+    return Object.prototype.hasOwnProperty.call(rvValues, h) ? rvValues[h] : '';
+  }));
 
   notify_(
     '【口コミが届きました】' + String(d.nickname || 'お客様'),
@@ -1295,7 +1310,7 @@ function doAdminData_(d) {
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS),
     styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS),
     reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS),
-    closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', '開始', '終了', 'メモ']),
+    closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS),
     settings: readSettings_(ss),
     stamps: allStamps_(ss)
   };
@@ -1352,7 +1367,7 @@ function doAdminSave_(d) {
   else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
   else if (d.target === 'styles')  writeSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, d.rows);
   else if (d.target === 'reviews') writeSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, keepReviewWords_(ss, d.rows));
-  else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', '開始', '終了', 'メモ'], d.rows);
+  else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, d.rows);
   else if (d.target === 'settings') writeSettings_(ss, d.rows);
   else return { ok: false, error: '不明な保存先です: ' + d.target };
 
@@ -1372,20 +1387,22 @@ function doAdminSave_(d) {
 function keepReviewWords_(ss, rows) {
   const sheet = ss.getSheetByName(REVIEW_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  const before = sheet.getRange(2, 1, sheet.getLastRow() - 1, REVIEW_HEADERS.length).getValues();
-  const key = r => codeKey_(r[REVIEW_HEADERS.indexOf('予約番号')]);
+  const head = sheetHeader_(sheet, REVIEW_HEADERS);
+  const at = h => { const i = head.indexOf(h); return i >= 0 ? i : REVIEW_HEADERS.indexOf(h); };
+  const before = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const key = r => codeKey_(r[at('予約番号')]);
   const WRITABLE = ['状態'];
 
   return (rows || []).map(function (row) {
     const src = before.filter(function (b) { return key(b) === codeKey_(row['予約番号']); })[0];
     if (!src) return null;                       // 元が無い＝こちらで書いた口コミ
     const out = {};
-    REVIEW_HEADERS.forEach(function (h, i) {
-      out[h] = WRITABLE.indexOf(h) >= 0 ? row[h] : src[i];
+    REVIEW_HEADERS.forEach(function (h) {
+      out[h] = WRITABLE.indexOf(h) >= 0 ? row[h] : src[at(h)];
     });
     // 「状態」も決められた3つ以外は受け付けません
     if (['未承認', '掲載中', '非掲載'].indexOf(String(out['状態'])) < 0) {
-      out['状態'] = String(src[REVIEW_HEADERS.indexOf('状態')] || '未承認');
+      out['状態'] = String(src[at('状態')] || '未承認');
     }
     return out;
   }).filter(Boolean);
@@ -1448,22 +1465,30 @@ function doAdminUpload_(d) {
   };
 }
 
-/** シートを見出し付きの配列として読む */
+/** シートを見出し付きの配列として読む（列は名前で探します） */
 function readSheetRows_(ss, name, headers) {
   const sheet = ss.getSheetByName(name);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues()
+  const head = sheetHeader_(sheet, headers);
+  const col = h => { const i = head.indexOf(h); return i >= 0 ? i : headers.indexOf(h); };
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues()
     .map(r => {
       const o = {};
-      headers.forEach((h, i) => {
-        o[h] = (h === '休業日') ? normalizeDate_(r[i]) : (r[i] === '' ? '' : r[i]);
+      headers.forEach(h => {
+        const v = r[col(h)];
+        o[h] = (h === '休業日') ? normalizeDate_(v) : (v === '' || v === undefined ? '' : v);
       });
       return o;
     })
     .filter(o => String(o[headers[0]] || '').trim() !== '');
 }
 
-/** 見出しを残して中身を入れ替える */
+/** 見出しを残して中身を入れ替える
+
+    書き換えるのは、こちらが知っている列だけです。店の人がそのシートに
+    自分用の列（原価、仕入先など）を足していることがあり、
+    保存のたびに消しては使えたものではありません。
+    列の位置も、順番ではなく見出しの名前で探します。 */
 function writeSheetRows_(ss, name, headers, rows) {
   const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
   if (sheet.getLastRow() === 0) {
@@ -1471,13 +1496,19 @@ function writeSheetRows_(ss, name, headers, rows) {
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#f3efea');
     sheet.setFrozenRows(1);
   }
-  if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).clearContent();
-  }
+  const head = sheetHeader_(sheet, headers);
+  const at = h => { const i = head.indexOf(h); return (i >= 0 ? i : headers.indexOf(h)) + 1; };
+
+  const last = sheet.getLastRow();
+  if (last > 1) headers.forEach(h => sheet.getRange(2, at(h), last - 1, 1).clearContent());
+
   const body = (rows || [])
     .map(r => headers.map(h => (r[h] === undefined || r[h] === null) ? '' : r[h]))
     .filter(cells => String(cells[0]).trim() !== '');
-  if (body.length) sheet.getRange(2, 1, body.length, headers.length).setValues(body);
+  if (!body.length) return;
+  headers.forEach((h, i) => {
+    sheet.getRange(2, at(h), body.length, 1).setValues(body.map(cells => [cells[i]]));
+  });
 }
 
 /* 友だち追加URLは「設定」シートから読みます。
@@ -1520,12 +1551,17 @@ function writeSettings_(ss, obj) {
    状態の欄から要望を読む――そんな台帳になります。しかも画面には
    何も出ません。ですから、位置ではなく見出しの名前で探します。
    ============================================================ */
-function headerRow_(sheet) {
-  const width = Math.max(sheet.getLastColumn(), HEADERS.length);
+/** どのシートでも使える、1行目の見出しの読み取り */
+function sheetHeader_(sheet, fallback) {
+  const width = Math.max(sheet.getLastColumn() || 0, fallback.length);
   const row = (sheet.getRange(1, 1, 1, width).getValues()[0] || [])
     .map(v => String(v == null ? '' : v).trim());
-  // 見出しが空（作りたての台帳）なら、こちらの並びを使います
-  return row.some(Boolean) ? row : HEADERS.slice();
+  // 見出しが空（作りたてのシート）なら、こちらの並びを使います
+  return row.some(Boolean) ? row : fallback.slice();
+}
+
+function headerRow_(sheet) {
+  return sheetHeader_(sheet, HEADERS);
 }
 
 /** 見出しの名前から列番号（0始まり）を返す関数を作ります */
@@ -1784,7 +1820,7 @@ function setupMenuSheets() {
 
   const closed = ss.getSheetByName(CLOSED_SHEET) || ss.insertSheet(CLOSED_SHEET);
   if (closed.getLastRow() === 0) {
-    closed.appendRow(['休業日', '開始', '終了', 'メモ']);
+    closed.appendRow(CLOSED_HEADERS);
     closed.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#f3efea');
     closed.setFrozenRows(1);
     closed.setColumnWidth(1, 130);
