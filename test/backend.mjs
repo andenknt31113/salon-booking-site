@@ -273,6 +273,58 @@ console.log('\n【台帳】店の人が列を足しても崩れないか');
     ? ok('キャンセルが「状態」の列に書かれる') : note('キャンセル', 'が別の列に書かれる');
 }
 
+/* ============================================================
+   届いたのに、返事だけが届かなかったとき
+
+   電波の悪い場所では、送信は通ったのに応答だけ返らないことがあります。
+   画面はそれを「失敗」と見て、もう一度同じ内容を送ります。
+   同じ予約が2件立つと、店は2人ぶんの席を空けて待つことになります。
+   ============================================================ */
+console.log('\n【送り直し】同じ予約がもう一度届いたら');
+{
+  const at = day(13);
+  const sheet = makeSheet();
+  const payload = base({ date: at, time: '16:00', endTime: '17:00', totalMinutes: 60,
+    customer: { name: '再送 太郎', kana: 'サイソウ タロウ', tel: '09044445555', email: 's@example.com', visit: '初めて' } });
+
+  const first = run('doReserve_', sheet, payload).out;
+  first.ok ? ok('1回目は通る') : note('1回目', 'が通らない：' + first.error);
+
+  const again = run('doReserve_', sheet, payload).out;
+  again.ok ? ok('送り直しも失敗にはしない（お客様には成功と見せる）')
+           : note('送り直し', 'が失敗になる（お客様には理由が分かりません）');
+  sheet._data.length === 1 ? ok('台帳は1件のまま') : note('送り直し', `で台帳が${sheet._data.length}件になる`);
+  again.duplicate ? ok('同じ予約だと分かっている') : note('送り直し', 'が同じ予約だと分かっていない');
+
+  /* 番号がたまたま他のお客様とぶつかった場合は、番号を振り直します */
+  const other = run('doReserve_', sheet, base({ code: payload.code, date: at, time: '18:00', endTime: '19:00',
+    totalMinutes: 60, customer: { name: '別人 花子', tel: '09066667777' } })).out;
+  other.ok ? ok('番号がぶつかった別のお客様も予約できる') : note('番号のぶつかり', 'で予約できない：' + other.error);
+  (other.code && other.code !== payload.code)
+    ? ok(`番号を振り直して返す（${other.code}）`) : note('番号のぶつかり', 'で同じ番号のまま');
+  sheet._data.length === 2 ? ok('台帳は2件になる') : note('台帳', `が${sheet._data.length}件`);
+}
+
+console.log('\n【日時変更】変更したら、元の時間は空くか');
+{
+  const from = day(14), to = day(16);
+  const sheet = makeSheet([row({ 来店日: from, 開始: '10:00', 終了: '11:00', '所要(分)': 60, 予約番号: 'LM-MOVE1' })]);
+  const moved = run('doChange_', sheet, { code: 'LM-MOVE1', tel: '09011112222', date: to, time: '14:00', minutes: 60 }).out;
+  moved.ok ? ok('変更できる') : note('変更', 'できない：' + moved.error);
+
+  run('doReserve_', sheet, base({ date: from, time: '10:00', endTime: '11:00', totalMinutes: 60 })).out.ok
+    ? ok('元の時間は空きに戻る') : note('元の時間', 'が空かない（誰も取れない時間が残ります）');
+  run('doReserve_', sheet, base({ date: to, time: '14:00', endTime: '15:00', totalMinutes: 60 })).out.ok
+    ? note('変更先', 'が空いたままになっている（二重予約になります）') : ok('変更先は埋まっている');
+}
+
+console.log('\n【口コミ】キャンセルした予約からは書けない');
+{
+  const past = row({ 来店日: day(-3), 予約番号: 'LM-RVX01', 状態: 'キャンセル' });
+  run('doReview_', makeSheet([past]), { code: 'LM-RVX01', tel: '09011112222', body: '来ていませんが', score: 1 }).out.ok
+    ? note('口コミ', 'キャンセルした予約からも書ける') : ok('キャンセルした予約からは書けない');
+}
+
 console.log('\n【照会】');
 {
   let r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09011112222' });
