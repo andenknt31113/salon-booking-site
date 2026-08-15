@@ -375,6 +375,10 @@ const Catalog = {
         SALON.coupons = data.coupons;
         this.source = 'sheet';
       }
+      if (Array.isArray(data.styles) && data.styles.length) {
+        SALON.styles = data.styles;
+        this.source = 'sheet';
+      }
       // 休業日はシートを正とする（空なら休みなし、という指定も尊重する）
       if (Array.isArray(data.closedDates)) {
         SALON.business.closedDates = data.closedDates;
@@ -409,6 +413,7 @@ function applySettings(st) {
   set('キャッチコピー', v => { SALON.catch = v; });
   set('ロゴ画像', v => { SALON.logo = v; });
   set('スタッフ写真', v => { if (SALON.staff[0]) SALON.staff[0].image = v; });
+  set('メイン写真', v => { SALON.heroImage = v; });
   if (st['お知らせ'] !== undefined) SALON.notice = String(st['お知らせ']).trim();
 
   /* 定休曜日。「日,水」「日曜・水曜」どちらの書き方でも読み取ります。

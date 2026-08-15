@@ -185,6 +185,14 @@ function initHome() {
   } else {
     $('.hero-rating').hidden = true;
   }
+  // トップの大きい写真。設定されていればストライプの意匠に重ねる
+  const hero = $('.hero');
+  if (hero && SALON.heroImage) {
+    hero.classList.add('has-photo');
+    hero.insertAdjacentHTML('afterbegin',
+      `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="" />`);
+  }
+
   const heroBrand = $('#hero-brand');
   if (heroBrand) heroBrand.innerHTML = brandLockup({ size: 'lg', height: 120 });
   $('#hero-catch').textContent = SALON.catch;

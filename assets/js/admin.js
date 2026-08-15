@@ -10,7 +10,7 @@
 let adminPw = '';          // 入力されたパスワード（この画面を開いている間だけ保持）
 let adminToken = '';       // 「この端末を記憶する」で受け取った合鍵
 let adminData = null;      // 取得した内容
-const edits = { closed: [], menus: [], coupons: [], settings: {} };
+const edits = { closed: [], menus: [], coupons: [], styles: [], settings: {} };
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -18,6 +18,7 @@ const TOKEN_KEY = 'salon.adminToken.v1';
 
 const MENU_COLS = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_COLS = ['クーポン名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
+const STYLE_COLS = ['タイトル', '分類', 'タグ', '画像', '表示'];
 const SETTING_KEYS = [
   ['電話番号', 'tel', '例）0297-00-0000。空欄にすると電話ボタンを出しません'],
   ['営業開始', 'time', ''],
@@ -26,7 +27,8 @@ const SETTING_KEYS = [
   ['キャッチコピー', 'text', 'トップの大見出しに出ます'],
   ['お知らせ', 'text', 'トップの上部に帯で出ます。空欄なら出ません'],
   ['ロゴ画像', 'image', 'ヘッダーとトップに出るロゴ。写真を選ぶと自動で入ります'],
-  ['スタッフ写真', 'image', 'スタッフ紹介に出る写真']
+  ['スタッフ写真', 'image', 'スタッフ紹介に出る写真'],
+  ['メイン写真', 'image', 'トップの一番上に大きく出る写真。店内や施術中の写真がおすすめです']
 ];
 const WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -99,6 +101,7 @@ async function openDashboard() {
   edits.closed = (res.closedDates || []).map(r => ({ ...r }));
   edits.menus = (res.menus || []).map(r => ({ ...r }));
   edits.coupons = (res.coupons || []).map(r => ({ ...r }));
+  edits.styles = (res.styles || []).map(r => ({ ...r }));
   edits.settings = { ...(res.settings || {}) };
 
   $('#gate').hidden = true;
@@ -108,6 +111,7 @@ async function openDashboard() {
   renderClosed();
   renderRows('menus', MENU_COLS, '#menu-rows');
   renderRows('coupons', COUPON_COLS, '#coupon-rows');
+  renderRows('styles', STYLE_COLS, '#style-rows');
   renderSettings();
   return true;
 }
@@ -301,6 +305,26 @@ function renderClosed() {
   renderRows('closed', ['休業日', 'メモ'], '#closed-rows');
 }
 
+/* 追加ボタンで作られる空の行 */
+const BLANK_ROW = {
+  closed:  { '休業日': '', 'メモ': '' },
+  menus:   { '区分': 'カット', 'メニュー名': '', '価格': '', '所要(分)': 60, '説明': '', '画像': '', '表示': '○' },
+  coupons: { 'クーポン名': '', '価格': '', '通常価格': '', '所要(分)': 60, '説明': '', '条件': '', '対象': '全員', '画像': '', '表示': '○' },
+  styles:  { 'タイトル': '', '分類': 'ショート', 'タグ': '', '画像': '', '表示': '○' }
+};
+
+/* どのタブの一覧を描き直すか */
+const PANE = {
+  closed:  [['休業日', 'メモ'], '#closed-rows'],
+  menus:   [MENU_COLS, '#menu-rows'],
+  coupons: [COUPON_COLS, '#coupon-rows'],
+  styles:  [STYLE_COLS, '#style-rows']
+};
+function redraw(target) {
+  const pane = PANE[target];
+  if (pane) renderRows(target, pane[0], pane[1]);
+}
+
 function renderSettings() {
   const closedRaw = String(edits.settings['定休曜日'] ?? '');
   const closedSet = new Set(closedRaw.split(/[,、・\s]+/).map(t => t.replace(/曜日?$/, '')).filter(Boolean));
@@ -441,11 +465,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const add = e.target.closest('[data-add]');
     if (add) {
       const t = add.dataset.add;
-      edits[t].push(t === 'closed' ? { '休業日': '', 'メモ': '' }
-        : t === 'menus' ? { '区分': 'カット', 'メニュー名': '', '価格': '', '所要(分)': 60, '説明': '', '画像': '', '表示': '○' }
-        : { 'クーポン名': '', '価格': '', '通常価格': '', '所要(分)': 60, '説明': '', '条件': '', '対象': '全員', '画像': '', '表示': '○' });
-      if (t === 'closed') renderClosed();
-      else renderRows(t, t === 'menus' ? MENU_COLS : COUPON_COLS, t === 'menus' ? '#menu-rows' : '#coupon-rows');
+      edits[t].push(BLANK_ROW[t] ? { ...BLANK_ROW[t] } : {});
+      redraw(t);
       return;
     }
 
@@ -453,8 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (rm) {
       const t = rm.dataset.remove;
       edits[t].splice(Number(rm.dataset.index), 1);
-      if (t === 'closed') renderClosed();
-      else renderRows(t, t === 'menus' ? MENU_COLS : COUPON_COLS, t === 'menus' ? '#menu-rows' : '#coupon-rows');
+      redraw(t);
       return;
     }
 

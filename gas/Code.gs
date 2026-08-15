@@ -20,6 +20,7 @@ const MENU_SHEET    = 'メニュー';
 const COUPON_SHEET  = 'クーポン';
 const CLOSED_SHEET  = '休業日';
 const SETTING_SHEET = '設定';
+const STYLE_SHEET   = 'スタイル';
 
 /* 管理者ページのパスワード。
    ここに直接書かず、スクリプトプロパティに保存します。
@@ -119,6 +120,7 @@ const HEADERS = [
 
 const MENU_HEADERS   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_HEADERS = ['クーポン名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
+const STYLE_HEADERS  = ['タイトル', '分類', 'タグ', '画像', '表示'];
 
 /* ============================================================
    受信の入口
@@ -328,6 +330,7 @@ function doMenu_() {
     ok: true,
     categories: readMenuSheet_(ss),
     coupons: readCouponSheet_(ss),
+    styles: readStyleSheet_(ss),
     closedDates: readClosedSheet_(ss),
     settings: readSettings_(ss)
   };
@@ -404,6 +407,35 @@ function readCouponSheet_(ss) {
       minutes: Number(r[col('所要(分)')]) || 30,
       terms: String(r[col('条件')] || ''),
       image: String(r[col('画像')] || '').trim()
+    });
+  });
+
+  return out.length ? out : null;
+}
+
+/* 「スタイル」シート。ヘアカタログと店内写真をここで差し替えます。
+   分類はギャラリーの絞り込みタブになります（ショート／カラー／店内 など）。 */
+function readStyleSheet_(ss) {
+  const sheet = ss.getSheetByName(STYLE_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, STYLE_HEADERS.length).getValues();
+  const col = n => STYLE_HEADERS.indexOf(n);
+  const out = [];
+
+  rows.forEach((r, i) => {
+    const title = String(r[col('タイトル')] || '').trim();
+    if (!title) return;
+    if (!isShown_(r[col('表示')])) return;
+    out.push({
+      id: 'ss' + i,
+      title: title,
+      length: String(r[col('分類')] || 'スタイル').trim(),
+      staffId: null,
+      tags: String(r[col('タグ')] || '').split(/[,、・\s]+/).filter(Boolean),
+      image: String(r[col('画像')] || '').trim(),
+      // 写真がまだ無い枠は、意匠の色みを少しずつ変えて並べる
+      hue: (i * 37) % 360
     });
   });
 
@@ -568,6 +600,7 @@ function doAdminData_(d) {
     reservations: reservations,
     menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS),
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS),
+    styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ']),
     settings: readSettings_(ss)
   };
@@ -580,6 +613,7 @@ function doAdminSave_(d) {
 
   if (d.target === 'menus')   writeSheetRows_(ss, MENU_SHEET, MENU_HEADERS, d.rows);
   else if (d.target === 'coupons') writeSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, d.rows);
+  else if (d.target === 'styles')  writeSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, d.rows);
   else if (d.target === 'closed')  writeSheetRows_(ss, CLOSED_SHEET, ['休業日', 'メモ'], d.rows);
   else if (d.target === 'settings') writeSettings_(ss, d.rows);
   else return { ok: false, error: '不明な保存先です: ' + d.target };
@@ -813,8 +847,22 @@ function setupMenuSheets() {
     setting.setColumnWidth(2, 420);
     [['電話番号', ''], ['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00'],
      ['キャッチコピー', ''], ['お知らせ', ''], ['定休曜日', ''],
-     ['ロゴ画像', ''], ['スタッフ写真', '']].forEach(r => setting.appendRow(r));
+     ['ロゴ画像', ''], ['スタッフ写真', ''], ['メイン写真', '']].forEach(r => setting.appendRow(r));
     setting.getRange('B8').setNote('休みにする曜日を「日,水」のように書きます。毎週その曜日が予約できなくなります。');
+  }
+
+  const style = ss.getSheetByName(STYLE_SHEET) || ss.insertSheet(STYLE_SHEET);
+  if (style.getLastRow() === 0) {
+    style.appendRow(STYLE_HEADERS);
+    style.getRange(1, 1, 1, STYLE_HEADERS.length).setFontWeight('bold').setBackground('#f3efea');
+    style.setFrozenRows(1);
+    style.setColumnWidth(1, 300);
+    style.setColumnWidth(4, 300);
+    style.getRange('B2').setNote('ギャラリーの絞り込みタブになります。「ショート」「カラー」「店内」など。');
+    [['白髪ぼかし・ホワイトメッシュ', 'カラー', '白髪ぼかし,ホワイトメッシュ', '', '○'],
+     ['スパイキーショート', 'ショート', 'ショート,フェード', '', '○'],
+     ['シャドウパーマ・マッシュ', 'パーマ', 'パーマ,マッシュ', '', '○'],
+     ['店内', '店内', '半個室,ドリンクサービス', '', '○']].forEach(r => style.appendRow(r));
   }
 
   const coupon = ss.getSheetByName(COUPON_SHEET) || ss.insertSheet(COUPON_SHEET);

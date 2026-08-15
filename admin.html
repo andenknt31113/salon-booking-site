@@ -58,6 +58,7 @@
           <button class="tab" type="button" data-pane="closed" aria-selected="false">休業日</button>
           <button class="tab" type="button" data-pane="menus" aria-selected="false">メニュー</button>
           <button class="tab" type="button" data-pane="coupons" aria-selected="false">クーポン</button>
+          <button class="tab" type="button" data-pane="styles" aria-selected="false">写真</button>
           <button class="tab" type="button" data-pane="settings" aria-selected="false">店舗情報</button>
           <button class="btn btn-ghost btn-sm" type="button" id="forget-device"
                   style="margin-left:auto;">この端末の記憶を消す</button>
@@ -107,6 +108,17 @@
           <div id="coupon-rows"></div>
           <button class="btn btn-ghost btn-sm" type="button" data-add="coupons">＋ クーポンを追加</button>
           <button class="btn btn-primary btn-block" type="button" data-save="coupons">クーポンを保存</button>
+        </div>
+
+        <!-- 写真（ヘアカタログ・店内） -->
+        <div class="admin-pane" data-pane="styles" hidden>
+          <p class="note" style="margin:0 0 16px;">
+            ギャラリーに並ぶ写真です。「分類」に入れた言葉が、そのまま絞り込みのタブになります
+            （例：ショート／フェード／カラー／パーマ／店内）。同じ分類の写真はまとめて並びます。
+          </p>
+          <div id="style-rows"></div>
+          <button class="btn btn-ghost btn-sm" type="button" data-add="styles">＋ 写真を追加</button>
+          <button class="btn btn-primary btn-block" type="button" data-save="styles">写真を保存</button>
         </div>
 
         <!-- 店舗情報 -->
