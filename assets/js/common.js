@@ -430,11 +430,26 @@ function normalizeItem(m) {
 
 const Catalog = {
   loaded: false,
+  loading: null,
   source: 'local',   // 'local' = data.js / 'sheet' = スプレッドシート
 
-  async load() {
-    if (this.loaded) return this.source;
-    this.loaded = true;
+  /* 予約ページでは pages.js と reserve.js の両方がこれを呼びます。
+     取得中の呼び出しに 'local' を返してしまうと、負けたほうは
+     「シートではなかった」と判断して描き直しを飛ばします。
+     すると SALON の中身はシート由来なのに、画面には data.js 由来の
+     ボタンが並んだままになり、選んでも合計に入らない状態になります。
+     取得中は同じ約束を返して、全員に同じ結果を渡します。 */
+  load() {
+    if (this.loading) return this.loading;
+    if (this.loaded) return Promise.resolve(this.source);
+    this.loading = this._fetch().finally(() => {
+      this.loaded = true;
+      this.loading = null;
+    });
+    return this.loading;
+  },
+
+  async _fetch() {
     if (!SALON.reservationEndpoint) return this.source;
 
     try {

@@ -215,6 +215,16 @@ function renderMapLinks(section) {
 /* ---------- ページごとの初期化 ---------- */
 function initHome() {
   const _wire = () => wireImageFallbacks();
+
+  /* 管理ページの「お知らせ」。入力されているときだけ帯を出します。
+     入れても出ないと、店側は入力欄を信用しなくなります。 */
+  const noticeBox = $('#shop-notice');
+  if (noticeBox) {
+    const text = String(SALON.notice || '').trim();
+    $('#shop-notice-text').textContent = text;
+    noticeBox.hidden = !text;
+  }
+
   // 評価は実際に集まってから出す（rating が null のあいだは表示しない）
   if (SALON.rating) {
     $('#hero-score').textContent = SALON.rating.toFixed(1);

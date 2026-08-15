@@ -182,6 +182,24 @@ const demo = `
     return 返す({ ok:false, error:'見本では扱っていない操作です。' });
   };
 
+  /* この見本には管理ページしか入っていません。
+     ヘッダーの「スタイル」などを押すと、隣に無いページを探しに行って
+     エラーになるので、押しても何も起きないようにしておきます。 */
+  document.addEventListener('click', function (e) {
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (!href.includes('.html')) return;
+    e.preventDefault();
+    const note = document.getElementById('demo-nav-note');
+    if (note) {
+      note.hidden = false;
+      note.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      clearTimeout(window.__navNoteTimer);
+      window.__navNoteTimer = setTimeout(function () { note.hidden = true; }, 6000);
+    }
+  }, true);
+
   /* 見本であることを、開いた人に必ず分かるようにしておく */
   document.addEventListener('DOMContentLoaded', function () {
     const m = document.getElementById('gate-message');
@@ -190,7 +208,13 @@ const demo = `
     const p = document.getElementById('passcode');
     if (p) p.value = 'zer01';
     const head = document.querySelector('.page-head p');
-    if (head) head.textContent = '【見本】実際の画面と同じものが動いています。データだけ作りものです。';
+    if (head) {
+      head.textContent = '【見本】実際の画面と同じものが動いています。データだけ作りものです。';
+      head.insertAdjacentHTML('afterend',
+        '<div class="notice is-warn" id="demo-nav-note" hidden style="margin-top:14px;">'
+        + '<b>ご案内</b><span>この見本には管理ページだけが入っています。'
+        + 'サロンTOPやスタイルなど他のページは、予約サイトのプレビューでご覧ください。</span></div>');
+    }
   });
 })();
 `;
