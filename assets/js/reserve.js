@@ -132,7 +132,8 @@ function initStep1() {
  *  STEP2: スタッフ選択
  * ============================================================ */
 function renderStaffChoices() {
-  const none = `
+  // スタイリストが1名のサロンでは「指名なし」は出さない
+  const none = SALON.staff.length <= 1 ? '' : `
     <button class="selectable ${state.staffChosen && !state.staffId ? 'is-selected' : ''}" type="button" data-staff="">
       <span class="selectable-title">指名なし（おまかせ）</span>
       <span class="selectable-sub">当日空いているスタッフが担当いたします。指名料はかかりません。</span>
@@ -487,6 +488,12 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDraft();
   applyQueryParams();
   if (state.step === 6) state.step = 1;
+
+  // スタイリストが1名なら、その人を初めから選んでおく
+  if (SALON.staff.length === 1 && !state.staffChosen) {
+    state.staffId = SALON.staff[0].id;
+    state.staffChosen = true;
+  }
 
   initStep1();
   initStep2();

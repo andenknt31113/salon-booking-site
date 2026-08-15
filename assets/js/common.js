@@ -252,8 +252,8 @@ const Availability = {
     }).length;
 
     if (free === 0) return { symbol: '×', free: 0, available: false, reason: 'full' };
-    // 指名ありの場合は対象が1名なので「空きの多さ」は出さず ○ で表示する
-    if (staffId) return { symbol: '○', free, available: true, reason: '' };
+    // 対象が1名のときは「空きの多さ」に意味がないので ○ で表示する
+    if (staffId || SALON.staff.length === 1) return { symbol: '○', free, available: true, reason: '' };
     if (free === 1) return { symbol: '△', free, available: true, reason: '' };
     if (free === 2) return { symbol: '○', free, available: true, reason: '' };
     return { symbol: '◎', free, available: true, reason: '' };
@@ -386,7 +386,7 @@ function renderHeader() {
   }).join('');
 
   const draft = SALON.draft
-    ? '<div class="draft-banner">準備中：メニュー・料金・店舗情報は仮の内容です</div>'
+    ? `<div class="draft-banner">${esc(SALON.draftNote || '準備中：内容は仮のものです')}</div>`
     : '';
 
   host.innerHTML = `
@@ -462,7 +462,7 @@ function renderFooter() {
 
 /* ページタイトルを設定ファイルから補完 */
 function applyDocumentTitle() {
-  const base = `${SALON.name} ${SALON.branch}`;
+  const base = `${SALON.name} ${SALON.nameSub || SALON.branch}`.trim();
   document.title = document.title ? `${document.title}｜${base}` : base;
 }
 

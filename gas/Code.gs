@@ -13,9 +13,9 @@
    ============================================================ */
 const SHEET_NAME    = '予約一覧';                // 台帳にするシート名
 const NOTIFY_EMAIL  = 'salon@example.com';       // 店舗の通知先メール（空にすると通知しません）
-const SALON_NAME    = 'ZER01 barber & lounge';   // メール件名の先頭に入ります
+const SALON_NAME    = 'ZER01 barber/lounge';     // メール件名の先頭に入ります
 const SALON_TEL     = '';                        // ★要確認（未確認のうちは空のまま）
-const SALON_ADDRESS = '茨城県龍ケ崎市白羽1丁目';  // ★要確認（番地）
+const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
 const SITE_URL      = 'https://andenknt31113.github.io/salon-booking-site/';
 
 /* お客様へ予約確認メールを送るか（false にすると店舗への通知のみ） */
@@ -330,8 +330,8 @@ function testReserve() {
     code: 'LM-TEST1',
     createdAt: new Date().toISOString(),
     date: '2026-09-01', time: '11:00', endTime: '12:10', totalMinutes: 70,
-    menus: [{ name: '【人気】フェードカット + シャンプー' }],
-    staffId: 'st01', staffName: 'スタッフA', nominationFee: 0, totalPrice: 5000,
+    menus: [{ name: '【清潔感と品が続く】men\'s骨格補正カット＋眉カット' }],
+    staffId: 'st01', staffName: 'MATTEO', nominationFee: 0, totalPrice: 6900,
     customer: {
       name: 'テスト 太郎', kana: 'テスト タロウ',
       tel: '09000000000', email: 'test@example.com',

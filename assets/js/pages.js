@@ -117,21 +117,28 @@ function renderSalonInfo(host) {
   if (!host) return;
   const b = SALON.business;
   const closed = b.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・') || '年中無休';
+  const hours = `${b.openTime}〜${b.closeTime}（最終受付 ${b.lastOrder}）`
+    + (b.note ? `\n※${b.note}` : '');
+
   const rows = [
-    ['店名', `${SALON.name} ${SALON.nameSub || ''}（${SALON.nameJa}）`.trim()],
+    ['店名', SALON.fullName || `${SALON.name} ${SALON.nameSub || ''}`.trim()],
     ['電話番号', SALON.tel],
     ['住所', SALON.address],
     ['アクセス', SALON.access],
-    ['営業時間', `${b.openTime}〜${b.closeTime}（最終受付 ${b.lastOrder}）`],
+    ['道案内', SALON.directions],
+    ['営業時間', hours],
     ['定休日', closed],
     ['席数', SALON.seats],
+    ['スタッフ数', SALON.staffCount],
+    ['駐車場', SALON.parking],
     ['支払方法', SALON.payment],
-    ['駐車場', SALON.parking]
+    ['こだわり条件', (SALON.features || []).join('／')]
   ];
   // 未確認で空にしてある項目は、行ごと出さない
   host.innerHTML = rows
     .filter(([, v]) => v)
-    .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
+    .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v).replace(/\n/g, '<br />')}</td></tr>`)
+    .join('');
 }
 
 /* ---------- ページごとの初期化 ---------- */
@@ -224,7 +231,9 @@ function initReviewsPage() {
     : '';
   $('#review-list').innerHTML = SALON.reviews.length
     ? SALON.reviews.map(reviewCard).join('')
-    : '<p class="empty-state">口コミはまだ届いていません。<br />ご来店後のアンケートにご協力いただけると励みになります。</p>';
+    : `<p class="empty-state">${SALON.reviewCount
+        ? `${SALON.reviewCount}件の評価をいただいています。<br />個別の口コミはただいま準備中です。`
+        : '口コミはまだ届いていません。<br />ご来店後のアンケートにご協力いただけると励みになります。'}</p>`;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
