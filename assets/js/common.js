@@ -726,7 +726,12 @@ async function sendReview(payload) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ type: 'review', ...payload })
     });
-    return await res.json();
+    const data = await res.json();
+    // 照会と同じ理由で、形が違う応答は失敗として扱います
+    if (!data || typeof data.ok !== 'boolean') {
+      return { ok: false, error: '受信先から予期しない応答が返りました。' };
+    }
+    return data;
   } catch (e) {
     console.warn('ご感想を送れませんでした', e);
     return { ok: false, error: '通信に失敗しました。時間をおいてお試しください。' };
@@ -744,7 +749,14 @@ async function lookupReservation(code, tel) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ type: 'lookup', code: code, tel: tel })
     });
-    return await res.json();
+    const data = await res.json();
+    /* 形が違う応答（Googleのログイン画面など）は失敗として扱います。
+       公開設定を間違えて入れ直すと、JSONではなくHTMLが返ってきます。
+       そのまま返すと、お客様の画面には何も出ないまま「終わった」ように見えます。 */
+    if (!data || typeof data.ok !== 'boolean') {
+      return { ok: false, error: '受信先から予期しない応答が返りました。' };
+    }
+    return data;
   } catch (e) {
     console.warn('照会に失敗しました', e);
     return { ok: false, error: '通信に失敗しました。時間をおいてお試しください。' };

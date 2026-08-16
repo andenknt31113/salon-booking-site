@@ -37,6 +37,16 @@ const SHEET_COUPON = [
   { クーポン名: '【シート】メンズ縮毛矯正', 価格: 22000, 通常価格: 24000, '所要(分)': 180, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '', 表示: '○' }
 ];
 
+/* 初期値の控え。reset で全部ここに戻します。
+
+   このサーバーは立ち上げっぱなしにできるので、先に流した試験が
+   休業日やメニューを書き換えたまま次の試験に入ります。すると
+   「今日は休業日です」と断られるなど、サイトのせいではない失敗が出ます。
+   台帳（LEDGER）だけ空にしても足りません。 */
+const INITIAL = JSON.parse(JSON.stringify({
+  menu: SHEET_MENU, closed: SHEET_CLOSED, style: SHEET_STYLE, coupon: SHEET_COUPON
+}));
+
 const types = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -165,6 +175,15 @@ http.createServer((req, res) => {
       if (d.type === 'reset') {
         LEDGER.length = 0; SHEET_REVIEW.length = 0; UPLOADS.length = 0;
         TOKENS.clear(); SLOW.ms = 0; FAIL.on = false; HTML.on = false;
+        // シートの中身も初期値に戻す（前の試験の書き換えを持ち越さない）
+        const restore = (arr, init) => { arr.length = 0; JSON.parse(JSON.stringify(init)).forEach(x => arr.push(x)); };
+        restore(SHEET_MENU, INITIAL.menu);
+        restore(SHEET_CLOSED, INITIAL.closed);
+        restore(SHEET_STYLE, INITIAL.style);
+        restore(SHEET_COUPON, INITIAL.coupon);
+        SHEET_SETTINGS = { '電話番号': '', '営業開始': '09:00', '営業終了': '22:00', '最終受付': '21:00',
+          'LINE友だち追加URL': '', 'Google口コミURL': '',
+          'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '' };
         return reply(res, { ok: true });
       }
 

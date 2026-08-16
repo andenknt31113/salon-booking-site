@@ -777,6 +777,21 @@ console.log('\n【UC21】Apps Script を入れ直して、公開設定を間違�
     seen.stored.length === 1 && seen.stored[0].delivered === false, true);
   console.log('   見出し:', seen.head);
 
+  /* 照会も同じです。ここが黙って失敗すると、お客様は
+     「番号が違うのかな」と何度も打ち直すことになります。 */
+  const q = await newPhone('UC21-照会');
+  await q.goto(B + '/mypage.html'); await q.waitForTimeout(1300);
+  await q.fill('#lookup-code', 'LM-ZZZZZ');
+  await q.fill('#lookup-tel', '09011119999');
+  await q.click('#lookup-btn'); await q.waitForTimeout(2500);
+  const lookErr = await q.evaluate(() => {
+    const e = document.querySelector('#lookup-error');
+    return e && e.style.display !== 'none' ? e.innerText : '';
+  });
+  check('UC21', '照会も、失敗したと画面で分かる', lookErr.trim().length > 0, true);
+  console.log('   照会の知らせ:', lookErr.replace(/\s+/g, ' ').slice(0, 60));
+  await q.context().close();
+
   await post({ type: 'htmlmode', on: false });
   await p.context().close();
 }
