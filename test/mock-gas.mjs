@@ -105,8 +105,11 @@ function buildMenu() {
   const groups = [];
   SHEET_MENU.forEach((r, i) => {
     if (String(r.表示).trim() === '×') return;
-    let g = groups.find(x => x.name === r.区分);
-    if (!g) { g = { id: 'cat' + groups.length, name: r.区分, items: [] }; groups.push(g); }
+    /* 区分が空でも、本物と同じ既定名でまとめます。
+       ここを本番より緩くすると、本番では起きない不具合を試験で作れてしまいます。 */
+    const catName = String(r.区分 || 'メニュー').trim();
+    let g = groups.find(x => x.name === catName);
+    if (!g) { g = { id: 'cat' + groups.length, name: catName, items: [] }; groups.push(g); }
     const p = parsePrice(r.価格);
     g.items.push({ id: 'sm' + i, name: r.メニュー名, price: p.value, priceFrom: p.from,
       minutes: r['所要(分)'], note: r.説明, image: String(r.画像 || '') });
@@ -124,7 +127,7 @@ function buildReviews() {
 
 function buildStyles() {
   const out = SHEET_STYLE.filter(r => String(r.表示).trim() !== '×').map((r, i) => ({
-    id: 'ss' + i, title: r.タイトル, length: r.分類, staffId: null,
+    id: 'ss' + i, title: r.タイトル, length: String(r.分類 || 'スタイル').trim(), staffId: null,
     tags: String(r.タグ || '').split(/[,、・\s]+/).filter(Boolean),
     image: String(r.画像 || ''), hue: (i * 37) % 360
   }));
@@ -134,7 +137,7 @@ function buildStyles() {
 function buildCoupons() {
   const out = SHEET_COUPON.filter(r => String(r.表示).trim() !== '×').map((r, i) => {
     const p = parsePrice(r.価格);
-    return { id: 'sc' + i, badge: r.対象, title: r.クーポン名, detail: r.説明,
+    return { id: 'sc' + i, badge: String(r.対象 || '全員').trim(), title: r.クーポン名, detail: r.説明,
       price: p.value, priceFrom: p.from, listPrice: Number(r.通常価格) || null,
       minutes: r['所要(分)'], terms: r.条件, image: String(r.画像 || '') };
   });

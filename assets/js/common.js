@@ -75,8 +75,15 @@ function esc(str) {
   ));
 }
 /** 星表示 */
+/* 星の数。
+
+   四捨五入すると 4.5 が★5つになり、「4.5」と書いた隣に満点の星が並びます。
+   実際より高く見せることになるので、切り捨てます。
+   半分の星は使いません。端末によっては豆腐（□）になる文字だからです。
+   細かい数字は、星のとなりに数値でも出しています。 */
 function stars(score) {
-  const full = Math.round(score);
+  const n = Number(score);
+  const full = Math.max(0, Math.min(5, Math.floor(isFinite(n) ? n : 0)));
   return '★'.repeat(full) + '☆'.repeat(5 - full);
 }
 
