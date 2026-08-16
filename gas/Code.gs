@@ -1570,11 +1570,17 @@ function doAdminUpload_(d) {
   const file = imageFolder_().createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
+  /* <img> から直接読める形式。ドライブの共有リンクそのままでは表示できません。
+
+     はじめは drive.google.com/thumbnail?id=… を返していましたが、この入口は
+     よそのページから続けて読みにいくと Google に断られることがあります。
+     断られるかどうかはそのときの回数によるので、同じ写真が「出たり出なかったり」
+     しました。店の人には、入れたはずの写真が勝手に消えたように見えます。
+     画像用の配信元を通す形にします。 */
   return {
     ok: true,
     name: name,
-    // <img> から直接読める形式。ドライブの共有リンクそのままでは画像として表示できません。
-    url: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1200'
+    url: 'https://lh3.googleusercontent.com/d/' + file.getId() + '=w1200'
   };
 }
 

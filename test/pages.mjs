@@ -71,7 +71,11 @@ console.log('\n【1】写真がまだ1枚も無い状態（いまの実態）');
 {
   const p = await newPhone('1', { noPhoto: true });
   for (const page of ['index.html', 'gallery.html', 'staff.html', 'menu.html', 'reviews.html']) {
-    await p.goto(B + '/' + page); await p.waitForTimeout(1600);
+    /* 読めなかった写真は、すぐには消しません。Googleドライブは続けて読むと
+       一時的に断ってくることがあり、1回で見限ると同じ写真が「出たり出なかったり」
+       するためです（common.js の settlePhoto）。読み直しが尽きるまで待ってから
+       数えます。ここを待たずに数えると、直しの途中の状態を失敗と呼んでしまいます。 */
+    await p.goto(B + '/' + page); await p.waitForTimeout(4000);
     const r = await p.evaluate(() => {
       const vis = el => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
       return {

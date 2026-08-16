@@ -522,11 +522,31 @@ const Remote = {
  * ============================================================ */
 /* シートは人が手で書く場所なので、数字の欄に数字以外が入ることがある。
    そのまま使うと合計が NaN になり、金額も所要時間も出せなくなる。 */
+/* Googleドライブに置いた写真のURLを、読める形にそろえます。
+
+   管理ページから上げた写真は、はじめ
+     https://drive.google.com/thumbnail?id=◯◯&sz=w1200
+   の形で保存していました。ところがこの入口は、よそのページから直接
+   読みにいくと Google に断られることがあります。断られるかどうかは
+   そのときの回数や運によるので、同じ写真が「出たり出なかったり」します。
+   店の人には、入れたはずの写真が勝手に消えたように見えます。
+
+   画像用の配信元（lh3.googleusercontent.com）を通す形なら安定します。
+   すでにシートに入っている古い形も、ここで読み替えます。
+   店の人が入れ直す必要はありません。 */
+function driveImageUrl(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return s;
+  const m = s.match(/^https:\/\/drive\.google\.com\/(?:thumbnail\?id=|uc\?(?:export=view&)?id=|file\/d\/)([A-Za-z0-9_-]+)/);
+  return m ? `https://lh3.googleusercontent.com/d/${m[1]}=w1200` : s;
+}
+
 function normalizeItem(m) {
   const price = Number(m.price);
   const minutes = Number(m.minutes);
   return {
     ...m,
+    image: driveImageUrl(m.image),
     price: Number.isFinite(price) && price > 0 ? price : 0,
     minutes: Number.isFinite(minutes) && minutes > 0 ? minutes : SALON.business.slotMinutes
   };
@@ -576,7 +596,7 @@ const Catalog = {
         this.source = 'sheet';
       }
       if (Array.isArray(data.styles) && data.styles.length) {
-        SALON.styles = data.styles;
+        SALON.styles = data.styles.map(x => ({ ...x, image: driveImageUrl(x.image) }));
         this.source = 'sheet';
       }
       /* 口コミ。評価の数値はここから計算します。
@@ -684,9 +704,9 @@ function applySettings(st) {
   setUrl('LINE友だち追加URL', v => { SALON.lineAddUrl = v; });
   setUrl('Google口コミURL', v => { SALON.googleReviewUrl = v; });
 
-  set('ロゴ画像', v => { SALON.logo = v; });
-  set('スタッフ写真', v => { if (SALON.staff[0]) SALON.staff[0].image = v; });
-  set('メイン写真', v => { SALON.heroImage = v; });
+  set('ロゴ画像', v => { SALON.logo = driveImageUrl(v); });
+  set('スタッフ写真', v => { if (SALON.staff[0]) SALON.staff[0].image = driveImageUrl(v); });
+  set('メイン写真', v => { SALON.heroImage = driveImageUrl(v); });
   if (st['お知らせ'] !== undefined) SALON.notice = String(st['お知らせ']).trim();
 
   /* 定休曜日。「日,水」「日曜・水曜」どちらの書き方でも読み取ります。
@@ -835,46 +855,56 @@ function brandLockup(opt = {}) {
 }
 
 /** 画像が読み込めなかったときの取り扱いをまとめて設定する */
+/* 写真が読めたか読めなかったかを見届けます。
+
+   読めなかったからといって、すぐには消しません。
+   Googleドライブに置いた写真は、続けて何枚も読みにいくと
+   一時的に断られることがあります。1回の失敗で消してしまうと、
+   同じページを開くたびに写真が出たり出なかったりします。
+   店の人には、入れたはずの写真が勝手に消えたように見えます。
+
+   間を置いて2回まで読み直し、それでも駄目なときだけ消します。 */
+function settlePhoto(img, show, drop, tries = 2) {
+  let left = tries;
+  const src = img.getAttribute('src') || '';
+
+  const retry = () => {
+    if (left <= 0 || !src) { drop(); return; }
+    left--;
+    /* URLをそのまま入れ直すと、ブラウザが失敗した結果を返してくることが
+       あります。意味のない印を足して、必ず取りに行かせます。 */
+    setTimeout(() => {
+      img.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + 'retry=' + left;
+    }, 700 * (tries - left));
+  };
+
+  img.addEventListener('load', () => { if (img.naturalWidth > 0) show(); });
+  img.addEventListener('error', retry);
+  // 描く前に読み終わっていた場合は、上の通知が来ません
+  if (img.complete) { img.naturalWidth > 0 ? show() : retry(); }
+}
+
 function wireImageFallbacks(root = document) {
   /* ロゴ：文字ロゴを既定にして、画像が読めたときだけ差し替える。
      「まず画像を出して、失敗したら文字に戻す」向きだと、
      読み込みに失敗するまでのあいだ壊れた画像アイコンと alt 文字が出てしまう。 */
   $$('.brand-lockup img', root).forEach(img => {
-    const useImage = () => img.closest('.brand-lockup')?.classList.add('is-image');
-    const drop = () => img.remove();
-    if (img.complete) {
-      img.naturalWidth > 0 ? useImage() : drop();
-      return;
-    }
-    img.addEventListener('load', useImage, { once: true });
-    img.addEventListener('error', drop, { once: true });
+    settlePhoto(img,
+      () => img.closest('.brand-lockup')?.classList.add('is-image'),
+      () => img.remove());
   });
   /* 写真：読めたときだけ見せる。
      ロゴと同じ理由で「まず出して失敗したら消す」向きにはしない。
      読み込みに失敗するまでのあいだ、壊れた画像が意匠の上に重なってしまう。 */
   $$('.ph-photo', root).forEach(img => {
-    const show = () => img.classList.add('is-ready');
-    const drop = () => img.remove();
-    if (img.complete) {
-      img.naturalWidth > 0 ? show() : drop();
-      return;
-    }
-    img.addEventListener('load', show, { once: true });
-    img.addEventListener('error', drop, { once: true });
+    settlePhoto(img, () => img.classList.add('is-ready'), () => img.remove());
   });
   /* メニューの写真は任意。
      置いてあるとは限らないパスを先に書いてあるので、
      「読めたら写真の場所を空ける」向きにする。
      先に場所を空けてから消すと、読み込みのたびに列がガタつく。 */
   $$('.ph-photo-opt', root).forEach(img => {
-    const show = () => img.parentElement?.classList.add('has-photo');
-    const drop = () => img.remove();
-    if (img.complete) {
-      img.naturalWidth > 0 ? show() : drop();
-      return;
-    }
-    img.addEventListener('load', show, { once: true });
-    img.addEventListener('error', drop, { once: true });
+    settlePhoto(img, () => img.parentElement?.classList.add('has-photo'), () => img.remove());
   });
 }
 
