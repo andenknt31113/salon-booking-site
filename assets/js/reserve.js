@@ -143,7 +143,11 @@ function priceText(m) {
 function totalText() {
   const menus = selectedMenus();
   const total = totalPrice();
-  if (!menus.length) return yen(0);
+  /* まだ何も選んでいないとき「¥0」と出していました。
+     金額の欄に0円と書いてあれば、それは「無料」と読めます。
+     すぐ下に「メニューをお選びいただくと合計金額が表示されます」と
+     書いてあるのに、その上で0円と言っているので、矛盾もしています。 */
+  if (!menus.length) return '—';
   const unsure = menus.some(m => !m.price || m.priceFrom);
   if (!total) return 'お見積り';
   return yen(total) + (unsure ? '〜' : '');
@@ -156,7 +160,7 @@ function renderCouponChoices() {
   $('#coupon-choices').innerHTML = SALON.coupons.map(c => `
     <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}">
       <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
-      <span class="selectable-sub">${esc(c.detail)}</span>
+      ${c.detail ? `<span class="selectable-sub">${esc(c.detail)}</span>` : ''}
       <span class="selectable-meta">
         <strong class="${c.price ? '' : 'is-quote'}">${priceText(c)}</strong>
         <span class="selectable-time">約${formatDuration(c.minutes)}</span>
@@ -1021,7 +1025,8 @@ function renderStepCta() {
 function stepCtaInfo() {
   if (state.step === 1) {
     const n = (state.couponId ? 1 : 0) + state.menuIds.length;
-    return `${n}件 ／ ${totalText()}`;
+    // 0件のときに「0件 ／ —」と並べても読む値が無いので、次にすることだけ出します
+    return n ? `${n}件 ／ ${totalText()}` : 'メニューをお選びください';
   }
   if (state.step === 2) return staffLabel(state.staffId);
   if (state.step === 3) return `${formatDateJa(state.date)} ${state.time}〜`;
