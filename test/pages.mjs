@@ -424,6 +424,89 @@ console.log('\n【9】書いていることと、やっていることが合っ�
 }
 
 /* ============================================================
+   【10】掲載どおりの内容が、掲載どおりに出ているか
+
+   メニューは店の言葉です。読みやすくしようとして言い換えると、
+   お客様が掲載で見たものと違うものが出ます。誤字に見える箇所も
+   そのままにしてあるので、勝手に直っていないことを確かめます。
+
+   シートを読む前（＝いまの公開状態）を見たいので、受信先を空にします。
+   ============================================================ */
+console.log('\n【10】掲載どおりの内容（data.js）');
+{
+  const p = await newPhone('10', { noEndpoint: true });
+  await p.goto(B + '/menu.html'); await p.waitForTimeout(1800);
+  const main = await p.locator('main').innerText();
+
+  check('10', 'おすすめメニューは掲載どおり14件', await p.locator('#coupon-list .coupon').count(), 14);
+  check('10', '単品メニューは掲載どおり9件', await p.locator('#menu-list .menu-row').count(), 9);
+
+  /* 掲載が「¥0」の2件。無料ではなく価格未定なので、¥0 と出してはいけない。
+     無料だと思って来られると有利誤認になり、店が断る側に回ります。 */
+  check('10', 'メニューページのどこにも「¥0」が出ない', /¥\s*0(?![\d,])/.test(main), false);
+  check('10', '価格未定の2件が「お見積り」になっている',
+    (main.match(/カウンセリングでお見積り/g) || []).length, 2);
+
+  /* 「¥4,000〜」の「〜」。全角チルダ（～）で書くと priceFrom が立たず、
+     「¥4,000」と言い切ってしまう。来店してから金額が違うことになる。 */
+  check('10', '「¥4,000〜」の「〜」が出ている',
+    (await p.locator('#menu-list .menu-row-price').first().innerText()).trim(), '¥4,000〜');
+  check('10', '「〜から」が付く単品は掲載どおり5件',
+    (main.match(/¥[\d,]+〜/g) || []).length, 5);
+
+  /* 掲載の文言が、読みやすさのために書き換えられていないか。
+     どれも「直したくなる」形なので、直っていたら気づけるようにしておく。 */
+  check('10', '誤字に見える「こちも」を直していない', /こちも選択ください/.test(main), true);
+  check('10', '句点の無い説明文をそのまま出している',
+    /メンテナンスメニューになりますスキンフェードは＋500になります/.test(main), true);
+  check('10', 'ヘアセットの「※シャンプーブロー込み」が消えていない',
+    /ヘアセット ※シャンプーブロー込み/.test(main), true);
+  /* 以前ここには前任が書いた「シャンプーは含まれません。」が入っていた。
+     掲載は「込み」なので、逆のことを書いていた。 */
+  check('10', '掲載と逆の「シャンプーは含まれません」が残っていない',
+    /シャンプーは含まれません/.test(main), false);
+
+  // トップにもおすすめメニューが出る。こちらにも ¥0 を出さない
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
+  check('10', 'トップにも「¥0」が出ない',
+    /¥\s*0(?![\d,])/.test(await p.locator('main').innerText()), false);
+
+  /* 掲載のスタッフ情報。持っているだけで画面に出ないと、
+     あとから誰も気づけない（得意な技術・趣味は掲載にある文章）。 */
+  await p.goto(B + '/staff.html'); await p.waitForTimeout(1800);
+  const staff = await p.locator('#staff-list').innerText();
+  check('10', '肩書きが掲載どおり', /owner/.test(staff), true);
+  check('10', '経験年数が出ている', /経験6年/.test(staff), true);
+  check('10', '掲載の「得意な技術」が画面に出ている', /得意な技術/.test(staff), true);
+  check('10', '掲載の「趣味・マイブーム」が画面に出ている', /趣味・マイブーム/.test(staff), true);
+
+  await p.goto(B + '/gallery.html'); await p.waitForTimeout(1800);
+  check('10', 'スタイルは掲載どおり12件', await p.locator('#style-list .style-card').count(), 12);
+  const gallery = await p.locator('#style-list').innerText();
+  /* タイトルとタグだけだと語の羅列に見える。掲載の説明文が出ていること。 */
+  check('10', 'スタイルの説明文が画面に出ている',
+    /癖毛の方は曲がる縮毛矯正、直毛の方はニュアンスパーマで再現可能です/.test(gallery), true);
+  check('10', '誤字に見える「感メッシュ」を直していない', /感メッシュ/.test(gallery), true);
+  check('10', '誤字に見える「出ずらい」を直していない', /出ずらい/.test(gallery), true);
+
+  /* 店舗情報。ここは来店できるかどうかに直結する。 */
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
+  const info = await p.locator('#salon-info').innerText();
+  /* 掲載には「竜ヶ崎市」と「龍ケ崎市」が混在していた。住所は正しい字でないと、
+     カーナビに入れた方がたどり着けない。 */
+  check('10', '住所の「竜ヶ崎」が残っていない', /竜ヶ崎/.test(info), false);
+  /* 曜日の定休日が無い店。「年中無休」「なし」と出すと、いつ行っても
+     開いていると読まれる。掲載は不定休で、出張の週は出勤日数が減る。 */
+  check('10', '定休日を「年中無休」と書いていない', /年中無休/.test(info), false);
+  check('10', '掲載の定休日の注記が出ている', /不定休 都内出張/.test(info), true);
+  /* スタイリスト1名の店で「男性スタッフが多い」と書くと、複数いると読まれる。
+     同じ表の「スタッフ数 スタイリスト1名」と食い違う。 */
+  check('10', '1名の店に「男性スタッフが多い」と書いていない', /男性スタッフが多い/.test(info), false);
+  check('10', '掲載のこだわり条件は出ている', /店頭でのカード支払いOK/.test(info), true);
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

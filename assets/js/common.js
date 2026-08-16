@@ -989,7 +989,11 @@ function renderFooter() {
             ${SALON.access ? `<p>${esc(SALON.access)}</p>` : ''}
             ${SALON.tel ? `<p style="margin-top:10px;">TEL ${esc(SALON.tel)}</p>` : ''}
             <p>営業時間 ${esc(SALON.business.openTime)}〜${esc(SALON.business.closeTime)}（最終受付 ${esc(SALON.business.lastOrder)}）</p>
-            <p>定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・') || 'なし'}</p>
+            ${/* 曜日が決まっていない店で「定休日 なし」と出すと、いつ行っても開いていると
+                  読まれます。掲載の注記があれば、その先頭の語（「不定休」）を出します。
+                  全文は店舗情報の表にあります。 */ ''}
+            <p>定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・')
+              || esc(String(SALON.business.closedNote || '').split(/[\s　]/)[0]) || 'なし'}</p>
           </div>
           <div>
             <h4>MENU</h4>

@@ -128,7 +128,7 @@ function buildReviews() {
 function buildStyles() {
   const out = SHEET_STYLE.filter(r => String(r.表示).trim() !== '×').map((r, i) => ({
     id: 'ss' + i, title: r.タイトル, length: String(r.分類 || 'スタイル').trim(), staffId: null,
-    tags: String(r.タグ || '').split(/[,、・\s]+/).filter(Boolean),
+    tags: String(r.タグ || '').split(/[,、・\s]+/).filter(Boolean), detail: String(r.説明 || ''),
     image: String(r.画像 || ''), hue: (i * 37) % 360
   }));
   return out.length ? out : null;

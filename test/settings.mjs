@@ -31,6 +31,22 @@ function gasConst(name) {
 }
 const num = name => Number(gasConst(name));
 
+/* Code.gs に書いてある配列（掲載メニューの一覧）を、動かさずに読み取ります。
+   どれも「const 名前 = [ … 改行 ];」の形なので、そこだけ取り出して評価します。 */
+function gasArray(name) {
+  const m = gas.match(new RegExp('const\\s+' + name + '\\s*=\\s*(\\[[\\s\\S]*?\\n\\]);'));
+  return m ? vm.runInNewContext('(' + m[1] + ')') : null;
+}
+
+/* シートの価格欄は「4000〜」のように文字でも書けます（gas の parsePrice_ と同じ読み方）。
+   全角チルダ「～」は parsePrice_ が「〜から」と読まないので、ここでも読みません。
+   そうしておかないと、試験は通るのに画面だけ「¥4,000」と言い切ってしまいます。 */
+function sheetPrice(v) {
+  const s = String(v == null ? '' : v);
+  const n = Number(s.replace(/[^0-9.]/g, ''));
+  return { value: isNaN(n) || !n ? 0 : n, from: /[〜~]/.test(s) };
+}
+
 const problems = [];
 const check = (label, siteValue, gasValue, why) => {
   const same = String(siteValue) === String(gasValue);
@@ -89,6 +105,71 @@ console.log('\n【受け口の場所】');
     console.log('  ❌ URLの形が違います：' + url);
   } else {
     console.log('  ✅ 受け口のURLが入っています');
+  }
+}
+
+/* ============================================================
+   掲載メニューも2か所にあります。
+
+   画面は最初 data.js の内容を描き、そのあとシート（Code.gs が書いた内容）が
+   届くと描き直します。2つがずれていると、開いた直後と数秒後で値段が変わります。
+   お客様は自分が何を見たのか分からなくなり、店の人にも再現できません。
+   ============================================================ */
+console.log('\n【掲載メニュー】画面側（data.js）と、シートに書き込む側（Code.gs）で同じか');
+{
+  const gasMenus = gasArray('LISTED_MENUS');
+  const gasCoupons = gasArray('LISTED_COUPONS');
+  const gasStyles = gasArray('LISTED_STYLES');
+
+  const same = (label, a, b, why) => {
+    const ok = JSON.stringify(a) === JSON.stringify(b);
+    console.log(`  ${ok ? '✅' : '❌'} ${label}`);
+    if (!ok) {
+      console.log('     画面 ' + JSON.stringify(a));
+      console.log('     受け口 ' + JSON.stringify(b));
+      problems.push(`${label}（${why}）`);
+    }
+  };
+
+  if (!gasMenus || !gasCoupons || !gasStyles) {
+    problems.push('Code.gs の掲載メニュー一覧（LISTED_MENUS / LISTED_COUPONS / LISTED_STYLES）が読めない');
+    console.log('  ❌ Code.gs 側の一覧が見つかりません');
+  } else {
+    /* 単品メニュー：区分・名前・価格（「〜から」かどうかも）・所要・説明 */
+    const siteMenus = SALON.menuCategories.flatMap(c => c.items.map(m =>
+      [c.name, m.name, Number(m.price) || 0, !!m.priceFrom, m.minutes, m.note || '']));
+    const sheetMenus = gasMenus.map(r => {
+      const p = sheetPrice(r[2]);
+      return [r[0], r[1], p.value, p.from, r[3], r[4] || ''];
+    });
+    same('単品メニュー9件（区分・名前・価格・所要・説明）', siteMenus, sheetMenus,
+      '開いた直後と数秒後で、メニューの値段や説明が変わります');
+
+    /* おすすめメニュー：名前・価格・「〜から」・所要 */
+    const siteCoupons = SALON.coupons.map(c =>
+      [c.title, Number(c.price) || 0, !!c.priceFrom, c.minutes]);
+    const sheetCoupons = gasCoupons.map(r => {
+      const p = sheetPrice(r[1]);
+      return [r[0], p.value, p.from, r[2]];
+    });
+    same('おすすめメニュー14件（名前・価格・所要）', siteCoupons, sheetCoupons,
+      '開いた直後と数秒後で、おすすめメニューの値段が変わります');
+
+    /* スタイル：タイトル・分類（絞り込みタブ）・タグ・説明 */
+    const siteStyles = SALON.styles.map(s => [s.title, s.length, s.tags.join(','), s.detail || '']);
+    const sheetStyles = gasStyles.map(r => [r[0], r[1], r[2], r[3] || '']);
+    same('スタイル12件（タイトル・分類・タグ・説明）', siteStyles, sheetStyles,
+      'ギャラリーの絞り込みタブと説明文が、シートを読んだ瞬間に入れ替わります');
+
+    /* 価格が空の行は「お見積り」として出ます。0円と書いてしまうと
+       無料だと誤解されます（景品表示法の有利誤認）。 */
+    const zeroSite = SALON.coupons.filter(c => c.price === 0).map(c => c.title);
+    const zeroSheet = gasCoupons.filter(r => r[1] === 0).map(r => r[0]);
+    console.log(`  ${zeroSite.length + zeroSheet.length === 0 ? '✅' : '❌'} 価格に 0 を書いていない（空欄＝お見積り）`);
+    if (zeroSite.length || zeroSheet.length) {
+      problems.push('価格に 0 が入っている（無料だと誤解されます）：'
+        + zeroSite.concat(zeroSheet).join('／'));
+    }
   }
 }
 

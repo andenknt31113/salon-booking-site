@@ -43,12 +43,18 @@ function couponCard(c) {
      書きかけのメニューを出しているように見えました。中身があるときだけ出します。 */
   const detail = String(c.detail ?? '').trim();
   const terms = String(c.terms ?? '').trim();
+  /* 掲載の「カット・カラー」などのタグ。何の施術が入っているのかが
+     タイトルからは読み取りにくい（「当日一緒に考えましょう！」など）ので、
+     掲載と同じく見出しの下に出します。
+     シートから読んだおすすめメニューにはタグ欄がないので、無いこともあります。 */
+  const tags = Array.isArray(c.tags) ? c.tags.filter(t => String(t).trim()) : [];
   return `
     <article class="coupon">
       ${c.image ? `<img class="coupon-photo ph-photo-opt" src="${esc(c.image)}" alt="" />` : ''}
       <div>
         <span class="coupon-badge${badgeClass}">${esc(c.badge)}</span>
         <h3>${esc(c.title)}</h3>
+        ${tags.length ? `<ul class="tag-list">${tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>` : ''}
         ${detail ? `<p class="coupon-detail">${esc(detail)}</p>` : ''}
         ${terms ? `<p class="coupon-terms">※${esc(terms)}</p>` : ''}
       </div>
@@ -61,6 +67,19 @@ function couponCard(c) {
         <a class="btn btn-primary btn-sm" href="reserve.html?menu=${encodeURIComponent(c.id)}">このメニューで予約</a>
       </div>
     </article>`;
+}
+
+/* 紹介文と、掲載の「得意な技術」「趣味・マイブーム」。
+   後の2つは無い場合もある（シートから読んだスタッフには入っていません）ので、
+   中身があるときだけ見出しを付けて出します。
+   .staff-message は flex:1 で余白を吸う欄なので、3つ並べると余白の取り合いに
+   なります。1つのまとまりとして包み、中で段落を分けています。 */
+function staffTextHtml(s) {
+  const extra = [['得意な技術', s.skills], ['趣味・マイブーム', s.hobby]]
+    .filter(([, v]) => String(v ?? '').trim())
+    .map(([label, v]) => `<p style="margin-top:11px;"><b>${esc(label)}</b><br />${esc(v)}</p>`)
+    .join('');
+  return `<div class="staff-message"><p>${esc(s.message)}</p>${extra}</div>`;
 }
 
 function staffCard(s) {
@@ -86,7 +105,7 @@ function staffCard(s) {
         <h3 class="staff-name">${esc(s.name)}</h3>
         ${meta ? `<p class="staff-kana">${esc(meta)}</p>` : ''}
         <ul class="tag-list">${s.tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>
-        <p class="staff-message">${esc(s.message)}</p>
+        ${staffTextHtml(s)}
         <p class="staff-fee">${esc(fee)}</p>
         <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${cta}</a>
       </div>
@@ -95,12 +114,20 @@ function staffCard(s) {
 
 function styleCard(sy) {
   const st = findStaff(sy.staffId);
+  /* 掲載の説明文（「癖毛の方は曲がる縮毛矯正、直毛の方は…」）。
+     タイトルとタグだけだと語の羅列に見えて、どういうスタイルなのかが
+     いちばん伝わる一文が読めません。シートで空にもできる欄なので、
+     中身があるときだけ出します。 */
+  const detail = String(sy.detail ?? '').trim();
   return `
     <article class="style-card">
       ${photoOrPlaceholder(sy, sy.length, 'style-thumb', sy.title)}
       <div class="style-body">
         <h3 class="style-title">${esc(sy.title)}</h3>
         <p class="style-meta">${esc(sy.length)}${st ? '／' + esc(st.name) : ''}</p>
+        ${/* 灰色のままだと分類・タグと同じ見た目に埋もれるので、本文の色にします
+              （style.css は別の作業者が触っているので、ここで指定しています） */ ''}
+        ${detail ? `<p class="style-meta" style="color:var(--text-2);">${esc(detail)}</p>` : ''}
         <p class="style-meta">${sy.tags.map(t => `#${esc(t)}`).join(' ')}</p>
       </div>
     </article>`;
@@ -210,7 +237,11 @@ function renderFaq(host) {
 function renderSalonInfo(host) {
   if (!host) return;
   const b = SALON.business;
-  const closed = b.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・') || '年中無休';
+  /* 定休日。曜日が決まっていない店で「年中無休」とだけ出すと、
+     いつ行っても開いていると読まれます。この店は不定休で、出張の週は
+     出勤日数が減ります。掲載の注記（closedNote）があればそれを出します。 */
+  const closed = [b.closedWeekdays.map(d => WEEKDAY_JA[d] + '曜日').join('・'), b.closedNote]
+    .filter(Boolean).join('\n') || '年中無休';
   const hours = `${b.openTime}〜${b.closeTime}（最終受付 ${b.lastOrder}）`
     + (b.note ? `\n※${b.note}` : '');
 
@@ -314,7 +345,11 @@ function initHome() {
   $('#hero-meta').innerHTML = [
     SALON.access || SALON.address,
     `${SALON.business.openTime}〜${SALON.business.closeTime}`,
-    `定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d]).join('・') || 'なし'}`
+    /* トップの一行なので、定休日の注記は先頭の語（「不定休」）だけ出します。
+       ここに注記を丸ごと入れると、3行の箇条書きが1つだけ長くなって読めません。
+       全文は店舗情報の表に出ています。 */
+    `定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d]).join('・')
+      || String(SALON.business.closedNote || '').split(/[\s　]/)[0] || 'なし'}`
   ].filter(Boolean).map(t => `<li>◍ ${esc(t)}</li>`).join('');
 
   $('#home-coupons').innerHTML = SALON.coupons.slice(0, 3).map(couponCard).join('');
