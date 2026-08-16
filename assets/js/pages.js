@@ -303,7 +303,10 @@ function initHome() {
   }
 
   const heroBrand = $('#hero-brand');
-  if (heroBrand) heroBrand.innerHTML = brandLockup({ size: 'lg', height: 120 });
+  /* トップの大見出しは文字ロゴのままにします。
+     ロゴ画像を大きく出すと、画面の1/3がロゴ1枚で埋まり、
+     「イタリア発、東京経由。」の一文まで下に押し出されます。 */
+  if (heroBrand) heroBrand.innerHTML = brandLockup({ size: 'lg', logo: false });
   $('#hero-catch').textContent = SALON.catch;
   $('#hero-desc').textContent = SALON.description;
   $('#lead-hours').textContent = SALON.business.minLeadHours;

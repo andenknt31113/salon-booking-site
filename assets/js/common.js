@@ -842,13 +842,20 @@ function brandLockup(opt = {}) {
       ${SALON.nameSub ? `<span class="wm-sub">${esc(SALON.nameSub)}</span>` : ''}
     </span>`;
 
-  if (!SALON.logo) return wordmark;
+  /* ロゴ画像は、文字ロゴの「代わり」ではなく「となり」に置きます。
 
-  /* ロゴ画像と文字ロゴの両方を出しておき、画像が読めなければ文字ロゴに戻す。
-     こうしておくと、画像ファイルを置くだけで自動的に切り替わります。 */
+     はじめは画像が読めたら文字ロゴを隠していました。ところが店のロゴは
+     円形の紋章で、中に店名も入っています。大きく出すと、トップの見出しが
+     ロゴ1枚に占領されて、何の店で何ができるのかが読めなくなりました。
+     小さな印として名前の左に添えるほうが、店の名前も肩書きも残ります。
+
+     opt.logo === false のときは画像を使いません。トップの大きな見出しは
+     文字ロゴのままにしたいので、そこで使います。 */
+  if (!SALON.logo || opt.logo === false) return wordmark;
+
   return `
     <span class="brand-lockup">
-      <img class="brand-logo" src="${esc(SALON.logo)}" alt="${esc(SALON.name)}"
+      <img class="brand-logo" src="${esc(SALON.logo)}" alt="" aria-hidden="true"
            style="height:${opt.height || SALON.logoHeight || 34}px" />
       ${wordmark}
     </span>`;

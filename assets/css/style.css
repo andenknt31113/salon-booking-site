@@ -174,13 +174,14 @@ table { border-collapse: collapse; width: 100%; }
   opacity: 0;
 }
 .ph-photo.is-ready { opacity: 1; }
-/* ロゴ画像と文字ロゴの切り替え。
-   既定は文字ロゴ。画像が読めたときだけ is-image が付いて入れ替わる。 */
-.brand-lockup { display: block; min-width: 0; }
-.brand-lockup .brand-logo { display: none; }
-.brand-lockup .wordmark { display: block; }
+/* ロゴ画像は、文字ロゴの左に小さく添える。
+   店名は文字で読ませる（ロゴだけだと、屋号も肩書きも画像頼みになる）。
+   画像が読めるまでは場所を取らせない。読めないまま隙間が空くと、
+   ロゴと名前のあいだが不自然に離れて見える。 */
+.brand-lockup { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-lockup .brand-logo { display: none; flex: none; }
+.brand-lockup .wordmark { display: block; min-width: 0; }
 .brand-lockup.is-image .brand-logo { display: block; }
-.brand-lockup.is-image .wordmark { display: none; }
 
 /* ============================================================
    ヘッダー
@@ -278,7 +279,7 @@ table { border-collapse: collapse; width: 100%; }
 .hero-brand { margin-bottom: 22px; }
 .hero-brand .wm-sub { color: var(--accent); }
 /* ロゴ画像を入れた場合は上限を決めて収める */
-.hero-brand .brand-logo { max-width: min(420px, 82vw); height: auto !important; }
+/* トップの大見出しはロゴ画像を使いません（common.js の brandLockup を参照） */
 .hero-label {
   font-family: var(--font-en); font-size: 10px; letter-spacing: .42em;
   color: var(--muted); margin-bottom: 26px; text-transform: uppercase;
