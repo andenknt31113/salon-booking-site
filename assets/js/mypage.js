@@ -39,12 +39,7 @@ function deadlineOf(dateKey) {
   d.setHours(rule.hour, 0, 0, 0);
   return d;
 }
-function deadlineLabel() {
-  const rule = SALON.business.cancelDeadline || { daysBefore: 1, hour: 18 };
-  return rule.daysBefore === 1
-    ? `前日${rule.hour}時`
-    : `${rule.daysBefore}日前の${rule.hour}時`;
-}
+/* deadlineLabel() は common.js にあります（予約ページ・FAQ でも使うため） */
 
 /* 店舗の台帳が「もう期限切れです」と答えたご予約。
    端末の時計は数分ずれていることがあり、こちらの計算では期限内に見えます。

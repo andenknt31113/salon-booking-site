@@ -205,13 +205,20 @@ const SALON = {
         前に入っていた仮データの並びとそのまま一致したためです。
         たとえば cp07 は前も今も「カット＋ストレート／アイパー ¥19,800」です。
         古い下書きが持っている cp01〜cp14 が、別のメニューを指すことはありません。 */
+  /* 写真は、施術が一致するものだけ割り当てています。
+     掲載側にクーポンの写真は無く、使えるのは「得意分野」の5枚
+     （assets/skill*.jpg）とスタイルの写真です。
+     「髪質改善トリートメント ¥7,000」にカットの写真を貼ると、その料金で
+     その仕上がりになると読まれます。埋めるために貼るのはやりません。
+     合う写真が無い5件（ダメージケア／当日相談／眉毛WAX／髪質改善／
+     ヘアセット）は空のままです。★店主の写真が届いたら差し替えてください。 */
   coupons: [
     {
       id: 'cp01', badge: '全員', tags: ['カット'],
       title: '【清潔感と品が続く】men\'s骨格補正カット＋眉カット',
       detail: '',
       price: 6900, listPrice: null, minutes: 70,
-      image: 'assets/cp01.jpg',
+      image: 'assets/skill5.jpg',
       terms: ''
     },
     {
@@ -219,7 +226,7 @@ const SALON = {
       title: '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース',
       detail: '',
       price: 10000, listPrice: null, minutes: 110,
-      image: 'assets/cp02.jpg',
+      image: 'assets/skill1.jpg',
       terms: ''
     },
     {
@@ -228,7 +235,7 @@ const SALON = {
       title: '【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ　men\'s',
       detail: '',
       price: 19800, listPrice: null, minutes: 150,
-      image: 'assets/cp03.jpg',
+      image: 'assets/skill4.jpg',
       terms: ''
     },
     {
@@ -236,7 +243,7 @@ const SALON = {
       title: '【地毛より綺麗】自然に柔らかく仕上げるメンズ縮毛矯正',
       detail: '',
       price: 22000, listPrice: null, minutes: 180,
-      image: 'assets/cp04.jpg',
+      image: 'assets/skill3.jpg',
       terms: ''
     },
     {
@@ -244,7 +251,7 @@ const SALON = {
       title: '【毎朝のセット1分】品よく決まるお悩み解決メンズパーマ',
       detail: '',
       price: 14500, listPrice: null, minutes: 120,
-      image: 'assets/cp05.jpg',
+      image: 'assets/skill2.jpg',
       terms: ''
     },
     {
@@ -252,7 +259,7 @@ const SALON = {
       title: '【彩で見せるワンランク上のお洒落を】カット＋カラー',
       detail: '',
       price: 14500, listPrice: null, minutes: 120,
-      image: 'assets/cp06.jpg',
+      image: 'assets/style2.jpg',
       terms: ''
     },
     {
@@ -260,7 +267,7 @@ const SALON = {
       title: '【毎日をストレスフリーに】カット＋ベーシックストレートorアイパー',
       detail: '',
       price: 19800, listPrice: null, minutes: 150,
-      image: 'assets/cp07.jpg',
+      image: 'assets/style1.jpg',
       terms: ''
     },
     {
@@ -272,7 +279,7 @@ const SALON = {
          そのまま ¥0 と出すと無料だと誤解されます（景品表示法の有利誤認）。
          価格を空にして、サイト側の「お見積り」表示に乗せます。 */
       price: null, listPrice: null, minutes: 180,
-      image: 'assets/cp08.jpg',
+      image: 'assets/style5.jpg',
       terms: ''
     },
     {
@@ -280,7 +287,7 @@ const SALON = {
       title: '【全ての施術が＋クオリティ】ダメージケアトリートメント',
       detail: '',
       price: 3300, listPrice: null, minutes: 40,
-      image: 'assets/cp09.jpg',
+      image: '',
       terms: ''
     },
     {
@@ -289,7 +296,7 @@ const SALON = {
       title: '【髪の膨らみ、立ち上がり１発解決】カット+ダウンパーマ、アップパーマ',
       detail: '',
       price: 11000, listPrice: null, minutes: 90,
-      image: 'assets/cp10.jpg',
+      image: 'assets/style8.jpg',
       terms: ''
     },
     {
@@ -298,7 +305,7 @@ const SALON = {
       detail: '',
       /* cp08 と同じく、掲載の「¥0」は価格未定（要相談）の意味です。 */
       price: null, listPrice: null, minutes: 30,
-      image: 'assets/cp11.jpg',
+      image: '',
       terms: ''
     },
     {
@@ -307,7 +314,7 @@ const SALON = {
       title: '第１印象確実UP！　眉毛WAX & 眉毛パーマ',
       detail: '',
       price: 6600, listPrice: null, minutes: 50,
-      image: 'assets/cp12.jpg',
+      image: '',
       terms: ''
     },
     {
@@ -316,7 +323,7 @@ const SALON = {
       title: '【髪のハリ.ツヤ.コシ全てのチャージ】髪質改善トリートメント',
       detail: '',
       price: 7000, listPrice: null, minutes: 60,
-      image: 'assets/cp13.jpg',
+      image: '',
       terms: ''
     },
     {
@@ -324,7 +331,7 @@ const SALON = {
       title: 'ヘアセット ※シャンプーブロー込み',
       detail: '',
       price: 4000, listPrice: null, minutes: 40,
-      image: 'assets/cp14.jpg',
+      image: '',
       terms: ''
     }
   ],
@@ -351,16 +358,16 @@ const SALON = {
         { id: 'm-cut1', name: 'ツーブロック、刈り上げ、フェードのメンテナンスカット',
           price: 4000, priceFrom: true, minutes: 40,
           note: '当店のご来店から３週以内の方のメンテナンスメニューになりますスキンフェードは＋500になります',
-          image: 'assets/m-cut1.jpg' },
+          image: 'assets/skill1.jpg' },
         { id: 'm-cut2', name: 'カットコース', price: 7000, minutes: 70,
-          note: '', image: 'assets/m-cut2.jpg' },
+          note: '', image: 'assets/skill1.jpg' },
         { id: 'm-cut3', name: 'ラグジュアリーカットコース', price: 10000, minutes: 110,
-          note: '', image: 'assets/m-cut3.jpg' },
+          note: '', image: 'assets/skill1.jpg' },
         /* ★m-cut1 とほぼ同じ内容（3週以内のメンテナンス・¥4,000〜）ですが、
            掲載が2件出しているので2件のまま入れてあります。
            まとめてよいかは店主に確認してください。 */
         { id: 'm-cut4', name: '刈り上げ＋フェードメンテナンス', price: 4000, priceFrom: true, minutes: 40,
-          note: '当店ご来店後３週間以内のメンテナンスメニューになります！', image: 'assets/m-cut4.jpg' }
+          note: '当店ご来店後３週間以内のメンテナンスメニューになります！', image: 'assets/skill1.jpg' }
       ]
     },
     {
@@ -369,11 +376,11 @@ const SALON = {
       items: [
         { id: 'm-col1', name: 'カット＋カラー', price: 14900, priceFrom: true, minutes: 120,
           note: 'カットコース＋カラーになります！ラグジュアリーコースにされる場合は＋3300になります！',
-          image: 'assets/m-col1.jpg' },
+          image: 'assets/style2.jpg' },
         /* 「こちも」は掲載どおりです（「こちらも」の誤字に見えますが直していません） */
         { id: 'm-col2', name: '追加カラー', price: 7700, minutes: 60,
           note: '他のメニュー＋カラーをご希望のお客様はこちも選択くださいカラーのみご希望の場合はシャンプーブロー代2200が追加でかかります',
-          image: 'assets/m-col2.jpg' }
+          image: 'assets/style2.jpg' }
       ]
     },
     {
@@ -382,7 +389,7 @@ const SALON = {
       items: [
         { id: 'm-per1', name: 'カットコース＋パーマ', price: 14900, minutes: 130,
           note: 'カットコース＋パーマになります！ラグジュアリーコースにされる場合は＋3300になります',
-          image: 'assets/m-per1.jpg' }
+          image: 'assets/skill2.jpg' }
       ]
     },
     {
@@ -391,7 +398,7 @@ const SALON = {
       items: [
         { id: 'm-str1', name: 'カット＋縮毛矯正', price: 19800, priceFrom: true, minutes: 180,
           note: 'レングスや髪のダメージによってはプラスケアが必須になる場合もあります。施術前にお伝えいたします。',
-          image: 'assets/m-str1.jpg' }
+          image: 'assets/skill3.jpg' }
       ]
     },
     {
@@ -399,7 +406,7 @@ const SALON = {
       name: 'トリートメント',
       items: [
         { id: 'm-tre1', name: '髪質改善トリートメント', price: 7000, priceFrom: true, minutes: 60,
-          note: '', image: 'assets/m-tre1.jpg' }
+          note: '', image: '' }
       ]
     }
   ],
@@ -562,7 +569,10 @@ const SALON = {
     { q: '駐車場はありますか？', a: '建物の目の前に自社駐車場が2台ございます。カーナビ・Googleマップには「龍ケ崎市中根台1-1-1 ロイヤルヤエ」とご入力ください。' },
     { q: '子ども連れでも大丈夫ですか？', a: 'お子さま同伴で問題ございません。半個室のお席もございますので、ご予約時にご相談ください。' },
     { q: '支払い方法は？', a: '現金と各種クレジットカード（Visa / JCB / American Express / Diners Club）がご利用いただけます。カードはタッチ決済のみの対応です。' },
-    { q: 'キャンセル・変更はできますか？', a: 'ご予約日の前日18時までは、予約確認ページから変更・キャンセルが可能です。それ以降は店舗までご連絡ください。' }
+    { q: 'キャンセル・変更はできますか？',
+      /* {受付期限} は、いま設定されている期限に置き換わります（pages.js）。
+         直書きすると、店主が期限を変えたときにここだけ古いままになります。 */
+      a: 'ご予約日の{受付期限}までは、予約確認ページから変更・キャンセルが可能です。それ以降は店舗までご連絡ください。' }
   ],
 
   /* 管理ページのパスワードは、このファイルには置きません。

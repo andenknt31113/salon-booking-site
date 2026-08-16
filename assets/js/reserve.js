@@ -1215,6 +1215,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (prev) { goTo(Number(prev.dataset.prev)); }
   });
 
+  /* 同意欄の文にも受付期限が入ります。直書きしてあると、店主が管理ページで
+     期限を変えたときにここだけ古い時刻のままになります。お客様が同意する
+     文言がずれているのは、いちばんまずい残り方です。 */
+  const agree = $('#agree-text');
+  if (agree) {
+    agree.innerHTML = `キャンセルポリシー（${esc(deadlineLabel())}以降のキャンセルは`
+      + 'お電話でご連絡ください）に同意します<span class="required">必須</span>';
+  }
+
   $('#submit-reservation').addEventListener('click', submitReservation);
   $('#copy-code').addEventListener('click', copyCode);
 

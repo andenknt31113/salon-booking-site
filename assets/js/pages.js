@@ -259,7 +259,7 @@ function renderFaq(host) {
   host.innerHTML = SALON.faq.map((f, i) => `
     <div class="faq-item" data-faq="${i}">
       <button class="faq-q" type="button" aria-expanded="false">${esc(f.q)}</button>
-      <div class="faq-a"><span>${esc(f.a)}</span></div>
+      <div class="faq-a"><span>${esc(String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
     </div>`).join('');
 
   bindOnce('faq', () => host.addEventListener('click', e => {

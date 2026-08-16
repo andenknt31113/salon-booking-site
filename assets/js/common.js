@@ -68,6 +68,19 @@ function bindOnce(key, fn) {
   fn();
 }
 
+/* ネットでの変更・キャンセルを受け付ける期限の言い方。
+
+   「前日18時」は、いくつもの画面と、確認メールの本文に出ます。
+   店主が管理ページで期限を変えられるようになったので、文字を直書きして
+   あると、そこだけ古い時刻を案内し続けます。しかも案内している側は
+   お客様の画面を見ないので、ずれていることに気づけません。 */
+function deadlineLabel() {
+  const rule = SALON.business.cancelDeadline || { daysBefore: 1, hour: 18 };
+  return rule.daysBefore === 1
+    ? `前日${rule.hour}時`
+    : `${rule.daysBefore}日前の${rule.hour}時`;
+}
+
 /** HTMLエスケープ */
 function esc(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => (
