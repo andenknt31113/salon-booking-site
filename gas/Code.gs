@@ -1133,8 +1133,10 @@ function doChange_(sheet, d) {
   if (isCancelled_(before[col('状態')])) {
     return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
   }
-  // 変更前の来店日で判定する（間近の予約を遠い日へ逃がすのも受付期限の対象）
-  if (!withinDeadline_(before[col('来店日')])) {
+  /* 変更前の来店日で判定する（間近の予約を遠い日へ逃がすのも受付期限の対象）。
+     キャンセルと同じで、これはお客様の締め切りです。
+     「今日の2時を4時にしてほしい」という電話に、店が応えられなくなります。 */
+  if (!isAdmin_(d) && !withinDeadline_(before[col('来店日')])) {
     return { ok: false, deadline: true, error: deadlineMessage_() };
   }
 
@@ -1312,7 +1314,13 @@ function doCancel_(sheet, d) {
     // すでにキャンセル済み。二重に通知やメールを送らない。
     return { ok: true, alreadyCancelled: true };
   }
-  if (!withinDeadline_(before[col('来店日')])) {
+  /* 受付期限（前日18時）は、お客様の締め切りです。店には掛けません。
+
+     当日の「今日は行けなくなりました」という電話が、いちばん多いキャンセルです。
+     ここで店まで断っていると、その予約は台帳に残ったままになり、
+     空いたはずの枠がネット予約からも埋まりません。
+     店は電話で話を聞いたうえで押しているので、締め切りを見る意味がありません。 */
+  if (!isAdmin_(d) && !withinDeadline_(before[col('来店日')])) {
     return { ok: false, deadline: true, error: deadlineMessage_() };
   }
 
@@ -1573,9 +1581,16 @@ function readSheetRows_(ss, name, headers) {
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues()
     .map(r => {
       const o = {};
+      /* 日付と時刻の欄は、形をそろえてから管理ページに渡します。
+
+         「14:00」と打つとGoogleはそれを時刻として覚えるので、そのまま渡すと
+         管理ページの時刻欄には何も入りません。店の人には、入れたはずの
+         「受けない時間帯」が消えたように見えます。 */
       headers.forEach(h => {
         const v = r[col(h)];
-        o[h] = (h === '休業日') ? normalizeDate_(v) : (v === '' || v === undefined ? '' : v);
+        if (h === '休業日') { o[h] = normalizeDate_(v); return; }
+        if (h === '開始' || h === '終了') { o[h] = v === '' || v === undefined ? '' : normalizeTime_(v); return; }
+        o[h] = (v === '' || v === undefined) ? '' : v;
       });
       return o;
     })

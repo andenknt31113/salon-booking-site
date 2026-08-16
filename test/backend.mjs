@@ -42,14 +42,20 @@ function makeSheet(rows = [], head = HEAD) {
   return sheet;
 }
 
-function run(fnName, sheet, payload) {
+/* store を渡すと、その中身がスクリプトプロパティになります。
+   「店として通す」試験では ADMIN_PASSWORD を入れて呼びます。 */
+function run(fnName, sheet, payload, store = {}) {
   const mails = [];
   const ctx = {
     console: { log() {}, warn() {}, error() {} },
     MailApp: { sendEmail: (to, s, b) => mails.push({ to, s, b }) },
     UrlFetchApp: { fetch: () => {} },
     CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty(){}, deleteProperty(){} }) },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: k => (k in store ? store[k] : null),
+      setProperty: (k, v) => { store[k] = v; },
+      deleteProperty: k => { delete store[k]; },
+      getKeys: () => Object.keys(store) }) },
     LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => sheet.getParent(), getUi: () => { throw new Error('no ui'); } },
     DriveApp: {},
@@ -347,6 +353,37 @@ console.log('\n【日時変更】変更したら、元の時間は空くか');
     ? ok('元の時間は空きに戻る') : note('元の時間', 'が空かない（誰も取れない時間が残ります）');
   run('doReserve_', sheet, base({ date: to, time: '14:00', endTime: '15:00', totalMinutes: 60 })).out.ok
     ? note('変更先', 'が空いたままになっている（二重予約になります）') : ok('変更先は埋まっている');
+}
+
+/* ============================================================
+   受付期限は、お客様の締め切り
+
+   「今日は行けなくなりました」という当日の電話が、いちばん多いキャンセルです。
+   ここで店まで断っていると、その予約は台帳に残ったままになり、
+   空いたはずの枠がネット予約からも埋まりません。
+   ============================================================ */
+console.log('\n【受付期限】店は、当日でもキャンセル・変更できるか');
+{
+  const today = day(0);
+  const late = () => makeSheet([row({ 来店日: today, 開始: '21:00', 終了: '21:30', '所要(分)': 30,
+    予約番号: 'LM-TODAY1' })]);
+
+  run('doCancel_', late(), { code: 'LM-TODAY1', tel: '09011112222' }).out.deadline
+    ? ok('お客様は、当日になったらネットでキャンセルできない') : note('受付期限', 'がお客様に効いていない');
+
+  const shopPw = { ADMIN_PASSWORD: 'himitsu' };
+  const byShop = run('doCancel_', late(), { code: 'LM-TODAY1', password: 'himitsu' }, shopPw).out;
+  byShop.ok ? ok('店は、当日の電話でのキャンセルを台帳に反映できる')
+            : note('当日のキャンセル', `を店も断られる（${byShop.error}）→ 空いた枠が埋まりません`);
+
+  const moved = run('doChange_', late(), { code: 'LM-TODAY1', password: 'himitsu',
+    date: today, time: '19:00', minutes: 30 }, shopPw).out;
+  moved.ok ? ok('店は、当日の「時間をずらして」にも応えられる')
+           : note('当日の時間変更', `を店も断られる（${moved.error}）`);
+
+  /* 合言葉が違えば、もちろん店として扱いません */
+  const fake = run('doCancel_', late(), { code: 'LM-TODAY1', password: 'chigau' }, shopPw).out;
+  fake.ok ? note('でたらめな合言葉', 'でも店として通ってしまう') : ok('でたらめな合言葉では店として通らない');
 }
 
 console.log('\n【口コミ】キャンセルした予約からは書けない');
@@ -740,6 +777,20 @@ console.log('\n【設定】最終受付と定休曜日を、受け口も見て�
   withSettings(hours.concat([['定休曜日', '']]), 'doReserve_',
     base({ date: sunday, time: '10:00', endTime: '11:00', totalMinutes: 60 })).ok
     ? ok('定休曜日が空欄なら、どの曜日も受ける') : note('定休曜日が空欄', 'なのに断られる');
+}
+
+console.log('\n【休業日シート】時刻セルで書かれた「受けない時間帯」');
+{
+  /* 管理ページは、ここで返した値をそのまま時刻欄に入れます。
+     日付つきの値のままだと欄が空になり、入れたはずの帯が消えて見えます。 */
+  const rows = readSheets({ '休業日': [
+    ['2026-09-01', dateCell(Date.UTC(2026, 8, 1, 14 - 9, 0)), dateCell(Date.UTC(2026, 8, 1, 16 - 9, 0)), '外部の仕事']
+  ] }, "ss => readSheetRows_(ss, '休業日', CLOSED_HEADERS)");
+  const r0 = (rows || [])[0] || {};
+  r0['開始'] === '14:00' && r0['終了'] === '16:00'
+    ? ok('時刻セルでも 14:00〜16:00 として管理ページに渡る')
+    : note('受けない時間帯', `が「${r0['開始']}〜${r0['終了']}」として渡る → 店の画面では空欄になります`);
+  r0['メモ'] === '外部の仕事' ? ok('メモはそのまま渡る') : note('メモ', 'が消える');
 }
 
 console.log('\n【シート】隠したいときの書き方');
