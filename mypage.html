@@ -63,17 +63,26 @@
         </section>
 
         <h2 class="section-title" style="font-size:17px;margin:0 0 14px;">この端末からのご予約</h2>
+        <!-- 上の照会欄とすぐ下に並ぶので、同じ「予約番号」でも役割が違うと
+             分かる言い方にしています。ここは手元の記録を絞り込むだけです -->
         <div class="toolbar">
-          <label class="sr-only" for="search-code">予約番号で絞り込む</label>
-          <input class="input" type="text" id="search-code" placeholder="予約番号で絞り込む" />
-          <button class="btn btn-ghost btn-sm" type="button" id="search-btn">検索</button>
+          <label class="sr-only" for="search-code">この端末の記録を予約番号で絞り込む</label>
+          <input class="input" type="text" id="search-code" placeholder="この端末の記録を絞り込む" />
+          <button class="btn btn-ghost btn-sm" type="button" id="search-btn">絞り込む</button>
           <button class="btn btn-ghost btn-sm" type="button" id="clear-btn">すべて表示</button>
         </div>
+
+        <!-- 手続きを受け付けたことを伝える場所。文面は mypage.js が入れます。
+             キャンセルするとカードは下の「過去・キャンセル」へ移るため、
+             押した場所から消えただけに見えてしまいます -->
+        <div class="notice is-info" id="flash" style="display:none;"></div>
 
         <h2 class="section-title" style="font-size:17px;margin:26px 0 14px;">これからのご予約</h2>
         <div id="upcoming-list"></div>
 
-        <h2 class="section-title" style="font-size:17px;margin:36px 0 14px;">過去のご予約</h2>
+        <!-- キャンセル済みのご予約は、ご来店日が先でもこちらに入ります。
+             「過去」とだけ書くと、来週のキャンセル分が並んだときに読めません -->
+        <h2 class="section-title" style="font-size:17px;margin:36px 0 14px;">過去・キャンセルのご予約</h2>
         <div id="past-list"></div>
 
         <p style="text-align:center;margin-top:36px;">
