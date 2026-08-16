@@ -878,10 +878,26 @@ function wireImageFallbacks(root = document) {
   });
 }
 
+/* 管理ページは、店の人が作業する場所です。
+
+   お客様用のヘッダー（サロンTOP・スタイル・スタッフ…）とフッターを
+   そのまま載せていたため、作業に関係のない案内が上下に700px以上ありました。
+   毎朝いちばんに見たい「今日の予約」が、そのぶん下に押し出されます。
+   店名だけ小さく出して、あとは作業のための場所にします。 */
+function renderAdminHeader(host) {
+  host.innerHTML = `
+    <header class="admin-bar">
+      <span class="admin-bar-name">${esc(SALON.name)}</span>
+      <span class="admin-bar-label">管理ページ</span>
+      <a class="admin-bar-link" href="index.html">サイトを見る</a>
+    </header>`;
+}
+
 function renderHeader() {
   const host = $('#site-header');
   if (!host) return;
   const page = currentPage();
+  if (page === 'admin.html') { renderAdminHeader(host); return; }
   const initials = SALON.mark
     || SALON.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()
     || 'SL';
@@ -920,6 +936,9 @@ function renderHeader() {
 function renderFooter() {
   const host = $('#site-footer');
   if (!host) return;
+  /* 管理ページに、お客様向けの案内一覧（サロンTOP・口コミ・…）は要りません。
+     作業の邪魔になるだけなので出しません。 */
+  if (currentPage() === 'admin.html') { host.innerHTML = ''; return; }
   const year = new Date().getFullYear();
   // 固定ボタンの下にコピーライトが隠れないよう、出すページだけ余白を足す
   document.body.classList.toggle('has-sp-cta', !!stickyCta());
