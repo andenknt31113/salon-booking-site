@@ -20,7 +20,10 @@ function check(group, label, actual, expected) {
 }
 
 try {
-  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    /* お客様のスマホは日本時間です。この機械の時間帯のままだと、
+       当日の締め切りのような「いま何時か」で変わる判定がずれます。 */
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
   const p = await ctx.newPage();
 
   /* ---------- 構造化データ ---------- */
@@ -123,7 +126,8 @@ try {
 
   /* ---------- 文字を大きくしても読めるか ---------- */
   console.log('\n【文字の拡大】設定で文字を大きくしている人向け');
-  const big = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 2 });
+  const big = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 2,
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
   const bp = await big.newPage();
   for (const page of ['index.html', 'menu.html', 'reserve.html']) {
     await bp.goto(B + '/' + page); await bp.waitForTimeout(900);

@@ -9,7 +9,7 @@ const post = b => fetch(B + '/exec', { method:'POST', headers:{'Content-Type':'t
 
 const br = await chromium.launch(
   process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-const p = await (await br.newContext({ viewport:{width:390,height:844}, isMobile:true })).newPage();
+const p = await (await br.newContext({ viewport:{width:390,height:844}, isMobile:true, timezoneId:'Asia/Tokyo', locale:'ja-JP' })).newPage();
 
 async function look(page, label) {
   const t0 = Date.now();

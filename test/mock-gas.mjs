@@ -381,6 +381,18 @@ http.createServer((req, res) => {
         if (start === null || start < open || start > last || start + (Number(d.totalMinutes) || 30) > close) {
           return reply(res, { ok:false, error:'営業時間外のご予約は承れません。' });
         }
+        /* 直前すぎる予約（本物と同じ2時間前まで、時計のずれ15分ぶんの余裕つき）。
+           店が電話で受けた予約（adminAdd）はここを通りません。
+           目の前のお客様を今から入れられないと、使えないためです。 */
+        const q0 = String(d.date).split('-').map(Number);
+        const jst = new Date(Date.now() + 9 * 3600e3);
+        const today0 = Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate()) / 864e5;
+        const until = (Date.UTC(q0[0], q0[1] - 1, q0[2]) / 864e5 - today0) * 1440
+          + start - (jst.getUTCHours() * 60 + jst.getUTCMinutes());
+        if (until < 2 * 60 - 15) {
+          return reply(res, { ok:false,
+            error:'当日のご予約は2時間前までとなっております。お手数ですが店舗までお電話ください。' });
+        }
         // 定休曜日（本物と同じ読み方）
         const days = String(SHEET_SETTINGS['定休曜日'] || '').trim()
           .split(/[,、・\s]+/).map(t => ['日','月','火','水','木','金','土'].indexOf(t.replace(/曜日?$/, '')))

@@ -115,8 +115,39 @@ tryOne('ハイフン入りの電話番号', base({ customer: { name: 'あ', tel:
   (o, row, m, l) => o.ok ? ok(l + 'でも通る') : note(l, 'で断られる：' + o.error));
 tryOne('金額未定（お見積り）', base({ totalPrice: 0, totalLabel: 'お見積り' }),
   (o, row, m, l) => o.ok ? ok(l + 'でも通る') : note(l, 'で断られる：' + o.error));
-tryOne('当日の予約', base({ date: day(0), time: '15:00' }),
-  (o, row, m, l) => o.ok ? ok(l + 'は通る') : note(l, 'が断られる：' + o.error));
+/* 当日の予約は「いまから4時間後」で試します。時刻を決め打ちにすると、
+   その時刻を過ぎた時間帯に流したときだけ落ちる試験になります。 */
+const nowMinJst = () => {
+  const d = new Date(Date.now() + 9 * 3600e3);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+};
+const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+/* 営業時間（09:00〜22:00・最終受付21:00）に収まる、いまから hours 後の枠 */
+const slotIn = hours => {
+  const m = Math.ceil((nowMinJst() + hours * 60) / 30) * 30;
+  return (m >= 9 * 60 && m <= 21 * 60) ? hhmm(m) : null;
+};
+
+{
+  const t = slotIn(4);
+  if (t) {
+    tryOne('当日の予約（4時間後）', base({ date: day(0), time: t, endTime: '', totalMinutes: 60 }),
+      (o, row, m, l) => o.ok ? ok(l + 'は通る') : note(l, 'が断られる：' + o.error));
+  } else {
+    console.log('  － 当日の予約：いまの時刻では営業時間内に4時間後の枠が無いため、この項目は飛ばします');
+  }
+}
+{
+  /* 画面は2時間前で締めています。開きっぱなしの画面から送られてくる、
+     直前すぎる予約を受け口も断るか。 */
+  const t = slotIn(0.5);
+  if (t) {
+    tryOne('30分後の予約', base({ date: day(0), time: t, endTime: '', totalMinutes: 60 }),
+      (o, row, m, l) => o.ok ? note(l, 'が通る（店は気づけないまま席を空けられません）') : ok(l + 'は断られる'));
+  } else {
+    console.log('  － 30分後の予約：いまの時刻では試せないため飛ばします');
+  }
+}
 tryOne('60日後ちょうど', base({ date: day(60) }),
   (o, row, m, l) => o.ok ? ok(l + 'は通る') : note(l, 'が断られる：' + o.error));
 tryOne('3時間の施術（9:00〜12:00）', base({ time: '09:00', totalMinutes: 180 }),

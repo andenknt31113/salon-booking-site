@@ -326,9 +326,19 @@ function addMinutes_(hhmm, minutes) {
 
 /* 予約を受け付ける範囲。assets/js/data.js の business と合わせてください */
 const BOOKABLE_DAYS = 60;    // 何日先まで
+const MIN_LEAD_HOURS = 2;    // 何時間前まで受けるか（当日の直近）
 const MIN_MINUTES   = 15;    // 所要時間の下限
 const MAX_MINUTES   = 480;   // 所要時間の上限（8時間）
 const MAX_PRICE     = 1000000;
+
+/* 直前の予約を断るときの、時計のずれを見込んだ余裕。
+
+   画面はお客様の端末の時計で、受け口はGoogleの時計で判断します。
+   端末の時計が数分ずれていると、画面には出ていた枠が
+   送った瞬間に「直前すぎます」と断られます。お客様には理由が分かりません。
+   15分ぶんだけ甘くして、そこだけは通します。
+   「10分後の予約」のような、店が本当に困るものは断ります。 */
+const LEAD_GRACE_MINUTES = 15;
 
 /* 文字の上限。長すぎる文字は台帳もメールも読めなくします */
 const LIMITS = { name: 60, kana: 60, tel: 20, email: 120, visit: 20, request: 1000, menu: 300 };
@@ -410,6 +420,11 @@ function todayKey_() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 }
 
+/** いま何時何分か（日本時間・0時からの分） */
+function nowMinJst_() {
+  return timeToMin_(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm')) || 0;
+}
+
 /* 予約の内容を確かめる。問題があれば理由を返します。
    お客様の画面はここを通る前に同じ確認をしていますが、
    画面を通さない送信のために、ここでも見ます。 */
@@ -447,6 +462,14 @@ function checkReserve_(sheet, d) {
      設定を変える前に開いていた画面からは、まだ送られてきます。 */
   if (isClosedWeekday_(sheet, date)) {
     return 'その日は定休日のため、ご予約を承れません。';
+  }
+
+  /* 直前すぎる予約。画面は2時間前で締めていますが、
+     しばらく開きっぱなしだった画面からは、締めたあとの枠も送られてきます。
+     30分後の予約が入っても、店は気づけないまま席を空けられません。 */
+  const untilMin = ahead * 1440 + start - nowMinJst_();
+  if (untilMin < MIN_LEAD_HOURS * 60 - LEAD_GRACE_MINUTES) {
+    return `当日のご予約は${MIN_LEAD_HOURS}時間前までとなっております。お手数ですが店舗までお電話ください。`;
   }
 
   const price = Number(d.totalPrice || 0);

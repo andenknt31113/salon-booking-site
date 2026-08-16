@@ -45,6 +45,8 @@ check('営業開始', SALON.business.openTime, gasConst('DEFAULT_OPEN'),
   '朝いちばんの枠が、画面には出るのに取れなくなります');
 check('営業終了', SALON.business.closeTime, gasConst('DEFAULT_CLOSE'),
   '最後の枠が、画面には出るのに取れなくなります');
+check('当日予約の締め切り（何時間前）', SALON.business.minLeadHours, num('MIN_LEAD_HOURS'),
+  '画面には出ている枠が、送ると断られます');
 check('変更・キャンセルの締切（何日前）', SALON.business.cancelDeadline.daysBefore,
   num('CANCEL_DEADLINE_DAYS_BEFORE'), '画面では変更できるのに、送ると断られます');
 check('変更・キャンセルの締切（何時）', SALON.business.cancelDeadline.hour,

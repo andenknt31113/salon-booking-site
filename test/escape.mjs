@@ -19,7 +19,10 @@ await fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plai
 
 const br = await chromium.launch(
   process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    /* お客様のスマホは日本時間です。この機械の時間帯のままだと、
+       当日の締め切りのような「いま何時か」で変わる判定がずれます。 */
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
 const p = await ctx.newPage();
 let alerted = false;
 p.on('dialog', d => { alerted = true; d.dismiss(); });

@@ -24,7 +24,10 @@ function check(uc, label, actual, expected) {
 }
 
 async function newPhone(label) {
-  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    /* お客様のスマホは日本時間です。この機械の時間帯のままだと、
+       当日の締め切りのような「いま何時か」で変わる判定がずれます。 */
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
   const p = await ctx.newPage();
   p.on('pageerror', e => jsErrors.push(`[${label}] ${e.message}`));
   return p;
@@ -287,16 +290,12 @@ console.log('\n【UC9】2人が同時に同じ枠を取ろうとする');
 console.log('\n【UC10】期限を過ぎてからキャンセルしようとする');
 {
   const today = key(new Date());
-  await post({
-    /* 当日の予約は、何時のものでも受付期限（前日18時）を過ぎています。
-       営業時間内の時刻で作ります。営業時間外だとそもそも受け付けられず、
-       確かめたいこと（期限切れの断り方）にたどり着けません。 */
-    type: 'reserve', code: 'LM-UC910', date: today, time: '21:00', endTime: '21:20', totalMinutes: 20,
-    menus: [{ name: 'テスト' }], staffId: 'stUC10', staffName: 'MATTEO', nominationFee: 0,
-    totalPrice: 4000, createdAt: new Date().toISOString(),
-    customer: { name: '期限 五郎', kana: 'キゲン', tel: '09011110011', email: 'a@b.c', visit: '初めて', request: '' }
-  });
-  const res = await post({ type: 'cancel', code: 'LM-UC910', tel: '09011110011' });
+  /* 当日の予約は、何時のものでも受付期限（前日18時）を過ぎています。
+     お客様の受け口からは当日の直前2時間ぶんを受けないので、
+     ここは店が電話で受けた予約として入れます。何時に試験を流しても作れます。 */
+  const made = await post({ type: 'adminAdd', password: PW, force: true,
+    date: today, time: '21:00', minutes: 20, name: '期限 五郎', tel: '09011110011', price: 4000 });
+  const res = await post({ type: 'cancel', code: made.code, tel: '09011110011' });
   check('UC10', 'キャンセルは断られる', res.ok, false);
   check('UC10', '電話するよう案内される', String(res.error).includes('店舗までご連絡'), true);
 }
