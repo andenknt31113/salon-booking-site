@@ -31,17 +31,19 @@
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>スタッフ</span>
         </nav>
         <h1>バーバー紹介</h1>
-        <p>得意分野からお選びください。カードのボタンからそのまま指名予約に進めます。</p>
+        <!-- 在籍1名のあいだは「指名予約」と書くと、指名しない道もあるように読めます。
+             人数が増えても正しいままの言い方にしてあります。 -->
+        <p>得意分野をご確認のうえ、カードのボタンからそのままご予約に進めます。</p>
       </div>
     </div>
 
     <section class="section">
       <div class="container">
         <div class="staff-grid" id="staff-list"></div>
-        <div class="notice" style="margin-top:30px;">
-          <b>指名について</b>
-          <span>指名料はスタイリストごとに異なります。「指名なし」でご予約いただいた場合は、ご来店時に空いているスタッフが担当いたします。</span>
-        </div>
+        <!-- 中身は pages.js が在籍人数を見て入れます。
+             1名の店に「「指名なし」の場合は空いているスタッフが」と固定で書いてあると、
+             予約画面には出ない選択肢を探させることになります。 -->
+        <div class="notice" style="margin-top:30px;" id="staff-note"></div>
       </div>
     </section>
   </main>

@@ -38,14 +38,19 @@ function couponCard(c) {
   const badgeClass = c.badge === '再来' ? ' is-repeat' : c.badge === '全員' ? ' is-all' : '';
   const off = c.listPrice && c.listPrice > c.price
     ? `<div class="price-list">通常 ${yen(c.listPrice)}</div>` : '';
+  /* 説明・条件はシートで空欄にできます（どちらも任意の欄です）。
+     そのまま出していたころは、条件が空の行に「※」だけが残り、
+     書きかけのメニューを出しているように見えました。中身があるときだけ出します。 */
+  const detail = String(c.detail ?? '').trim();
+  const terms = String(c.terms ?? '').trim();
   return `
     <article class="coupon">
       ${c.image ? `<img class="coupon-photo ph-photo-opt" src="${esc(c.image)}" alt="" />` : ''}
       <div>
         <span class="coupon-badge${badgeClass}">${esc(c.badge)}</span>
         <h3>${esc(c.title)}</h3>
-        <p class="coupon-detail">${esc(c.detail)}</p>
-        <p class="coupon-terms">※${esc(c.terms)}</p>
+        ${detail ? `<p class="coupon-detail">${esc(detail)}</p>` : ''}
+        ${terms ? `<p class="coupon-terms">※${esc(terms)}</p>` : ''}
       </div>
       <div class="coupon-price">
         <div>
@@ -62,7 +67,12 @@ function staffCard(s) {
   const fee = s.nominationFee > 0 ? `指名料 ${yen(s.nominationFee)}` : '指名料なし';
   const meta = [s.kana, s.years ? `経験${s.years}年` : ''].filter(Boolean).join('／');
   // 在籍1名のサロンでは、グリッドに1枚だけ置くと寂しいので横並びの大きめカードにする
-  const solo = SALON.staff.length === 1 ? ' staff-card-solo' : '';
+  const isSolo = SALON.staff.length === 1;
+  const solo = isSolo ? ' staff-card-solo' : '';
+  /* 在籍1名の店では、予約画面に「指名なし」が出ません（reserve.js）。
+     それなのに「指名して予約」と書くと、指名しない道もあるように読めます。
+     選ばなかったときの担当を探して、お客様が予約画面で迷います。 */
+  const cta = isSolo ? `${esc(s.name)}に予約する` : `${esc(s.name)}を指名して予約`;
 
   return `
     <article class="staff-card${solo}">
@@ -78,7 +88,7 @@ function staffCard(s) {
         <ul class="tag-list">${s.tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>
         <p class="staff-message">${esc(s.message)}</p>
         <p class="staff-fee">${esc(fee)}</p>
-        <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${esc(s.name)}を指名して予約</a>
+        <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${cta}</a>
       </div>
     </article>`;
 }
@@ -123,6 +133,11 @@ function reviewCard(r) {
     </article>`;
 }
 
+/* 価格が決まっていない行（シートの価格欄が空 or 0）の呼び方。
+   おすすめメニューは「カウンセリングでお見積り」、単品は場所が狭いので「お見積り」。
+   同じ状態を「ご相談」と呼んでいたころは、店が README のとおり価格欄を空にしても
+   ページによって別の言葉が出て、値段の付け忘れのように見えていました。
+   予約ページ・予約確認ページも「お見積り」なので、そちらに揃えます。 */
 function menuGroupHtml(cat) {
   const rows = cat.items.map(m => `
     <div class="menu-row">
@@ -132,11 +147,45 @@ function menuGroupHtml(cat) {
         ${m.note ? `<p class="menu-row-note">${esc(m.note)}</p>` : ''}
       </div>
       <div class="menu-row-meta">
-        <p class="menu-row-price">${m.price ? yen(m.price) + (m.priceFrom ? '〜' : '') : 'ご相談'}</p>
+        <p class="menu-row-price">${m.price ? yen(m.price) + (m.priceFrom ? '〜' : '') : 'お見積り'}</p>
         <p class="menu-row-time">約${formatDuration(m.minutes)}</p>
       </div>
     </div>`).join('');
   return `<div class="menu-group" id="cat-${esc(cat.id)}"><h3>${esc(cat.name)}</h3>${rows}</div>`;
+}
+
+/* 口コミが1件も無いときの案内。
+   架空の口コミは載せないので（景品表示法）、ここは必ず通る道です。
+
+   「ご来店後のアンケートにご協力ください」と書いていましたが、
+   アンケートは送っていません。送られてくるものを待たれると、
+   いつまでも書いていただけません。書ける場所をそのまま伝えます。
+   受信先を入れる前は投稿フォーム自体を出していない（initReviewForm）ので、
+   そのあいだは案内も出しません。無いものを探させないためです。 */
+function reviewEmptyHtml({ formHere = false } = {}) {
+  if (!SALON.reservationEndpoint) {
+    return '<p class="empty-state">口コミはまだ届いていません。</p>';
+  }
+  const where = formHere ? '下のフォーム' : '口コミページのフォーム';
+  return `<p class="empty-state">口コミはまだ届いていません。<br />`
+    + `ご来店いただいた方は、${where}からご感想をお聞かせください。</p>`;
+}
+
+/* 「ご担当」の案内。在籍人数で書き分けます。
+   1名の店に「「指名なし」でご予約いただいた場合は空いているスタッフが担当」と
+   書いてあると、他にも人がいるように読めます。実際は予約画面に「指名なし」が
+   出ず（reserve.js）、お客様は無い選択肢を探すことになります。
+   店舗情報の「スタイリスト1名（マンツーマン施術）」とも食い違います。 */
+function staffNoteHtml() {
+  if (SALON.staff.length === 1) {
+    const s = SALON.staff[0];
+    return '<b>ご担当について</b><span>当店はスタイリスト1名のマンツーマン施術です。'
+      + `カウンセリングから仕上げまで、すべて${esc(s.name)}が担当いたします。`
+      + (s.nominationFee > 0 ? '' : '指名料はいただきません。')
+      + '</span>';
+  }
+  return '<b>指名について</b><span>指名料はスタイリストごとに異なります。'
+    + '「指名なし」でご予約いただいた場合は、ご来店時に空いているスタッフが担当いたします。</span>';
 }
 
 /* ---------- FAQ ---------- */
@@ -225,22 +274,32 @@ function initHome() {
     noticeBox.hidden = !text;
   }
 
-  // 評価は実際に集まってから出す（rating が null のあいだは表示しない）
+  /* 評価は実際に集まってから出す（rating が null のあいだは表示しない）。
+     隠すだけでなく、出し直すところまで両方向でやります。
+     口コミがシートから届くのは最初の描画より後なので、隠す片道だけにしていたころは、
+     せっかく集まった評価がトップに一生出ませんでした。 */
+  const ratingBox = $('.hero-rating');
+  if (ratingBox) ratingBox.hidden = !SALON.rating;
   if (SALON.rating) {
     $('#hero-score').textContent = SALON.rating.toFixed(1);
     $('#hero-stars').textContent = stars(SALON.rating);
     $('#hero-count').textContent = `口コミ ${SALON.reviewCount.toLocaleString('ja-JP')}件`;
-  } else {
-    $('.hero-rating').hidden = true;
   }
   /* トップの大きい写真。
      has-photo は「写真が読めたとき」だけ付けます（wireImageFallbacks が付ける）。
      先に付けてしまうと、写真が無いときに暗い膜と白文字だけが残り、
-     地の意匠より読みにくい画面になります。 */
+     地の意匠より読みにくい画面になります。
+
+     足す前に、前に足したものを外します。この関数はシートが届くともう一度走るので、
+     外さないと写真が2枚重なります。しかも古いほうが後ろに残って上に見えるため、
+     店が管理ページで「メイン写真」を差し替えても、画面は古い写真のままになります。 */
   const hero = $('.hero');
-  if (hero && SALON.heroImage) {
-    hero.insertAdjacentHTML('afterbegin',
-      `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="" />`);
+  if (hero) {
+    $$('.hero-photo', hero).forEach(img => img.remove());
+    if (SALON.heroImage) {
+      hero.insertAdjacentHTML('afterbegin',
+        `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="" />`);
+    }
   }
 
   const heroBrand = $('#hero-brand');
@@ -260,7 +319,7 @@ function initHome() {
   $('#home-staff').innerHTML = SALON.staff.map(staffCard).join('');
   $('#home-reviews').innerHTML = SALON.reviews.length
     ? SALON.reviews.slice(0, 2).map(reviewCard).join('')
-    : '<p class="empty-state">口コミはまだ届いていません。ご来店後のアンケートにご協力いただけると励みになります。</p>';
+    : reviewEmptyHtml();
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
   _wire();
@@ -271,12 +330,18 @@ function initMenuPage() {
 
   const tabsHost = $('#menu-tabs');
   const listHost = $('#menu-list');
-  const cats = SALON.menuCategories;
-  tabsHost.innerHTML = [{ id: 'all', name: 'すべて' }, ...cats]
+  tabsHost.innerHTML = [{ id: 'all', name: 'すべて' }, ...SALON.menuCategories]
     .map((c, i) => `<button class="tab" type="button" role="tab" data-cat="${esc(c.id)}" aria-selected="${i === 0}">${esc(c.name)}</button>`)
     .join('');
 
+  /* 描くたびに SALON.menuCategories を読み直します。
+     この関数はシートが届くともう一度走りますが、タブを押したときの処理は
+     bindOnce で1回しか張り直しません（張り直すと1タップが2回分になるため）。
+     ここで最初の配列を覚え込んでしまうと、押したときだけ古い一覧を見にいきます。
+     シートのメニューは区分のIDが別物なので、絞り込むと1件も出ず一覧が真っ白になり、
+     「すべて」に戻すと店が直す前の古い料金が並びました。 */
   const draw = catId => {
+    const cats = SALON.menuCategories;
     const target = catId === 'all' ? cats : cats.filter(c => c.id === catId);
     listHost.innerHTML = target.map(menuGroupHtml).join('');
     wireImageFallbacks(listHost);
@@ -294,6 +359,8 @@ function initMenuPage() {
 
 function initStaffPage() {
   $('#staff-list').innerHTML = SALON.staff.map(staffCard).join('');
+  const note = $('#staff-note');
+  if (note) note.innerHTML = staffNoteHtml();
   wireImageFallbacks();
 }
 
@@ -415,9 +482,9 @@ function initReviewsPage() {
     : '';
   $('#review-list').innerHTML = SALON.reviews.length
     ? SALON.reviews.map(reviewCard).join('')
-    : `<p class="empty-state">${SALON.reviewCount
-        ? `${SALON.reviewCount}件の評価をいただいています。<br />個別の口コミはただいま準備中です。`
-        : '口コミはまだ届いていません。<br />ご来店いただいた方は、下のフォームからご感想をお聞かせください。'}</p>`;
+    : (SALON.reviewCount
+        ? `<p class="empty-state">${SALON.reviewCount}件の評価をいただいています。<br />個別の口コミはただいま準備中です。</p>`
+        : reviewEmptyHtml({ formHere: true }));
 }
 
 /* 起動。
