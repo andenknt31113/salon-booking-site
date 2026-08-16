@@ -1069,8 +1069,15 @@ function settlePhoto(img, show, drop, tries = 2) {
   let left = tries;
   const src = img.getAttribute('src') || '';
 
+  /* 読み直すのは、よそから借りている写真だけにします。
+     この作りは Googleドライブが混んだときに断ってくることへの備えです。
+     同じ置き場所（assets/…）のファイルは、あるか無いかのどちらかで、
+     読み直しても結果は変わりません。まだ置いていないロゴのために、
+     ページを開くたび3回取りに行くのは無駄なだけです。 */
+  const remote = /^https?:\/\//.test(src);
+
   const retry = () => {
-    if (left <= 0 || !src) { drop(); return; }
+    if (!remote || left <= 0 || !src) { drop(); return; }
     left--;
     /* URLをそのまま入れ直すと、ブラウザが失敗した結果を返してくることが
        あります。意味のない印を足して、必ず取りに行かせます。 */
