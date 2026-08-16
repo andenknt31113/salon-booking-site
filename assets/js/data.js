@@ -119,7 +119,11 @@ const SALON = {
    * Google Apps Script のウェブアプリURLを入れると実運用になります。
    * 手順は README.md を参照してください。
    */
-  reservationEndpoint: '',
+  /* ★これはテスト用です。作業者の個人Googleアカウントで動いています。
+     この状態でお客様の予約を受けると、確認メールの差出人が個人アドレスに
+     なります。オーナーさんのアカウントに移すまで draft は true のままに
+     してください（公開前チェックリスト.md の「全部済んだら」を参照）。 */
+  reservationEndpoint: 'https://script.google.com/macros/s/AKfycbwwKAx7kl0IDJ8K1uPLLzcCk_NzRg1rKxK_TyoFClP5e5N8YfoTDZQEBt6An8QDkq4WKw/exec',
 
   /* ---------- おすすめメニュー ----------
      メニューページの一番上に大きく並ぶ、カット＋カラーなどの組み合わせ。
