@@ -455,8 +455,14 @@ console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める'
   await a.locator('[data-add="closed"]').click(); await a.waitForTimeout(300);
   const row = a.locator('#closed-rows .booking-card').last();
   await row.locator('[data-col="休業日"]').fill(day);
-  await row.locator('[data-col="開始"]').fill('14:00');
-  await row.locator('[data-col="終了"]').fill('16:00');
+  /* 時刻の欄は「この時間帯だけ休み」を選んでから出ます。
+     終日休みのつもりで時刻を入れてしまい、日付が選べたまま残る事故が
+     実際に起きたため、先に休み方を選ばせる作りにしました。 */
+  await row.locator('[data-closed-mode][value="range"]').check();
+  await a.waitForTimeout(300);
+  const row2 = a.locator('#closed-rows .booking-card').last();
+  await row2.locator('[data-col="開始"]').fill('14:00');
+  await row2.locator('[data-col="終了"]').fill('16:00');
   await a.locator('[data-save="closed"]').click(); await a.waitForTimeout(1800);
   check('UC15', '時間帯つきで保存できる',
     ((await post({ type: 'adminData', password: PW })).closedDates || [])
