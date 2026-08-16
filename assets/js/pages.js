@@ -198,6 +198,26 @@ function reviewEmptyHtml({ formHere = false } = {}) {
     + `ご来店いただいた方は、${where}からご感想をお聞かせください。</p>`;
 }
 
+/* トップを開いた方が最初に読む1行。
+   いまトップの上半分にあるのは、英字のロゴと「ESTD 2026 — RYUGASAKI, IBARAKI」、
+   そのあとに「イタリア発、東京経由。」というキャッチコピーです。
+   龍ケ崎で「フェード」「白髪ぼかし」を探して流れてきた方には、
+   自分向きの店かどうかがここまで読んでも分かりません。
+
+   店が掲載名に自分で書いている「メンズカット/縮毛矯正 /白髪ぼかし」と、
+   住所の市名だけを、日本語で先に出します。
+   どちらも data.js にある店の言葉で、こちらで文章は作っていません。
+   掲載名の書き方が変わって「」が無くなったときは、何も出しません。
+
+   地名と専門を分けて返すのは、折り返す場所を決めるためです。
+   1つの文字列にすると「茨城県龍ケ崎市｜メンズカ／ット/縮毛矯正…」のように
+   語の途中で折れます（日本語はどこでも折り返せるため）。 */
+function heroTaglineParts() {
+  const spec = (String(SALON.fullName || '').match(/「([^」]+)」/) || [])[1] || '';
+  const area = (String(SALON.address || '').match(/^.*?[市区町村]/) || [])[0] || '';
+  return [area, spec].filter(Boolean);
+}
+
 /* 「ご担当」の案内。在籍人数で書き分けます。
    1名の店に「「指名なし」でご予約いただいた場合は空いているスタッフが担当」と
    書いてあると、他にも人がいるように読めます。実際は予約画面に「指名なし」が
@@ -245,9 +265,14 @@ function renderSalonInfo(host) {
   const hours = `${b.openTime}〜${b.closeTime}（最終受付 ${b.lastOrder}）`
     + (b.note ? `\n※${b.note}` : '');
 
+  /* 3つ目の要素を入れた行は、その HTML をそのまま出します（入れなければ文字のまま）。
+     電話番号だけは押せるようにします。スマホ幅ではヘッダーのTEL表示が消えるので
+     （style.css の .header-tel）、番号が出ているのはこの表だけです。
+     文字のままだと、当日の遅れを伝えたい方が番号を選んで写す手間を踏みます。 */
   const rows = [
     ['店名', SALON.fullName || `${SALON.name} ${SALON.nameSub || ''}`.trim()],
-    ['電話番号', SALON.tel],
+    ['電話番号', SALON.tel,
+      SALON.tel ? `<a href="tel:${esc(SALON.tel.replace(/-/g, ''))}">${esc(SALON.tel)}</a>` : ''],
     ['住所', SALON.address],
     ['アクセス', SALON.access],
     ['道案内', SALON.directions],
@@ -262,7 +287,8 @@ function renderSalonInfo(host) {
   // 未確認で空にしてある項目は、行ごと出さない
   host.innerHTML = rows
     .filter(([, v]) => v)
-    .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v).replace(/\n/g, '<br />')}</td></tr>`)
+    .map(([k, v, html]) =>
+      `<tr><th>${esc(k)}</th><td>${html || esc(v).replace(/\n/g, '<br />')}</td></tr>`)
     .join('');
 
   renderMapLinks(host.closest('section'));
@@ -290,6 +316,30 @@ function renderMapLinks(section) {
          href="https://www.google.com/maps/dir/?api=1&destination=${q}">ここへの経路を調べる</a>
     </div>
     <p class="map-note">「経路を調べる」を押すと、今いる場所からの道順がGoogleマップで開きます。</p>`);
+}
+
+/* トップの「お客様の声」の下にあるボタンの行き先。
+   口コミは0件です。それなのに「口コミをすべて見る」と書いてあると、
+   押した先には「まだ届いていません」の一文しかありません。行き止まりです。
+   架空の口コミは作らないと決めている（DECISIONS.md）以上、必ず通る道なので、
+   件数に合わせて行き先のほうを変えます。
+
+   投稿フォームは受信先を入れるまで出しません（initReviewForm）。
+   出ていないフォームへ誘うと、また行き止まりになるので、
+   そのあいだはボタン自体を出しません。 */
+function renderHomeReviewLink() {
+  const link = $('#home-review-link');
+  if (!link) return;
+  const box = link.parentElement;
+  if (SALON.reviews.length) {
+    link.textContent = '口コミをすべて見る';
+    link.href = 'reviews.html';
+    box.hidden = false;
+    return;
+  }
+  link.textContent = 'ご感想をお寄せください';
+  link.href = 'reviews.html#write';
+  box.hidden = !SALON.reservationEndpoint;
 }
 
 /* ---------- ページごとの初期化 ---------- */
@@ -338,6 +388,15 @@ function initHome() {
      ロゴ画像を大きく出すと、画面の1/3がロゴ1枚で埋まり、
      「イタリア発、東京経由。」の一文まで下に押し出されます。 */
   if (heroBrand) heroBrand.innerHTML = brandLockup({ size: 'lg', logo: false });
+  const tagline = $('#hero-tagline');
+  if (tagline) {
+    /* 区切りは前の語にくっつけます。単独の span にすると、
+       「｜」だけが行のあたまに残ることがあります。 */
+    const parts = heroTaglineParts();
+    tagline.innerHTML = parts
+      .map((t, i) => `<span>${esc(t)}${i < parts.length - 1 ? '｜' : ''}</span>`).join('');
+    tagline.hidden = !parts.length;
+  }
   $('#hero-catch').textContent = SALON.catch;
   $('#hero-desc').textContent = SALON.description;
   $('#lead-hours').textContent = SALON.business.minLeadHours;
@@ -358,13 +417,14 @@ function initHome() {
   $('#home-reviews').innerHTML = SALON.reviews.length
     ? SALON.reviews.slice(0, 2).map(reviewCard).join('')
     : reviewEmptyHtml();
+  renderHomeReviewLink();
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
   _wire();
 }
 
 function initMenuPage() {
-  $('#coupon-list').innerHTML = SALON.coupons.map(couponCard).join('');
+  initCouponFilter();
 
   const tabsHost = $('#menu-tabs');
   const listHost = $('#menu-list');
@@ -385,13 +445,58 @@ function initMenuPage() {
     wireImageFallbacks(listHost);
   };
   draw('all');
-  wireImageFallbacks($('#coupon-list'));
 
   bindOnce('menu-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
     $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     draw(tab.dataset.cat);
+  }));
+}
+
+/* おすすめメニューの絞り込み。
+   14件あります。390pxのスマホだと、上から順に読んで単品メニューにたどり着くまでに
+   3画面ぶん送ることになり、カラーだけ見たい方もパーマだけ見たい方も
+   全部を通り過ぎることになります。
+
+   絞る材料は掲載のタグ（カット・カラー・縮毛矯正…）です。店の言葉で、
+   couponCard がすでに画面に出しているものと同じです。こちらでは足していません。
+   シートから読んだおすすめメニューにはタグ欄が無いので、
+   絞れないときはタブごと出しません（押せない箱を残さないため）。 */
+function initCouponFilter() {
+  const host = $('#coupon-list');
+  const tabsHost = $('#coupon-tabs');
+  if (!host) return;
+
+  /* menu-tabs と同じ理由で、描くたびに SALON.coupons を読み直します。
+     ここで配列を覚え込むと、タブを押したときだけ古い一覧を見にいきます。 */
+  const draw = tag => {
+    const list = tag === 'すべて'
+      ? SALON.coupons
+      : SALON.coupons.filter(c => (c.tags || []).includes(tag));
+    host.innerHTML = list.map(couponCard).join('');
+    wireImageFallbacks(host);
+  };
+
+  const tags = [...new Set(SALON.coupons
+    .flatMap(c => (Array.isArray(c.tags) ? c.tags : []))
+    .map(t => String(t).trim()).filter(Boolean))];
+
+  if (tabsHost) {
+    // タグが1種類しかなければ絞る意味がないので、そのときも出しません
+    tabsHost.hidden = tags.length < 2;
+    tabsHost.innerHTML = tags.length < 2 ? '' : ['すべて', ...tags]
+      .map((t, i) => `<button class="tab" type="button" role="tab" data-tag="${esc(t)}" aria-selected="${i === 0}">${esc(t)}</button>`)
+      .join('');
+  }
+  draw('すべて');
+
+  if (!tabsHost) return;
+  bindOnce('coupon-tabs', () => tabsHost.addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    draw(tab.dataset.tag);
   }));
 }
 
@@ -515,7 +620,8 @@ function initReviewsPage() {
     ? `<div style="text-align:center;">
          <div class="rating-score" style="font-size:44px;">${SALON.rating.toFixed(1)}</div>
          <div class="stars" style="font-size:20px;">${stars(SALON.rating)}</div>
-         <p style="font-size:12.5px;color:var(--muted);margin-top:6px;">全 ${SALON.reviewCount.toLocaleString('ja-JP')}件の口コミ</p>
+         ${/* --muted は12.5pxだと地に対して3.49:1しかなく、屋外では読めません */ ''}
+         <p style="font-size:12.5px;color:var(--text-2);margin-top:6px;">全 ${SALON.reviewCount.toLocaleString('ja-JP')}件の口コミ</p>
        </div>`
     : '';
   $('#review-list').innerHTML = SALON.reviews.length

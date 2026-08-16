@@ -1259,3 +1259,100 @@ body[data-page="mypage"] .breadcrumb a { color: var(--text-2); }
   .step b { font-size: 9.5px; }
   .done-box { padding: 40px 18px; }
 }
+
+/* ===== 閲覧ページ：使いやすさの手直し ===== */
+/* 対象はお客様が予約の前に見る5ページ
+   （サロンTOP / スタイル / スタッフ / メニュー / 口コミ）です。
+   390pxのスマホ・片手・写真0枚・口コミ0件の状態で実測して直しました。 */
+
+/* --- 読めること ---
+   小さい文字に必要なのは 4.5:1 です。実測した比は次のとおりでした。
+   どれも --muted (#857C6D) を使っている行で、地がクリーム系なので
+   一律に足りていません。色は既存の --text-2 に寄せるだけで、増やしていません。
+
+     パンくず（戻る道）            .breadcrumb        3.16 : 1
+     メニューの説明・条件          .menu-row-note     3.16 : 1
+     メニューの所要時間            .menu-row-time     3.16 : 1
+     トップの営業時間・アクセス    .hero-meta         3.16 : 1
+     口コミ0件のお知らせ           .empty-state       3.16 : 1
+     ESTD の行                     .hero-label        3.16 : 1
+     地図ボタンの補足              .map-note          3.49 : 1
+     おすすめメニューの所要時間    .price-min         3.88 : 1
+     スタイルの分類・説明・タグ    .style-meta        3.88 : 1
+     スタッフのフリガナ・指名料    .staff-kana 他     3.88 : 1
+     店舗情報の項目名              .info-table th     3.88 : 1
+     口コミの投稿者・担当          .review-user 他    3.88 : 1
+
+   ※ 予約の流れ側は、上の「予約の流れ：使いやすさの手直し」で別に直っています。
+      ここは閲覧ページに出るものだけを足しています。 */
+.breadcrumb { color: var(--text-2); }
+.hero-label, .hero-meta { color: var(--text-2); }
+.menu-row-note, .menu-row-time, .price-min, .coupon-terms { color: var(--text-2); }
+.style-meta { color: var(--text-2); }
+.staff-kana, .staff-fee { color: var(--text-2); }
+.review-user, .review-foot { color: var(--text-2); }
+.info-table th { color: var(--text-2); }
+.map-note, .rating-count { color: var(--text-2); }
+/* 口コミ0件・予約なしの案内文。ここが読めないと、次に何をすればいいのか分からない */
+body[data-page="home"] .empty-state,
+body[data-page="reviews"] .empty-state { color: var(--text-2); }
+
+/* --- 指が届くこと ---
+   実測で 44px に足りなかったもの。マウスのある画面では起こしません。
+     パンくずの「サロンTOP」（戻る道）        64 x 38
+     絞り込みタブ（すべて/カット/…）         78 x 43
+     ヘッダーの店名（トップへ戻る）         149 x 33
+     店舗情報の電話番号（新しく押せるようにした行）
+   ページ内のナビ（サロンTOP/スタイル/…）は実測45.9pxで足りていたので触りません。
+   ここを起こすとヘッダーが厚くなり、本文がそのぶん下に押し出されます。 */
+@media (pointer: coarse) {
+  /* 見た目の間隔は、既存の指定と同じく負のマージンで戻します */
+  .breadcrumb a { padding-block: 12px; margin-block: -12px; }
+  .tabs .tab { min-height: 44px; }
+  .site-header .brand { min-height: 44px; }
+  .info-table a { display: inline-block; padding: 10px 0; margin: -10px 0; }
+}
+
+/* --- 写真が1枚も無い状態で見苦しくないこと ---
+   スタイルは12件あります。1列だと写真の枠（3:4）が390px幅で477pxになり、
+   写真の入っていないいまは、意匠のストライプだけが12回続きます。
+   ページの高さは9700pxありました。「準備中の店」に見えるところです。
+   2列にすると枠は228pxになり、一覧として見渡せます。
+   写真が入ったあとも、スタイルは2列で並べて選ぶものなので同じ形で使えます。 */
+@media (max-width: 640px) {
+  .style-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .style-body { padding: 11px 12px 14px; }
+  .style-title { font-size: 12.5px; }
+  .style-meta { font-size: 11px; margin-top: 5px; }
+}
+
+/* --- 迷わないこと --- */
+
+/* トップの1行目。何の店で、どこにあるのかを日本語で読ませる場所です
+   （中身は pages.js の heroTaglineText） */
+.hero-tagline {
+  font-size: 14.5px; font-weight: 700; letter-spacing: .04em;
+  color: var(--text); margin-top: 4px;
+}
+/* 地名と専門のあいだで折り返す。日本語はどこでも折り返せるので、
+   区切らないと「メンズカ／ット/縮毛矯正」のように語の途中で折れます */
+.hero-tagline span { display: inline-block; }
+.hero.has-photo .hero-tagline { color: var(--on-ink); }
+/* 写真を入れると地が暗くなります。店名の下の「BARBER/LOUNGE」だけ
+   臙脂色のままで、暗い写真の上では 1.65:1 まで落ちて読めませんでした
+   （.hero.has-photo は .wm-name の色しか差し替えていませんでした）。 */
+.hero.has-photo .wm-sub { color: rgba(241, 236, 224, .82); }
+.hero.has-photo .wm-sub::before,
+.hero.has-photo .wm-sub::after { background: rgba(241, 236, 224, .82); }
+
+/* メニューページの、ページ内の行き先。おすすめ14件を通り過ぎずに単品へ行けます */
+.page-jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.page-jump a {
+  display: inline-flex; align-items: center; min-height: 44px;
+  padding: 8px 16px; border: 1px solid var(--accent); border-radius: var(--radius);
+  font-size: 13px; font-weight: 700; color: var(--accent);
+}
+.page-jump a:hover { background: var(--accent-soft); }
+
+/* 店舗情報の電話番号。押せることが見た目で分かるようにします */
+.info-table a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
