@@ -2496,10 +2496,16 @@ function replaceKeepingImages_(ss, name, headers, keyHeader, rows) {
     if (key && img) images[key] = img;
   });
 
+  /* 店主が入れた写真を優先します。
+
+     こちらが既定で用意している写真（掲載から取り込んだもの）より、
+     店主が管理ページから選んだ写真のほうが新しく、意図があります。
+     既定で上書きすると、入れ替えるたびに店主の写真が消え、
+     そのたびに1枚ずつ選び直すことになります。 */
   let kept = 0;
   rows.forEach(function (r) {
     const key = String(r[keyHeader] || '').trim();
-    if (!String(r['画像'] || '').trim() && images[key]) { r['画像'] = images[key]; kept++; }
+    if (images[key]) { r['画像'] = images[key]; kept++; }
   });
 
   writeSheetRows_(ss, name, headers, rows);
