@@ -870,6 +870,41 @@ await group('管18 休業日の「終日」と「時間帯だけ」', async () =
 });
 
 /* ============================================================
+   管19 予約の通知先を、店の人が自分で変えられる
+
+   通知先はコードに直書きしてありました。変えるにはコードを貼り直して
+   再デプロイが要ります。店の人にはできません。ところが宛先を変えたい
+   場面は必ず来ます。作業者のアドレスから店のアドレスへ移すとき、
+   従業員にも届けたいとき、機種変更でアドレスが変わったとき。
+   どれも、その日のうちに直せないと予約が誰にも届きません。
+   ============================================================ */
+await group('管19 予約の通知先を店の人が変えられる', async () => {
+  const p = await newPhone('管19');
+  await login(p);
+  await tab(p, '店舗情報'); await p.waitForTimeout(600);
+
+  const field = p.locator('[data-setting="通知先メール"]');
+  check('管19', '通知先の欄が管理ページにある', await field.count(), 1);
+  check('管19', 'いまの宛先が読める', await field.inputValue(), 'shop@example.com');
+  /* 空にすると誰にも届かなくなる、という一番大事なことが書いてあるか */
+  const box = p.locator('.form-field', { has: p.locator('[data-setting="通知先メール"]') }).first();
+  check('管19', '空にすると届かないと書いてある',
+    /誰にも届きません/.test(await box.innerText()), true);
+  check('管19', '複数入れられると書いてある',
+    /複数|カンマ/.test(await box.innerText()), true);
+
+  // 2件に増やして保存できる
+  await field.fill('tenshu@example.com, staff@example.com');
+  await p.locator('[data-save="settings"]').click(); await p.waitForTimeout(1500);
+  const saved = (await post({ type: 'adminData', password: PW })).settings || {};
+  check('管19', '複数の宛先を保存できる',
+    String(saved['通知先メール']), 'tenshu@example.com, staff@example.com');
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

@@ -1788,10 +1788,45 @@ function findRowByCode_(sheet, code) {
   return i === -1 ? -1 : i + 2;
 }
 
+/* 予約が入ったときの通知先。
+
+   設定シートの「通知先メール」を先に見ます。上の NOTIFY_EMAIL は、
+   シートが空のときの控えです。
+
+   コード側だけに書いてあると、宛先を変えるのに貼り直しと再デプロイが
+   要ります。店の人にはできません。ところが宛先を変えたい場面は必ず来ます。
+   ・作業者のアドレスで動かしていたものを、店のアドレスに移すとき
+   ・奥さんや従業員にも同じ通知を届けたいとき
+   ・機種変更でアドレスを変えたとき
+   どれも、その日のうちに直せないと予約が誰にも届きません。
+
+   カンマ・読点・空白・改行のどれで区切っても読みます。手で書く場所なので。 */
+function notifyList_() {
+  let raw = '';
+  try { raw = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['通知先メール'] || '').trim(); }
+  catch (e) { /* シートが読めないときは下の定数で */ }
+  if (!raw) raw = NOTIFY_EMAIL;
+  const seen = {};
+  const out = [];
+  halfWidth_(raw).split(/[,、;；\s]+/).forEach(function (t) {
+    const v = t.trim();
+    /* 打ち間違いをそのまま送ると、Googleが送信ごとに失敗を返します。
+       1件でも壊れていると他の宛先まで巻き添えで届かないため、
+       読める形のものだけ通します。 */
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return;
+    const k = v.toLowerCase();
+    if (seen[k]) return;
+    seen[k] = true;
+    out.push(v);
+  });
+  return out;
+}
+
 function notify_(subject, body) {
-  if (!NOTIFY_EMAIL) return;
+  const to = notifyList_();
+  if (!to.length) return;
   try {
-    MailApp.sendEmail(NOTIFY_EMAIL, `${SALON_NAME} ${subject}`, body);
+    MailApp.sendEmail(to.join(','), `${SALON_NAME} ${subject}`, body);
   } catch (err) {
     console.warn('メール送信に失敗しました', err);
   }
@@ -1916,10 +1951,12 @@ function はじめの準備() {
   }
 
   // 3. 残りの手順
-  if (!NOTIFY_EMAIL) {
-    log.push('⚠️ 通知先メールが空です。上部の NOTIFY_EMAIL を設定してください。');
+  if (!notifyList_().length) {
+    log.push('⚠️ 予約の通知先が空です。設定シートの「通知先メール」か、'
+      + '上部の NOTIFY_EMAIL を入れてください。このままだと予約が入っても誰にも届きません。');
   } else {
-    log.push('・予約の通知先： ' + NOTIFY_EMAIL + '（違う場合は上部の NOTIFY_EMAIL を直してください）');
+    log.push('・予約の通知先： ' + notifyList_().join(' / ')
+      + '（管理ページの「店舗情報」タブ →「通知先メール」から変えられます）');
   }
   log.push('');
   log.push('--- このあとの手順 ---');
@@ -1982,6 +2019,7 @@ function setupMenuSheets() {
     setting.setColumnWidth(2, 420);
     [['電話番号', ''], ['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00'],
      ['キャッチコピー', ''], ['お知らせ', ''], ['定休曜日', ''],
+     ['通知先メール', NOTIFY_EMAIL],
      ['LINE友だち追加URL', ''], ['Google口コミURL', ''],
      ['ロゴ画像', ''], ['スタッフ写真', ''], ['メイン写真', '']].forEach(r => setting.appendRow(r));
     setting.getRange('B8').setNote('休みにする曜日を「日,水」のように書きます。毎週その曜日が予約できなくなります。');
