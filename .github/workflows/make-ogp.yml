@@ -1,0 +1,83 @@
+# LINE や X に貼ったときのカード画像（OGP）を、店内の写真から作り直す
+#
+# なぜ必要か：
+#   いまの assets/ogp.png は、写真が1枚も無かったころに作った文字だけの画像です。
+#   しかも中身が古くなっています。
+#     ・「BARBER」とだけ書いてある（サイトは barber/lounge、ロゴは BARBER COFFEE）
+#     ・キャッチコピーが前任の作文のまま（掲載の実物とは別の文）
+#   ホットペッパーから自社予約へ移すとき、LINEに貼ったカードが最初の入口に
+#   なります。そこに古い文言と文字だけの画像が出るのは、いちばん惜しい。
+#
+#   文字は焼き込みません。LINE も X も、画像の隣に og:title と og:description を
+#   出します。画像に文字を焼くと、そこだけ直せなくなり、また古くなります。
+#
+#   この作業をしている環境には画像を扱う道具が無いので、GitHub の実行環境で
+#   行います。
+#
+# 実行のしかた：Actions タブ →「カード画像を作り直す」→ Run workflow
+
+name: カード画像を作り直す
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: '元にする写真（assets/ からの相対パス）'
+        required: false
+        default: 'assets/shop2.jpg'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 1200x630 に切り出す
+        run: |
+          set -eu
+          SRC='${{ inputs.source }}'
+          [ -f "$SRC" ] || { echo "元の写真がありません: $SRC"; exit 1; }
+
+          # 参照側（各ページの og:image:width / height）が 1200x630 と書いているので、
+          # そこに合わせます。食い違うと、貼られた先で余白が入ったり切られたりします。
+          #
+          # 上を少し残す向きに寄せています。人物写真に差し替えたときに
+          # 頭が切れないようにするためで、サイト側の .ph-photo と同じ考え方です。
+          convert "$SRC" \
+            -resize '1200x630^' \
+            -gravity north -crop '1200x630+0+0' +repage \
+            -strip -define png:compression-level=9 \
+            assets/ogp.png
+
+          identify -format '出来上がり: %wx%h / %b\n' assets/ogp.png | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: コミットする
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add assets/ogp.png
+          if git diff --cached --quiet; then
+            echo '中身が変わりませんでした。コミットしません。'
+            exit 0
+          fi
+          git commit -m "$(cat <<'MSG'
+          LINEに貼ったときのカード画像を、店の写真にする
+
+          前のカード画像は、写真が1枚も無かったころに作った文字だけのもので、
+          中身も古くなっていました。「BARBER」とだけ書いてあり（サイトの表記は
+          barber/lounge、ロゴは BARBER COFFEE）、キャッチコピーも前任の作文の
+          ままでした。掲載の実物とは別の文です。
+
+          ホットペッパーから自社予約へ移すとき、LINEに貼ったカードが最初の
+          入口になります。そこが古い文言と文字だけの画像では惜しい。
+
+          文字は焼き込んでいません。LINE も X も画像の隣に og:title と
+          og:description を出します。焼き込むと、そこだけ直せなくなって
+          また古くなります。
+          MSG
+          )"
+          git pull --rebase origin main
+          git push origin HEAD:main
