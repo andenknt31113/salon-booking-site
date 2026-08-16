@@ -32,21 +32,31 @@
         </nav>
         <h1>メニュー</h1>
         <p>価格はすべて税込表示です。髪の長さ・毛量により追加料金をいただく場合がございます。</p>
+        <!-- おすすめ14件・単品9件で、390pxのスマホだとページの高さが7500pxあります。
+             単品だけ見たい方が、おすすめ14件を全部通り過ぎることになるので、
+             先にどちらへでも行けるようにします。 -->
+        <p class="page-jump">
+          <a href="#recommended">おすすめメニュー</a>
+          <a href="#single">単品メニュー</a>
+        </p>
       </div>
     </div>
 
-    <section class="section">
+    <section class="section" id="recommended">
       <div class="container">
         <div class="section-head is-left">
           <!-- 割引ではなく組み合わせのコースなので「COUPON」とは書きません（index.html と同じ理由） -->
           <span class="section-label">RECOMMENDED</span>
           <h2 class="section-title">おすすめメニュー</h2>
         </div>
+        <!-- 掲載のタグで絞り込みます。タグを持たないおすすめメニュー（シート由来）の
+             ときは、pages.js がこの箱ごと隠します。 -->
+        <div class="tabs" id="coupon-tabs" role="tablist" hidden></div>
         <div class="coupon-list" id="coupon-list"></div>
       </div>
     </section>
 
-    <section class="section section-alt">
+    <section class="section section-alt" id="single">
       <div class="container">
         <div class="section-head is-left">
           <span class="section-label">MENU</span>

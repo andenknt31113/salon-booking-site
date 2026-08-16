@@ -31,7 +31,10 @@
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>ヘアスタイル</span>
         </nav>
         <h1>ヘアスタイル</h1>
-        <p>気になるスタイルは、ご予約時の「ご要望欄」に名前を書いていただければスムーズです。</p>
+        <!-- 「ご要望欄に名前を書いていただければ」と書いてありましたが、
+             書き写す作業をお客様にさせていました。カードのボタンが名前を運ぶので、
+             お願いする文ではなく、何が起きるかを書きます。 -->
+        <p>気になるスタイルの「このスタイルで予約」を押すと、そのスタイル名をご要望欄に入れた状態でご予約に進めます。</p>
       </div>
     </div>
 
@@ -39,8 +42,12 @@
       <div class="container">
         <div class="tabs" id="style-tabs"></div>
         <div class="style-grid" id="style-list"></div>
+        <!-- 「このイメージで予約する」と書いてありましたが、一覧の下に1つあるだけで、
+             どのスタイルも指していませんでした。スタイルを選ぶボタンはカードごとに
+             付いたので、ここは「決めずに予約に進む方」のための道として残します。
+             スタイルが1件も無いときでも、このページが行き止まりにならない道でもあります。 -->
         <p style="text-align:center;margin-top:32px;">
-          <a class="btn btn-primary btn-lg" href="reserve.html">このイメージで予約する</a>
+          <a class="btn btn-primary btn-lg" href="reserve.html">スタイルを決めずに予約に進む</a>
         </p>
       </div>
     </section>

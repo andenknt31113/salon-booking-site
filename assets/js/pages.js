@@ -129,8 +129,26 @@ function styleCard(sy) {
               （style.css は別の作業者が触っているので、ここで指定しています） */ ''}
         ${detail ? `<p class="style-meta" style="color:var(--text-2);">${esc(detail)}</p>` : ''}
         <p class="style-meta">${sy.tags.map(t => `#${esc(t)}`).join(' ')}</p>
+        ${/* 押すと、このスタイルの名前をご要望欄まで持っていきます
+              （common.js の rememberStyleRequest → 予約ページの takeStyleRequest）。
+              以前は一覧の下に「このイメージで予約する」が1つあるだけで、どのスタイルも
+              指していませんでした。お客様は名前を自分で書き写すことになっていました。
+              URLには載せません。この端末の中だけで渡します。
+              文字を2つに分けているのは、折り返す場所を決めるためです。
+              1つの文字列だと、狭い画面で「このスタイルで予」「約」と割れます。 */ ''}
+        <a class="btn btn-outline btn-sm style-book" href="reserve.html"
+           data-style="${esc(sy.title)}"><span>このスタイルで</span><span>予約</span></a>
       </div>
     </article>`;
+}
+
+/* スタイルのボタンは、一覧を描き直すたびに作り直されます。
+   カード1枚ずつに付けると張り直しになるので、まとめて受けます。 */
+function bindStyleBooking() {
+  bindOnce('style-book', () => document.addEventListener('click', e => {
+    const btn = e.target.closest('.style-book');
+    if (btn) rememberStyleRequest(btn.dataset.style);
+  }));
 }
 
 function reviewCard(r) {
@@ -318,6 +336,28 @@ function renderMapLinks(section) {
     <p class="map-note">「経路を調べる」を押すと、今いる場所からの道順がGoogleマップで開きます。</p>`);
 }
 
+/* トップの「ヘアスタイル」に出す数点。
+
+   ここは一覧ではありません。スタイルの一覧は gallery.html にあります。
+   トップの節が答えるべきなのは「この店はどんな仕事をするのか」で、
+   先頭から4件そのまま出すと、gallery.html の1画面目と同じものが並び、
+   節が2つあるだけになります。掲載の並びが似たスタイルで始まっていると、
+   4枚とも同じような髪型になることもあります。
+
+   分類（センターパート・白髪ぼかし・スパイキーショート・パーマ）から
+   1点ずつ拾って、店の幅が見えるようにします。分類が4つに満たないときは、
+   残りを掲載の並びで埋めます。選んでいるだけで、内容は足していません。 */
+function homeStyles(limit = 4) {
+  const 出した分類 = new Set();
+  const 代表 = SALON.styles.filter(s => {
+    if (出した分類.has(s.length)) return false;
+    出した分類.add(s.length);
+    return true;
+  });
+  // 分類が少ない店では、そのぶんを掲載の並びから足す
+  return [...new Set([...代表, ...SALON.styles])].slice(0, limit);
+}
+
 /* トップの「お客様の声」の下にあるボタンの行き先。
    口コミは0件です。それなのに「口コミをすべて見る」と書いてあると、
    押した先には「まだ届いていません」の一文しかありません。行き止まりです。
@@ -412,7 +452,8 @@ function initHome() {
   ].filter(Boolean).map(t => `<li>◍ ${esc(t)}</li>`).join('');
 
   $('#home-coupons').innerHTML = SALON.coupons.slice(0, 3).map(couponCard).join('');
-  $('#home-styles').innerHTML = SALON.styles.slice(0, 4).map(styleCard).join('');
+  $('#home-styles').innerHTML = homeStyles().map(styleCard).join('');
+  bindStyleBooking();
   $('#home-staff').innerHTML = SALON.staff.map(staffCard).join('');
   $('#home-reviews').innerHTML = SALON.reviews.length
     ? SALON.reviews.slice(0, 2).map(reviewCard).join('')
@@ -521,6 +562,7 @@ function initGalleryPage() {
     wireImageFallbacks(host);
   };
   draw('すべて');
+  bindStyleBooking();
 
   bindOnce('style-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');

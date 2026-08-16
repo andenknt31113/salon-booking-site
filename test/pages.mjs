@@ -33,6 +33,13 @@ async function newPhone(label, opt = {}) {
      assets/*.jpg は置かれていないので普段も出ませんが、
      シートに写真を登録したあとでも「読めなかったとき」を再現できるようにしておく。 */
   if (opt.noPhoto) await ctx.route(/\.(jpg|jpeg|png|webp|svg)(\?|$)/i, r => r.abort());
+  /* いちばん明るい写真が入ったときを作る。
+     店主は管理ページから写真を差し替えます。いま入っている1枚（暗い店内）に
+     合わせて覆いを決めると、明るい写真に替えた日に本文が読めなくなります。 */
+  if (opt.whitePhoto) await ctx.route(/\.(jpg|jpeg|png|webp)(\?|$)/i, r => r.fulfill({
+    status: 200, contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000">'
+      + '<rect width="1200" height="1000" fill="#ffffff"/></svg>' }));
   /* Apps Script を入れる前（いまの公開状態）。受信先が空の data.js に戻す。 */
   if (opt.noEndpoint) {
     await ctx.route('**/assets/js/data.js', async r => {
@@ -503,6 +510,506 @@ console.log('\n【10】掲載どおりの内容（data.js）');
      同じ表の「スタッフ数 スタイリスト1名」と食い違う。 */
   check('10', '1名の店に「男性スタッフが多い」と書いていない', /男性スタッフが多い/.test(info), false);
   check('10', '掲載のこだわり条件は出ている', /店頭でのカード支払いOK/.test(info), true);
+  await p.context().close();
+}
+
+/* ============================================================
+   【11】最初の3秒で「何の店か」が伝わるか
+
+   トップの上半分は、英字のロゴ・ESTD の行・「イタリア発、東京経由。」でした。
+   龍ケ崎で「フェード」「白髪ぼかし」を探して流れてきた方は、
+   ここまで読んでも自分向きの店かどうかが分かりません。
+
+   出しているのは、店が掲載名に自分で書いている専門と、住所の市名だけです。
+   こちらで文章を作ると、店が言っていないことを店の言葉として書くことになります。
+   ============================================================ */
+console.log('\n【11】トップの最初の1画面');
+{
+  const p = await newPhone('11', { noPhoto: true, noEndpoint: true });
+  await p.goto(B + '/index.html'); await p.waitForTimeout(2000);
+
+  const line = (await p.locator('#hero-tagline').innerText()).trim();
+  console.log('   1行目:', line);
+  check('11', '何の店かを日本語で出している', !!line, true);
+  check('11', '探している人の言葉（専門）が入っている', /縮毛矯正/.test(line) && /白髪ぼかし/.test(line), true);
+  check('11', 'どこの店かが日本語で分かる', /龍ケ崎市/.test(line), true);
+  /* 店が言っていないことを足していないか。
+     出している文字が、掲載名と住所の中にある文字だけでできていることを確かめる。 */
+  check('11', '掲載名と住所にある言葉しか使っていない', await p.evaluate(() => {
+    const src = String(SALON.fullName) + String(SALON.address);
+    return [...document.querySelector('#hero-tagline').textContent]
+      .filter(c => c !== '｜' && !src.includes(c)).join('') || 'なし';
+  }), 'なし');
+  /* 指を動かす前の1画面（844px）に入っていないと、最初の3秒には間に合わない */
+  check('11', '1画面目に入っている', await p.evaluate(() => {
+    const r = document.querySelector('#hero-tagline').getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= 844;
+  }), true);
+  /* 掲載名の書き方が変わって「」が無くなったときは、何も出さない
+     （半端な文字列を出すより、出さないほうがましなため） */
+  check('11', '掲載名に専門の記載が無ければ何も出さない', await p.evaluate(() => {
+    const before = SALON.fullName;
+    SALON.fullName = 'ZER01 barber/lounge';
+    const out = heroTaglineParts().join('｜');
+    SALON.fullName = before;
+    return /メンズカット/.test(out);
+  }), false);
+  /* 日本語はどこでも折り返せるので、1つの文字列で出すと
+     「茨城県龍ケ崎市｜メンズカ／ット/縮毛矯正…」と語の途中で折れる。
+     地名と専門を別の箱にして、そのあいだで折り返させている。 */
+  check('11', '語の途中で折り返さないように区切ってある',
+    await p.locator('#hero-tagline span').count(), 2);
+  await p.context().close();
+}
+
+/* ============================================================
+   【12】口コミ0件の行き止まりを作らないか
+
+   0件なのに「口コミをすべて見る」と書いてあると、押した先には
+   「まだ届いていません」の一文しかありません。
+   架空の口コミは作らないと決めている以上、必ず通る道です。
+   ============================================================ */
+console.log('\n【12】口コミ0件のときの行き先');
+{
+  // 受信先がまだ無い（＝投稿フォームも出していない）とき
+  const p = await newPhone('12', { noEndpoint: true });
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1600);
+  /* 押した先が「まだ届いていません」の一文だけ、という道を作らない */
+  check('12', '0件のとき「すべて見る」と書かない',
+    /口コミをすべて見る/.test(await p.locator('#home-reviews').locator('xpath=../..').innerText()), false);
+  /* 書ける場所が無いのに「ご感想を」と誘っても、また行き止まりになる */
+  check('12', '投稿できないあいだはボタンごと出さない',
+    await p.locator('#home-review-link').isVisible(), false);
+  await p.context().close();
+}
+{
+  // 受信先を入れたあと。0件でも、書ける場所へは行ける
+  const p = await newPhone('12b');
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
+  check('12', '投稿できるときは書ける場所へ誘う',
+    (await p.locator('#home-review-link').innerText()).trim(), 'ご感想をお寄せください');
+  check('12', '行き先が投稿フォームになっている',
+    /reviews\.html#write$/.test(await p.locator('#home-review-link').getAttribute('href')), true);
+  await p.context().close();
+}
+{
+  /* 口コミが届いたら「すべて見る」に戻る。片道だけ直すと、
+     せっかく集まった口コミへの入口が一生出ない（【3】と同じ落とし穴）。 */
+  await saveSheet('reviews', [
+    { 投稿日: '2026-08-10', 予約番号: 'LM-TEST9', ニックネーム: 'K.I', 年代: '40代', 性別: '',
+      評価: 5, タイトル: '', 本文: '丁寧に切ってもらえました。', 担当: 'MATTEO',
+      メニュー: 'カットコース', 状態: '掲載中' }
+  ]);
+  const p = await newPhone('12c');
+  await p.goto(B + '/index.html'); await p.waitForTimeout(2000);
+  check('12', '口コミが届いたら「すべて見る」に戻る',
+    (await p.locator('#home-review-link').innerText()).trim(), '口コミをすべて見る');
+  check('12', '行き先も口コミページに戻る',
+    await p.locator('#home-review-link').getAttribute('href'), 'reviews.html');
+  await p.context().close();
+  await saveSheet('reviews', []);
+}
+
+/* ============================================================
+   【13】写真が0枚のときのスタイル一覧と、メニューの探しやすさ
+   ============================================================ */
+console.log('\n【13】一覧の見渡しやすさ（390px）');
+{
+  const p = await newPhone('13', { noPhoto: true, noEndpoint: true });
+  await p.goto(B + '/gallery.html'); await p.waitForTimeout(2500);
+  /* 1列だと写真の枠（3:4）が477pxになり、写真の無いいまは
+     意匠のストライプだけで1画面が埋まります。12件続くと「準備中の店」に見えます。 */
+  const grid = await p.evaluate(() => {
+    const cards = [...document.querySelectorAll('#style-list .style-card')];
+    const tops = cards.map(c => Math.round(c.getBoundingClientRect().top));
+    return {
+      件数: cards.length,
+      横に並ぶ枚数: tops.filter(t => t === tops[0]).length,
+      写真枠の高さ: Math.round(document.querySelector('.style-thumb').getBoundingClientRect().height)
+    };
+  });
+  check('13', 'スタイルは掲載どおり12件', grid.件数, 12);
+  check('13', '390pxで2列に並ぶ', grid.横に並ぶ枚数, 2);
+  /* 高さ0だと潰れている（【1】で見ている）。逆に大きすぎると1件で画面が埋まる */
+  check('13', '写真枠が1件で画面を埋めない', grid.写真枠の高さ > 100 && grid.写真枠の高さ < 320, true);
+
+  /* おすすめメニュー14件。掲載のタグで絞れないと、単品メニューに着くまでに
+     14件を全部通り過ぎることになる。 */
+  await p.goto(B + '/menu.html'); await p.waitForTimeout(2200);
+  const tabs = await p.locator('#coupon-tabs .tab').allInnerTexts();
+  check('13', 'おすすめメニューを掲載のタグで絞れる', tabs[0], 'すべて');
+  check('13', 'タグは掲載にあるものが並ぶ', tabs.includes('縮毛矯正') && tabs.includes('カラー'), true);
+  check('13', '絞る前は掲載どおり14件', await p.locator('#coupon-list .coupon').count(), 14);
+
+  const idx = tabs.indexOf('カラー');
+  await p.locator('#coupon-tabs .tab').nth(idx).click(); await p.waitForTimeout(400);
+  const colored = await p.locator('#coupon-list .coupon').count();
+  check('13', '絞ると件数が減る', colored > 0 && colored < 14, true);
+  check('13', '絞った結果に、そのタグのものだけが残る',
+    /カラー/.test(await p.locator('#coupon-list').innerText()), true);
+
+  await p.locator('#coupon-tabs .tab').nth(0).click(); await p.waitForTimeout(400);
+  check('13', '「すべて」に戻すと14件に戻る', await p.locator('#coupon-list .coupon').count(), 14);
+
+  /* おすすめ14件を通り過ぎずに単品メニューへ行けるか */
+  await p.locator('.page-jump a').nth(1).click(); await p.waitForTimeout(700);
+  check('13', '近道から単品メニューまで飛べる', await p.evaluate(() => {
+    const r = document.querySelector('#single').getBoundingClientRect();
+    // 貼りついたヘッダーの下に隠れていないこと（scroll-padding-top ぶんを見る）
+    return r.top >= -2 && r.top < 240;
+  }), true);
+  await p.context().close();
+}
+{
+  /* 店がシートでおすすめメニューを管理すると、タグの欄がありません。
+     絞る材料が無いのにタブだけ出ていると、押しても何も起きない箱になります。 */
+  await saveSheet('coupons', [
+    { 'メニュー名': 'カット＋カラー', 価格: 14500, 通常価格: '', '所要(分)': 120,
+      説明: '', 条件: '', 対象: '全員', 画像: '', 表示: '○' },
+    { 'メニュー名': 'カット＋パーマ', 価格: 14900, 通常価格: '', '所要(分)': 130,
+      説明: '', 条件: '', 対象: '全員', 画像: '', 表示: '○' }
+  ]);
+  const p = await newPhone('13b');
+  await p.goto(B + '/menu.html'); await p.waitForTimeout(2200);
+  check('13', 'タグが無いおすすめメニューでは絞り込みを出さない',
+    await p.locator('#coupon-tabs').isVisible(), false);
+  check('13', 'それでもおすすめメニューは並ぶ', await p.locator('#coupon-list .coupon').count(), 2);
+  await p.context().close();
+}
+
+/* ============================================================
+   【13c】できない約束をしていないか／トップの節が一覧の写しになっていないか
+   ============================================================ */
+console.log('\n【13c】ボタンの文言と、トップのスタイル節');
+{
+  const p = await newPhone('13c', { noEndpoint: true });
+  await p.goto(B + '/gallery.html'); await p.waitForTimeout(2600);
+  /* 以前は一覧の下に1つあるだけで、どのスタイルも指していませんでした。
+     「このイメージで予約する」は、押した本人にも何を指すのか分からない文言です。 */
+  const cta = await p.locator('main a[href^="reserve.html"]').last().innerText();
+  check('13c', 'どれも指していないボタンに「このイメージで」と書かない', /このイメージ/.test(cta), false);
+  check('13c', 'スタイルを決めない方の道も残っている', /予約/.test(cta), true);
+
+  // スタイルごとに、そのスタイルで進めるボタンがある
+  check('13c', 'カードごとに予約のボタンがある',
+    await p.locator('#style-list .style-book').count(), 12);
+  const label = (await p.locator('#style-list .style-book').first().innerText()).replace(/\s+/g, '');
+  check('13c', 'ボタンが「このスタイル」を指している', label, 'このスタイルで予約');
+  /* 幅171pxのカードに入ります。語の途中で折り返すと「このスタイルで予／約」になります。 */
+  check('13c', 'ボタンの文字が語の途中で折り返さない', await p.evaluate(() => {
+    const a = document.querySelector('#style-list .style-book');
+    // 中の箱それぞれが1行に収まっていれば、割れているのは箱と箱のあいだだけ
+    return [...a.querySelectorAll('span')]
+      .every(s => s.getBoundingClientRect().height <= parseFloat(getComputedStyle(s).lineHeight) + 1);
+  }), true);
+
+  /* 押したスタイルの名前が、予約ページのご要望欄まで運ばれること。
+     ここが効いていないと、お客様は結局スタイル名を書き写すことになります。
+     受け渡しは common.js の rememberStyleRequest / takeStyleRequest です。 */
+  const 押したスタイル = await p.locator('#style-list .style-book').first().getAttribute('data-style');
+  await p.locator('#style-list .style-book').first().click();
+  await p.waitForTimeout(2600);
+  check('13c', '押すと予約ページに着く', new URL(p.url()).pathname.endsWith('/reserve.html'), true);
+  const 要望 = await p.evaluate(() => {
+    const t = document.querySelector('textarea[name="request"], #request');
+    return t ? t.value : '(欄が見つかりません)';
+  });
+  console.log('   ご要望欄:', 要望);
+  check('13c', 'スタイル名がご要望欄まで運ばれている', 要望.includes(押したスタイル), true);
+  /* 予約の中身をURLに載せない方針（DECISIONS.md）。履歴に残さないため。 */
+  check('13c', 'スタイル名をURLに載せていない', /[?#]/.test(p.url()), false);
+
+  await p.goto(B + '/gallery.html'); await p.waitForTimeout(2200);
+  /* ボタンが名前を運ぶようになったので、「ご要望欄に書いてください」と
+     お願いし続けると、要らない手間をかけさせることになります。 */
+  const 案内 = await p.locator('.page-head p').innerText();
+  check('13c', '手で書き写してくださいと言っていない',
+    /書いていただければ|ご記入ください/.test(案内), false);
+
+  /* トップの「ヘアスタイル」は一覧ではなく、店の幅を見せる節。
+     先頭から4件そのまま出すと、gallery.html の1画面目と同じ並びになる。 */
+  await p.goto(B + '/index.html'); await p.waitForTimeout(2000);
+  await p.locator('#home-styles').scrollIntoViewIfNeeded(); await p.waitForTimeout(2200);
+  check('13c', 'トップは4点だけ見せる', await p.locator('#home-styles .style-card').count(), 4);
+  const 分類 = await p.evaluate(() =>
+    [...document.querySelectorAll('#home-styles .style-meta')]
+      .filter((_, i) => i % 3 === 0).map(e => e.textContent.split('／')[0]));
+  check('13c', '4点が別々の分類から選ばれている', new Set(分類).size, 4);
+  check('13c', '一覧へ行ける', await p.locator('main a[href="gallery.html"]').count() > 0, true);
+  await p.context().close();
+}
+
+/* 届いた写真が、枠に対して切れすぎていないか。
+   届いたスタッフ写真は 853×1280 の縦位置です。狭い画面では枠を横長（4:3）に
+   していたため、上下が半分切り落とされ、頭の上半分が枠の外に出ていました。
+   バーバーは人で選ばれるので、顔が切れているのはいちばん困ります。
+
+   1枚ごとに位置を調整すると、店主が差し替えた日にまた切れます。
+   写真の向きと枠の向きが合っているか、という形で見ます。 */
+console.log('\n【13b】届いた写真の切り取られ方');
+{
+  const p = await newPhone('13b', { noEndpoint: true });
+  for (const [page, sel, label] of [['staff.html', '.staff-card .avatar', 'スタッフ'],
+                                    ['index.html', '#home-staff .avatar', 'トップのスタッフ'],
+                                    ['gallery.html', '.style-thumb', 'スタイル']]) {
+    await p.goto(B + '/' + page); await p.waitForTimeout(1500);
+    /* 写真は loading="lazy" なので、画面に入るまで読み込まれません。
+       送らずに測ると naturalWidth が 0 のままで、写真が無いと言ってしまいます。 */
+    await p.locator(sel).first().scrollIntoViewIfNeeded();
+    await p.waitForTimeout(2500);
+    const r = await p.evaluate(s => {
+      const box = document.querySelector(s);
+      const img = box && box.querySelector('img');
+      if (!img || !img.naturalWidth) return null;
+      const b = box.getBoundingClientRect();
+      const 写真の比 = img.naturalWidth / img.naturalHeight;
+      const 枠の比 = b.width / b.height;
+      // object-fit: cover なので、はみ出した側が切り落とされる
+      return Math.round((枠の比 > 写真の比 ? 写真の比 / 枠の比 : 枠の比 / 写真の比) * 100) / 100;
+    }, sel);
+    check('13b', `${label}の写真が読めている`, r !== null, true);
+    /* 4分の1までの切り落としなら、寄った構図として成り立ちます。
+       半分切ると、縦位置の写真では顔が枠の外に出ます。 */
+    check('13b', `${label}の写真が切れすぎていない（残り${r}）`, r >= 0.75, true);
+  }
+  await p.context().close();
+}
+
+/* ============================================================
+   【14】読めること・押せること（390pxで実測）
+
+   お客様は10代から50代まで、外の明るさの中で片手で見ます。
+   小さい文字に必要なのは 4.5:1、タップ対象は44px角が目安です。
+   直したのは主に --muted（#857C6D）で書かれていた行で、
+   クリーム色の地に対して 3.16〜3.88 : 1 しかありませんでした。
+
+   数えるのは main の中だけです。ヘッダーとフッターは別の作業者の担当で、
+   ここで落とすと直せない試験になります。
+   ============================================================ */
+console.log('\n【14】文字の濃さと、指の届く大きさ');
+{
+  const measure = () => {
+    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const nums = s => (s.match(/[\d.]+/g) || []).map(Number);
+    // 透けている親をさかのぼって、実際に後ろにある色を探す
+    const bgOf = el => {
+      let n = el;
+      while (n && n !== document.documentElement) {
+        const c = nums(getComputedStyle(n).backgroundColor);
+        if (c.length >= 3 && (c[3] === undefined || c[3] > 0.5)) return c.slice(0, 3);
+        n = n.parentElement;
+      }
+      return [255, 255, 255];
+    };
+    const 薄い = [], 小さい = [];
+    document.querySelectorAll('main *').forEach(el => {
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || cs.visibility === 'hidden') return;
+      /* 写真を入れたヒーローだけは、この測り方では見られない。
+         暗い膜は ::before / ::after で敷いていて、要素の背景色としては
+         読み取れないため、白い文字が「地と同じ色」に見えてしまう。
+         この状態の色は style.css の .hero.has-photo で明るい側に
+         そろえてあり、下の【14b】で別に確かめている。 */
+      if (el.closest('.hero.has-photo')) return;
+      const 直接の文字 = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+      if (!直接の文字) return;
+      const l1 = lum(nums(cs.color).slice(0, 3)), l2 = lum(bgOf(el));
+      const 比 = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+      const size = parseFloat(cs.fontSize);
+      // 大きい文字（24px以上、太字なら18.66px以上）だけは 3:1 でよい
+      const 必要 = (size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700)) ? 3 : 4.5;
+      if (比 < 必要) 薄い.push(`${el.className || el.tagName}(${size}px ${Math.round(比 * 100) / 100}:1)`);
+    });
+    document.querySelectorAll('main a[href], main button, .breadcrumb a').forEach(el => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      if (r.height < 43.5 || r.width < 43.5) 小さい.push(`${el.className || el.tagName}(${Math.round(r.width)}x${Math.round(r.height)})`);
+    });
+    return { 薄い: [...new Set(薄い)], 小さい: [...new Set(小さい)] };
+  };
+
+  /* 3つの状態で見ます。
+       写真0枚 … 写真が届く前の状態。この形でも公開に耐えること
+       掲載の写真あり … いまの実態（assets に25枚入っています）
+       シート反映後 … 店が管理ページから入れ替えたあと。口コミや条件の行は
+                      ここでしか画面に出ません */
+  for (const [label, opt] of [['写真0枚', { noPhoto: true, noEndpoint: true }],
+                              ['掲載の写真あり', { noEndpoint: true }],
+                              ['シート反映後', {}]]) {
+    if (!opt.noEndpoint) {
+      await saveSheet('reviews', [
+        { 投稿日: '2026-08-10', 予約番号: 'LM-TEST8', ニックネーム: 'T.K', 年代: '30代', 性別: '男性',
+          評価: 5, タイトル: '清潔感が続きます', 本文: '仕上がりに満足しています。', 担当: 'MATTEO',
+          メニュー: 'カットコース', 状態: '掲載中' }
+      ]);
+      await saveSheet('coupons', [
+        { 'メニュー名': 'カット＋カラー', 価格: 14500, 通常価格: '', '所要(分)': 120,
+          説明: '説明の行です', 条件: '他のメニューとの併用はできません', 対象: '全員', 画像: '', 表示: '○' }
+      ]);
+    }
+    const p = await newPhone('14', opt);
+    for (const page of ['index.html', 'gallery.html', 'staff.html', 'menu.html', 'reviews.html']) {
+      await p.goto(B + '/' + page); await p.waitForTimeout(2200);
+      const r = await p.evaluate(measure);
+      check('14', `${label} ${page}: 4.5:1 に足りない文字が無い`, r.薄い.join(',') || 'なし', 'なし');
+      check('14', `${label} ${page}: 44pxに足りないタップ対象が無い`, r.小さい.join(',') || 'なし', 'なし');
+    }
+    await p.context().close();
+  }
+  await saveSheet('reviews', []);
+}
+
+/* 店がメイン写真を入れたときのトップ。
+   地が暗くなるので、文字を明るい側へ入れ替えないと読めなくなる。
+   実際「BARBER/LOUNGE」だけ臙脂色のまま残っていて 1.65:1 だった。 */
+console.log('\n【14b】メイン写真を入れたときのトップ');
+{
+  const before = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'settings', stamp: before.stamps.settings,
+    rows: { ...before.settings, 'メイン写真': '/mock-image.svg?seed=hero' } });
+
+  const p = await newPhone('14b');
+  await p.goto(B + '/index.html'); await p.waitForTimeout(2400);
+  check('14b', '写真が読めたときだけ暗い膜をかける',
+    await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
+  /* 暗い地の上に置くものは、すべて明るい側（--on-ink 系）に寄っていること。
+     1つでも取り残されると、そこだけ読めない行になる。 */
+  check('14b', '暗い地の上の文字が明るい側にそろっている', await p.evaluate(() => {
+    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const lum = s => { const [r, g, b] = (s.match(/[\d.]+/g) || []).map(Number);
+      return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
+    return ['#hero-catch', '#hero-tagline', '.hero .wm-name', '.hero .wm-sub',
+            '.hero-label', '.hero-desc', '.hero-meta']
+      .filter(sel => { const el = document.querySelector(sel);
+        // 暗い膜（黒の不透明度 .35〜.62）の上なので、明るい文字でないと読めない
+        return el && lum(getComputedStyle(el).color) < 0.4; })
+      .join(',') || 'なし';
+  }), 'なし');
+
+  const mid = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'settings', stamp: mid.stamps.settings,
+    rows: { ...mid.settings, 'メイン写真': '' } });
+  await p.context().close();
+}
+
+/* ============================================================
+   【14c】トップに写真が入ったとき、その上の文字が読めるか
+
+   写真が届いて初めて出た問題です。ストライプの意匠だったころは起きませんでした。
+
+   覆い（スクリム）は2枚あるように見えて、写真の上に乗るのは ::after だけです。
+   ::before は写真より先に描かれるので、あとから重なる写真に完全に隠れます。
+   ここでも ::after しか勘定に入れません。::before を数えると、
+   実際には効いていない濃さを「足りている」と数えてしまいます。
+
+   測り方：覆いの濃さを CSS から読み、いちばん明るい写真（真っ白）に
+   重ねた地の色を出して、その上の文字との比を計算します。
+   1枚の写真で目視するのではなく、どんな写真が来ても成り立つかを見ます。
+   ============================================================ */
+console.log('\n【14c】写真の上の文字（いちばん明るい写真で）');
+{
+  const p = await newPhone('14c', { whitePhoto: true, noEndpoint: true });
+  await p.goto(B + '/index.html'); await p.waitForTimeout(3200);
+
+  const r = await p.evaluate(() => {
+    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const hero = document.querySelector('.hero');
+    /* 覆いの停止点。濃さと位置（%）が両方書いてあることが前提です。
+       位置を省いた書き方に変えると、ここで読み取れなくなって下の項目が落ちます。
+       黙って通り抜けるより、気づける形にしてあります。 */
+    const stops = [...getComputedStyle(hero, '::after').backgroundImage
+      .matchAll(/rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)\s*([\d.]+)%/g)]
+      .map(m => ({ a: Number(m[1]), at: Number(m[2]) / 100 }));
+    const alphaAt = t => {
+      if (t <= stops[0].at) return stops[0].a;
+      for (let i = 1; i < stops.length; i++) if (t <= stops[i].at) {
+        const s = stops[i - 1], e = stops[i];
+        return s.a + (e.a - s.a) * (t - s.at) / (e.at - s.at);
+      }
+      return stops[stops.length - 1].a;
+    };
+
+    const hb = hero.getBoundingClientRect();
+    const 足りない = [];
+    if (stops.length >= 2) hero.querySelectorAll('*').forEach(el => {
+      if (![...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) return;
+      const cs = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      // 自前の地を持つもの（黒いボタン）は写真の上に乗っていない
+      const own = (cs.backgroundColor.match(/[\d.]+/g) || []).map(Number);
+      if (own.length >= 3 && (own[3] === undefined || own[3] > 0.5)) return;
+
+      // その文字がかかっている範囲のうち、いちばん薄いところで見る
+      const a = Math.min(alphaAt((box.top - hb.top) / hb.height),
+                         alphaAt((box.bottom - hb.top) / hb.height));
+      const bg = 255 * (1 - a);                     // 真っ白な写真 × 黒の覆い
+      const fg = (cs.color.match(/[\d.]+/g) || []).map(Number);
+      const fa = fg.length > 3 ? fg[3] : 1;
+      // 文字が透けていれば、そのぶん地の明るさが混ざって比が下がる
+      const 比 = (lum(fg.slice(0, 3).map(v => fa * v + (1 - fa) * bg)) + 0.05)
+        / (lum([bg, bg, bg]) + 0.05);
+      const size = parseFloat(cs.fontSize);
+      const 必要 = (size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700)) ? 3 : 4.5;
+      if (比 < 必要) 足りない.push(
+        `${el.id || el.className || el.tagName}(${size}px 覆い${Math.round(a * 100) / 100} ${Math.round(比 * 100) / 100}:1)`);
+    });
+    return { 停止点: stops.length, 足りない, 一番薄い: stops.length ? Math.min(...stops.map(s => s.a)) : 0 };
+  });
+
+  check('14c', '写真が読めたときだけ暗い膜をかける',
+    await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
+  check('14c', '覆いの濃さを CSS から読み取れている', r.停止点 >= 2, true);
+  /* 小さい文字が 4.5:1 を満たすには、真っ白な写真の上で黒 0.58 以上が要ります。
+     文字のある範囲がそれを下回っていないこと。 */
+  console.log('   覆いのいちばん薄いところ:', r.一番薄い);
+  check('14c', 'いちばん明るい写真でも、読めない文字が無い', r.足りない.join(',') || 'なし', 'なし');
+  await p.context().close();
+}
+
+/* いま入っている写真（暗い店内）でも、当然読めること。
+   覆いを濃くしすぎて写真が真っ黒になっていないことも、ここで見ます。 */
+{
+  const p = await newPhone('14d', { noEndpoint: true });
+  await p.goto(B + '/index.html'); await p.waitForTimeout(3200);
+  check('14c', '掲載の写真でも暗い膜がかかっている',
+    await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
+  /* 覆いは、写真がまったく見えなくなるほど濃くしない。
+     0.85 を超えると、何の店なのかが写真から伝わらなくなる。 */
+  check('14c', '写真が見えなくなるほど覆っていない', await p.evaluate(() => {
+    const stops = [...getComputedStyle(document.querySelector('.hero'), '::after').backgroundImage
+      .matchAll(/rgba?\([^)]*,\s*([\d.]+)\s*\)/g)].map(m => Number(m[1]));
+    return stops.length ? Math.max(...stops) <= 0.85 : false;
+  }), true);
+  await p.context().close();
+}
+
+/* ============================================================
+   【15】ご案内の行き止まり（連絡先・戻る道）
+   ============================================================ */
+console.log('\n【15】連絡先と戻る道');
+{
+  const p = await newPhone('15', { noPhoto: true, noEndpoint: true });
+  await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
+  /* スマホ幅ではヘッダーのTEL表示が消える（style.css の .header-tel）。
+     番号が出ているのはサロン情報の表だけなので、そこが押せないと、
+     当日の遅れを伝えたい方は番号を選んで写すことになる。 */
+  const tel = p.locator('#salon-info a[href^="tel:"]');
+  check('15', 'サロン情報の電話番号がそのまま掛けられる', await tel.count(), 1);
+  check('15', '掛け先が掲載の番号になっている',
+    await tel.getAttribute('href'), 'tel:08044987036');
+
+  // どのページからも予約に行ける（行き止まりを作らない）
+  for (const page of ['gallery.html', 'staff.html', 'menu.html', 'reviews.html']) {
+    await p.goto(B + '/' + page); await p.waitForTimeout(1500);
+    check('15', `${page}: 本文から予約に行ける`,
+      await p.locator('main a[href^="reserve.html"]').count() > 0, true);
+    check('15', `${page}: トップに戻れる`,
+      await p.locator('.breadcrumb a[href="index.html"]').count(), 1);
+  }
   await p.context().close();
 }
 

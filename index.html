@@ -29,6 +29,10 @@
     <section class="hero">
       <div class="container hero-inner">
         <div class="hero-brand" id="hero-brand"></div>
+        <!-- ここまで英字しかなく、何の店なのかが日本語で1つも読めませんでした。
+             中身は pages.js が店の掲載名と住所から組みます（heroTaglineParts）。
+             書き足すのではなく、店がすでに書いているものを先に出すだけです。 -->
+        <p class="hero-tagline" id="hero-tagline" hidden></p>
         <p class="hero-label">ESTD 2026 — RYUGASAKI, IBARAKI</p>
         <div class="hero-rating">
           <span class="rating-score" id="hero-score"></span>
@@ -113,8 +117,10 @@
           <h2 class="section-title">お客様の声</h2>
         </div>
         <div class="review-list" id="home-reviews"></div>
+        <!-- 口コミは0件です。「すべて見る」の行き先が空のページになるので、
+             件数に合わせて文言と行き先を pages.js が入れ替えます（renderHomeReviewLink）。 -->
         <p style="text-align:center;margin-top:26px;">
-          <a class="btn btn-outline" href="reviews.html">口コミをすべて見る</a>
+          <a class="btn btn-outline" id="home-review-link" href="reviews.html">口コミをすべて見る</a>
         </p>
       </div>
     </section>

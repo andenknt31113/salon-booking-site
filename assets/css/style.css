@@ -1418,3 +1418,16 @@ body[data-page="reviews"] .empty-state { color: var(--text-2); }
 @media (max-width: 640px) {
   .staff-card-solo .avatar { aspect-ratio: 4 / 5; }
 }
+
+/* --- スタイルのカードから、そのまま予約に進む ---
+   カードの幅いっぱいに置きます。2列に並んだカードの下端がそろい、
+   親指で狙う場所も分かりやすくなります。
+   中の2つの箱は、折り返す場所を決めるためのものです（pages.js の styleCard）。
+   分けないと、狭い画面で「このスタイルで予」「約」と語の途中で割れます。
+   .btn の flex は使いません。flex にすると2つの箱がそれぞれ伸び縮みする欄になり、
+   今度は「このスタイル」「で」と、箱の中で割れます。 */
+.style-book {
+  display: block; width: 100%; margin-top: 13px;
+  padding-inline: 8px; text-align: center;
+}
+.style-book span { display: inline-block; }
