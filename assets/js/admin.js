@@ -1112,12 +1112,34 @@ function exportCsv() {
 
 /* ---------- 起動 ---------- */
 document.addEventListener('DOMContentLoaded', () => {
+  /* 受け口が入っていないとき。
+     以前はここで入力欄とボタンを disabled にしていましたが、
+     設置作業中の人が「文字が入れられない」で止まりました。
+     欄が死んでいる理由は、上の案内文からは読み取れません。
+
+     しかも、この案内文はしばしば嘘になります。設置は済んでいるのに、
+     ブラウザや GitHub Pages が古い data.js を握っているだけ、という
+     ことが起きます（実際に起きました）。そのときに
+     「まだ設置していません」と言い切るのは、間違った方向へ人を送ります。
+
+     なので欄は生かしたままにして、押した人に両方の可能性を伝えます。 */
   if (!SALON.reservationEndpoint) {
     $('#gate-message').textContent =
-      'この管理ページは、Google Apps Script を設置してから使えるようになります。'
-      + '設置手順は README をご覧ください。';
-    $('#passcode').disabled = true;
-    $('#gate-btn').disabled = true;
+      '予約の受け口（Apps Script のURL）が読み込めていません。'
+      + 'まず、このページを読み込み直してください。';
+    const err = $('#gate-error');
+    $('#gate-btn').addEventListener('click', () => {
+      err.innerHTML =
+        'この画面はまだ受け口につながっていません。<br>'
+        + '① キーボードの <b>Ctrl+Shift+R</b>（Mac は <b>⌘+Shift+R</b>）で読み込み直す<br>'
+        + '　 設置した直後は、古い内容が数分残ることがあります。<br>'
+        + '② それでも変わらなければ、Apps Script の設置がまだ済んでいません。'
+        + '設置手順は README をご覧ください。';
+      err.style.display = 'block';
+    });
+    $('#passcode').addEventListener('keydown', e => {
+      if (e.key === 'Enter') $('#gate-btn').click();
+    });
     return;
   }
 

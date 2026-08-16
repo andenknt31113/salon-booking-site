@@ -467,8 +467,15 @@ http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': types[p.slice(p.lastIndexOf('.'))] || 'application/octet-stream' });
 
   if (p.endsWith('/data.js')) {
+    /* 受け口を、この試験用サーバーに向け直します。
+
+       以前は空文字（reservationEndpoint: ''）だけを置き換えていました。
+       本物の Apps Script のURLを data.js に入れた日に置き換えが効かなくなり、
+       試験がまるごと本物のGoogleへ飛びました。全部落ちたので気づけましたが、
+       もし通っていたら「試験は緑なのに、実は本番の台帳を書き換えていた」という
+       いちばん怖い形になっていました。中身が何であっても向け直します。 */
     res.end(readFileSync(p, 'utf8')
-      .replace("reservationEndpoint: ''", `reservationEndpoint: 'http://127.0.0.1:${PORT}/exec'`));
+      .replace(/reservationEndpoint: '[^']*'/, `reservationEndpoint: 'http://127.0.0.1:${PORT}/exec'`));
     return;
   }
   res.end(readFileSync(p));

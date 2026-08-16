@@ -610,6 +610,45 @@ await group('【管15】写真とおすすめメニューも同じように直�
 });
 
 /* ============================================================
+   管16 受け口がまだ読めていないとき、店主が前に進めるか
+
+   実際に起きたこと：Apps Script の設置は済んでいたのに、ブラウザが
+   古い data.js を握っていたため管理ページが「未設置」と判断し、
+   パスワード欄を disabled にしました。設置した本人が
+   「文字が入れられない」で止まりました。
+
+   欄が死んでいる理由は案内文からは読み取れず、しかもその案内文
+   （「設置してから使えます」）はこの状況では嘘です。
+   ============================================================ */
+await group('管16 受け口が読めていないとき', async () => {
+  const p = await newPhone('管16');
+  /* 設置前、または古い data.js を掴んだ状態を作る */
+  await p.route('**/assets/js/data.js', async r => {
+    const res = await r.fetch();
+    const body = (await res.text()).replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
+    await r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
+  });
+  await p.goto(B + '/admin.html'); await p.waitForTimeout(900);
+
+  check('管16', 'パスワード欄は入力できる（理由が分からないまま固まらない）',
+    await p.locator('#passcode').isDisabled(), false);
+  check('管16', 'ログインボタンも押せる',
+    await p.locator('#gate-btn').isDisabled(), false);
+
+  /* 打てて、押せて、押したときに次にやることが分かること */
+  await p.fill('#passcode', PW);
+  check('管16', '打った文字が入る', await p.inputValue('#passcode'), PW);
+  await p.click('#gate-btn'); await p.waitForTimeout(400);
+  const err = await p.locator('#gate-error').innerText();
+  check('管16', '押すと理由が出る', await p.locator('#gate-error').isVisible(), true);
+  check('管16', 'まず読み込み直すよう伝えている', /読み込み直|Shift\+R/.test(err), true);
+  check('管16', '未設置の可能性にも触れている', /設置/.test(err), true);
+  /* 「設置がまだです」と言い切らないこと。設置済みの人を誤った方へ送ります */
+  check('管16', '未設置と決めつけていない', /^この管理ページは、Google Apps Script を設置してから/.test(err), false);
+  await p.context().close();
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
