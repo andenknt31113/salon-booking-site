@@ -68,6 +68,12 @@ const SETTING_KEYS = [
 ];
 const WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
+/* キャンセルかどうか。台帳には「取消」「キャンセル済」などの書き方のゆれがありますが、
+   受信先が「キャンセル」にそろえて返してくれるので、見るのはここだけで済みます。
+   一覧・統計・カレンダーで別々に書くと、片方だけ直したときに食い違って、
+   キャンセル済みの枠が埋まったままに見えます。 */
+const isCancelled = r => r.status === 'キャンセル';
+
 /* ---------- 受信先とのやりとり ---------- */
 async function adminPost(payload) {
   if (!SALON.reservationEndpoint) {
@@ -166,6 +172,11 @@ async function openDashboard() {
   $('#dashboard').hidden = false;
   renderStats();
   renderReservations();
+  /* 前に選んだ見せ方に戻します（初めて開いた端末では一覧）。
+     この中でカレンダーも描かれます。 */
+  let view = 'list';
+  try { view = localStorage.getItem(VIEW_KEY) || 'list'; } catch (e) { /* noop */ }
+  setReserveView(view);
   renderCustomers();
   renderClosed();
   renderList('menus');
@@ -184,11 +195,11 @@ function filteredReservations() {
   return (adminData.reservations || [])
     .filter(r => !date || r.date === date)
     .filter(r => status === 'all'
-      || (status === 'cancelled' ? r.status === 'キャンセル' : r.status !== 'キャンセル'));
+      || (status === 'cancelled' ? isCancelled(r) : !isCancelled(r)));
 }
 
 function renderStats() {
-  const live = (adminData.reservations || []).filter(r => r.status !== 'キャンセル');
+  const live = (adminData.reservations || []).filter(r => !isCancelled(r));
   const today = toKey(new Date());
   /* 「今後7日間」は今日を1日目に数えます。+7 だと今日を入れて8日分になり、
      売上見込みが1日ぶん多く出ます。仕入れの判断に使う数字なので合わせます。 */
@@ -200,7 +211,7 @@ function renderStats() {
     ['本日のご予約', `${live.filter(r => r.date === today).length}件`],
     ['今後7日間', `${inWeek.length}件`],
     ['7日間の売上見込', yen(inWeek.reduce((s, r) => s + (Number(r.price) || 0), 0))],
-    ['キャンセル', `${(adminData.reservations || []).filter(r => r.status === 'キャンセル').length}件`]
+    ['キャンセル', `${(adminData.reservations || []).filter(isCancelled).length}件`]
   ].map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join('');
 }
 
@@ -285,7 +296,7 @@ function renderReservations() {
   $('#admin-rows').innerHTML = pastButton + keys.map(date => {
     const rows = byDate.get(date);
     const h = dayHeading(date);
-    const live = rows.filter(r => r.status !== 'キャンセル').length;
+    const live = rows.filter(r => !isCancelled(r)).length;
     const allDay = closedAllDay(date);
     /* 休みにした日に予約が残っていることがあります（先に入っていた分）。
        件数を隠すと気づけないので、両方まとめて出します。 */
@@ -319,12 +330,14 @@ function closedCard(c) {
 }
 
 function reservationCard(r) {
-  const off = r.status === 'キャンセル';
+  const off = isCancelled(r);
   /* 電話で受けた予約は、番号を控えていないことがあります。
      そのまま空のリンクを出すと、押しても何も起きない場所ができます。 */
   const tel = telKey(r.tel);
+  /* 予約番号を目印に持たせます。カレンダーのマスを押したとき、
+     このカードまで画面を送るために使います。 */
   return `
-    <article class="booking-card ${off ? 'is-cancelled' : ''}">
+    <article class="booking-card ${off ? 'is-cancelled' : ''}" data-code="${esc(r.code)}">
       <div class="booking-head">
         <span class="booking-time">${esc(r.time)}〜${esc(r.endTime)}</span>
         ${off ? '<span class="status-chip is-cancelled">キャンセル</span>' : ''}
@@ -341,6 +354,258 @@ function reservationCard(r) {
         <button class="btn btn-ghost btn-sm" type="button" data-admin-cancel="${esc(r.code)}">キャンセルにする</button>
       </div>`}
     </article>`;
+}
+
+/* ---------- 予約一覧：カレンダー表示 ----------
+   お客様向けの空席カレンダー（reserve.js の renderCalendar）と同じ
+   「横＝日付／縦＝時間」のマス目です。店主はサロンボードに慣れているので、
+   予定の入り方はこの形がいちばん速く読めます。
+
+   違うのは中身です。
+     お客様向け … 空いているか（○×）
+     こちら     … 誰が入っているか（お名前）
+   空いているマスは空欄にしています。「×」を並べると、
+   埋まっている所が逆に見えにくくなるためです。 */
+
+/* 1画面に出す日数。1週間ぶんです。
+   お客様向けは14日ですが、こちらはマスにお名前を入れるぶん1列が倍以上の幅になり、
+   14日だと横に送り続けることになります。 */
+const ACAL_DAYS = 7;
+/* 何日ずらして見ているか。マイナスにすれば過ぎた週も見られます
+   （店主は昨日・先週の実績も見ます）。 */
+let acalOffset = 0;
+
+/* 予定の見せ方。'list' が今までの一覧、'calendar' がマス目。
+
+   既定は一覧にしました。この画面がいちばん切実に使われるのは
+   お客様の電話を受けている最中で、そのとき要るのはお名前・電話番号・メニューです。
+   それが並んでいるのは一覧のほうで、カレンダーからは1回押して開くことになります。
+   カレンダーはひと押しで出せるので、失うものは押す1回だけです。
+
+   そのうえで、選んだ見せ方はこの端末に覚えます。
+   カレンダーで見たい店主が、開くたびに押し直さずに済むようにです。 */
+const VIEW_KEY = 'salon.adminReserveView.v1';
+let reserveView = 'list';
+
+/* 設定シートの時刻を読む。読めなければ掲載中（data.js）の値を使う。
+
+   シートは人が手で書く場所なので「9時」「０９：００」も来ます。
+   読めない値をそのまま使うと目盛りが1つも作れず、
+   カレンダーが理由も出さずに空になります。 */
+function settingTime(key, fallback) {
+  const m = toHalfWidth((edits.settings || {})[key]).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
+  if (!m) return fallback;
+  const h = Number(m[1]);
+  const mi = Number(m[2] || 0);
+  if (h > 23 || mi > 59) return fallback;
+  return `${pad2(h)}:${pad2(mi)}`;
+}
+
+/** カレンダーの縦軸（営業開始〜最終受付） */
+/* 見ているのは edits.settings です。「店舗情報」タブで直した営業時間が、
+   保存したあと読み込み直さなくてもカレンダーに出るようにするためです。 */
+function acalTimes() {
+  const b = SALON.business;
+  let open = settingTime('営業開始', b.openTime);
+  let close = settingTime('営業終了', b.closeTime);
+  let last = settingTime('最終受付', b.lastOrder);
+  // 前後が壊れていると行が1つも作れないので、掲載中の営業時間に戻す
+  if (toMinutes(close) <= toMinutes(open)) {
+    open = b.openTime; close = b.closeTime; last = b.lastOrder;
+  }
+  if (toMinutes(last) > toMinutes(close) || toMinutes(last) < toMinutes(open)) last = close;
+
+  const out = [];
+  for (let m = toMinutes(open); m <= toMinutes(last); m += b.slotMinutes) out.push(toHHMM(m));
+  return out;
+}
+
+/** 定休曜日（設定シート）。0=日曜 */
+function acalHolidays() {
+  const raw = String((edits.settings || {})['定休曜日'] ?? '').trim();
+  if (!raw) return [];
+  return [...new Set(raw.split(/[,、・\s]+/)
+    .map(t => WEEK_LABELS.indexOf(t.replace(/曜日?$/, '')))
+    .filter(i => i >= 0))];
+}
+
+/** 予約の終わりの時刻（分）。終了が控えられていない古い行は1枠ぶんとみなす */
+function endMinutesOf(r) {
+  const start = toMinutes(String(r.time || ''));
+  const end = toMinutes(String(r.endTime || ''));
+  return Number.isFinite(end) && end > start ? end : start + SALON.business.slotMinutes;
+}
+
+/* マスに出すのは姓だけです。電話番号やメールは出しません。
+   カレンダーは施術中に開いて、お客様から見える向きになることがあります。
+
+   「山田　太郎」のように区切られていれば姓だけ。区切りが無いときは頭から4文字です。
+   マスの幅に収まらないと、どの列のことなのか分からなくなります。 */
+function surnameOf(name) {
+  const head = String(name || '').trim().split(/\s+/)[0];
+  if (!head) return 'お名前なし';
+  return head.length > 4 ? head.slice(0, 4) : head;
+}
+
+/** 1マスの中身。予約があればお名前、なければ空欄 */
+function acalCellBody(date, time, from, live, off) {
+  const startsHere = r => toMinutes(String(r.time || '')) >= from;
+  const where = `${formatDateJa(date, { short: true })} ${time}`;
+
+  if (live.length) {
+    /* この枠から始まる予約を優先します。そうしないと、前の予約が延びている所に
+       次のお客様が始まったとき、始まったほうのお名前がどこにも出ません。 */
+    const r = live.find(startsHere) || live[0];
+    // 席は1つなので普通は1件ですが、店の判断で重ねて入れることがあります
+    const more = live.length > 1 ? `＋${live.length - 1}` : '';
+    return `<button class="cal-book${startsHere(r) ? '' : ' is-cont'}" type="button"
+        data-cal-code="${esc(r.code)}"
+        aria-label="${esc(`${where} ${surnameOf(r.name)} 様のご予約`)}"
+      >${startsHere(r) ? esc(surnameOf(r.name)) + more : ''}</button>`;
+  }
+
+  if (off.length) {
+    const r = off.find(startsHere);
+    /* キャンセル済みは始まりのマスにだけ置きます。
+       続きのマスまで塗ると、空いているのに埋まって見えます。 */
+    if (!r) return '<span class="cal-cell"></span>';
+    return `<button class="cal-off" type="button"
+        data-cal-code="${esc(r.code)}"
+        aria-label="${esc(`${where} ${surnameOf(r.name)} 様（キャンセル済み・この枠は空いています）`)}"
+      >${esc(surnameOf(r.name))}</button>`;
+  }
+
+  return '<span class="cal-cell"></span>';
+}
+
+/** 1マス（td）。休業日・臨時休業・今日・過去の塗り分けもここで決めます */
+function acalCell(date, time, list, holidays, today) {
+  const step = SALON.business.slotMinutes;
+  const from = toMinutes(time);
+  const to = from + step;
+  /* 電話で受けた予約は 9:15 開始のように目盛りに乗らないことがあります。
+     少しでも重なる枠すべてに置かないと、実際は埋まっているのに
+     カレンダー上は空いて見える枠ができます。 */
+  const hit = list.filter(r => toMinutes(String(r.time || '')) < to && endMinutesOf(r) > from);
+  /* キャンセル済みは「埋まっている」として描きません。
+     生きている予約と重なったときも、生きているほうを優先します。 */
+  const live = hit.filter(r => !isCancelled(r));
+  const off = hit.filter(isCancelled);
+
+  const allDay = holidays.includes(fromKey(date).getDay()) || closedAllDay(date);
+  const stopped = !allDay && closedBlocksOn(date)
+    .some(c => toMinutes(c.time) < to && toMinutes(c.endTime) > from);
+
+  const cls = [
+    allDay || stopped ? 'is-off' : '',
+    date === today ? 'is-today' : '',
+    date < today ? 'is-past' : ''
+  ].filter(Boolean).join(' ');
+
+  return `<td class="${cls}" data-date="${date}" data-time="${time}">${
+    acalCellBody(date, time, from, live, off)}</td>`;
+}
+
+/* 上の「すべての状態／予約確定のみ／キャンセルのみ」は、ここでは効かせません。
+   カレンダーは「いつ埋まっているか」を見る場所なので、
+   絞り込んだ結果だけを描くと、空いていない枠が空いて見えます。 */
+function renderAdminCalendar() {
+  if (!$('#admin-calendar') || !adminData) return;
+
+  const times = acalTimes();
+  const today = toKey(new Date());
+  const holidays = acalHolidays();
+  const base = new Date(); base.setHours(0, 0, 0, 0);
+  const dates = Array.from({ length: ACAL_DAYS }, (_, i) => {
+    const d = new Date(base);
+    d.setDate(d.getDate() + acalOffset + i);
+    return toKey(d);
+  });
+
+  $('#acal-range').textContent = `${formatDateJa(dates[0], { short: true })} 〜 `
+    + formatDateJa(dates[dates.length - 1], { short: true });
+
+  /* 日付ごとに分けておきます。マスごとに台帳を端から見ると、
+     1週間ぶんで200回近く同じ走査を繰り返すことになります。 */
+  const byDate = new Map();
+  (adminData.reservations || []).forEach(r => {
+    if (!byDate.has(r.date)) byDate.set(r.date, []);
+    byDate.get(r.date).push(r);
+  });
+
+  $('#acal-head').innerHTML = `<tr><th scope="col">時間</th>${dates.map(d => {
+    const wd = fromKey(d).getDay();
+    const cls = [
+      wd === 0 ? 'is-sun' : wd === 6 ? 'is-sat' : '',
+      d === today ? 'is-today' : '',
+      d < today ? 'is-past' : ''
+    ].filter(Boolean).join(' ');
+    return `<th scope="col" class="${cls}">
+        <span class="cal-date">${fromKey(d).getMonth() + 1}/${fromKey(d).getDate()}</span>
+        <span class="cal-wd">${d === today ? '本日' : WEEKDAY_JA[wd]}</span>
+      </th>`;
+  }).join('')}</tr>`;
+
+  /* 営業時間が読めないと目盛りが空になります。格子だけ出すと
+     「予約が1件も無い」と読めてしまうので、理由を書きます。 */
+  $('#acal-body').innerHTML = times.length
+    ? times.map(t => `
+      <tr>
+        <th scope="row">${t}</th>
+        ${dates.map(d => acalCell(d, t, byDate.get(d) || [], holidays, today)).join('')}
+      </tr>`).join('')
+    : `<tr><td colspan="${dates.length + 1}"><p class="empty-state">`
+      + '営業時間が読み取れないため、マス目を作れませんでした。'
+      + '「店舗情報」タブの営業開始・営業終了をご確認ください。</p></td></tr>';
+}
+
+/** 絞り込みを変えたとき。一覧とカレンダーの両方を合わせる */
+function onFilterChange() {
+  const d = $('#filter-date').value;
+  /* 日付で絞り込んだら、カレンダーもその日を含む7日間へ動かします。
+     切り替えたときに別の週が出ていると、同じ日をもう一度探すことになります。 */
+  if (d) {
+    const base = new Date(); base.setHours(0, 0, 0, 0);
+    acalOffset = Math.round((fromKey(d).getTime() - base.getTime()) / 86400000);
+  }
+  renderReservations();
+  renderAdminCalendar();
+}
+
+/** 一覧とカレンダーを切り替える */
+function setReserveView(view) {
+  reserveView = view === 'calendar' ? 'calendar' : 'list';
+  $$('#reserve-view .tab').forEach(b =>
+    b.setAttribute('aria-selected', String(b.dataset.view === reserveView)));
+  $('#admin-calendar').hidden = reserveView !== 'calendar';
+  $('#admin-rows').hidden = reserveView !== 'list';
+  try { localStorage.setItem(VIEW_KEY, reserveView); } catch (e) { /* 覚えられなくても動きます */ }
+  if (reserveView === 'calendar') renderAdminCalendar();
+}
+
+/* マスを押したら、その1件を一覧のカードで見せます。
+   マスの中に電話番号やメニューまで詰めると読めませんし、
+   カードと二重に作ると、直すときに片方だけ直すことになります。 */
+function focusBooking(code) {
+  const r = (adminData.reservations || []).find(x => x.code === code);
+  if (!r) return;
+
+  /* 絞り込みが効いていると、飛んだ先にカードがありません。
+     押しても何も起きないように見えるので、その1件が出るところまで条件を戻します。 */
+  const status = $('#filter-status').value;
+  if (status !== 'all' && (status === 'cancelled') !== isCancelled(r)) $('#filter-status').value = 'all';
+  if ($('#filter-date').value && $('#filter-date').value !== r.date) $('#filter-date').value = '';
+  if (r.date < toKey(new Date())) showPast = true;
+
+  setReserveView('list');
+  renderReservations();
+
+  const card = $$('#admin-rows [data-code]').find(el => el.dataset.code === code);
+  if (!card) return;
+  // 前に押したぶんの目印が残っていると、どちらを押したのか分からなくなります
+  $$('#admin-rows .is-focus').forEach(el => el.classList.remove('is-focus'));
+  card.classList.add('is-focus');
+  card.scrollIntoView({ block: 'center' });
 }
 
 /* ---------- 電話・来店で受けた予約を台帳に入れる ----------
@@ -434,6 +699,7 @@ async function saveAddBooking(force = false) {
   if (payload.date < toKey(new Date())) showPast = true;
   renderStats();
   renderReservations();
+  renderAdminCalendar();
   ['#ab-name', '#ab-tel', '#ab-menu', '#ab-memo', '#ab-price'].forEach(id => { $(id).value = ''; });
   toggleAddBooking(false);
 
@@ -501,7 +767,7 @@ function buildCustomers() {
        前回のご要望を取り違えます。また、古いほうのお名前で探しても
        出てこなくなります。使われたお名前は全部持っておきます。 */
     c.names = [...new Set(c.visits.map(v => String(v.name || '').trim()).filter(Boolean))];
-    c.done = c.visits.filter(v => v.status !== 'キャンセル');
+    c.done = c.visits.filter(v => !isCancelled(v));
     c.spent = c.done.reduce((s, v) => s + (Number(v.price) || 0), 0);
     return c;
   });
@@ -548,14 +814,14 @@ function renderCustomers() {
         </p>
         <p class="booking-detail">ご予約の合計 ${yen(c.spent)}</p>
         ${latest ? `<p class="booking-detail">前回：${formatDateJa(latest.date)}／${who(latest)}${
-          esc(latest.menu)}${latest.status === 'キャンセル' ? '（キャンセル）' : ''}</p>` : ''}
+          esc(latest.menu)}${isCancelled(latest) ? '（キャンセル）' : ''}</p>` : ''}
         <details class="customer-history">
           <summary>ご来店の履歴（${c.visits.length}件）</summary>
           <ul>
             ${c.visits.map(v => `
-              <li${v.status === 'キャンセル' ? ' class="is-cancelled"' : ''}>
+              <li${isCancelled(v) ? ' class="is-cancelled"' : ''}>
                 <span class="hist-date">${formatDateJa(v.date)} ${esc(v.time)}</span>
-                <span class="hist-menu">${who(v)}${esc(v.menu)}${v.status === 'キャンセル' ? '（キャンセル）' : ''}</span>
+                <span class="hist-menu">${who(v)}${esc(v.menu)}${isCancelled(v) ? '（キャンセル）' : ''}</span>
                 ${v.request ? `<span class="hist-request">ご要望：${esc(v.request)}</span>` : ''}
               </li>`).join('')}
           </ul>
@@ -1199,6 +1465,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const past = e.target.closest('[data-toggle-past]');
     if (past) { showPast = !showPast; renderReservations(); return; }
 
+    // カレンダーのマス。その1件の詳細（一覧のカード）まで送ります
+    const cal = e.target.closest('[data-cal-code]');
+    if (cal) { focusBooking(cal.dataset.calCode); return; }
+
     /* 一覧の行を押した。押した1件だけを開き、ほかは閉じたままにする。
        もう一度同じ行を押せば閉じて、一覧だけに戻る。 */
     const op = e.target.closest('[data-open]');
@@ -1299,8 +1569,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const forget = $('#forget-device');
   if (forget) forget.addEventListener('click', forgetDevice);
 
-  $('#filter-date').addEventListener('change', renderReservations);
-  $('#filter-status').addEventListener('change', renderReservations);
+  $('#reserve-view').addEventListener('click', e => {
+    const b = e.target.closest('[data-view]');
+    if (b) setReserveView(b.dataset.view);
+  });
+  $('#acal-prev').addEventListener('click', () => { acalOffset -= ACAL_DAYS; renderAdminCalendar(); });
+  $('#acal-next').addEventListener('click', () => { acalOffset += ACAL_DAYS; renderAdminCalendar(); });
+
+  $('#filter-date').addEventListener('change', onFilterChange);
+  $('#filter-status').addEventListener('change', onFilterChange);
   $('#customer-search').addEventListener('input', renderCustomers);
   $('#customer-sort').addEventListener('change', renderCustomers);
   $('#add-booking').addEventListener('click', () => toggleAddBooking($('#add-booking-form').hidden));
@@ -1309,7 +1586,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#filter-reset').addEventListener('click', () => {
     $('#filter-date').value = '';
     $('#filter-status').value = 'all';
-    renderReservations();
+    onFilterChange();
   });
   $('#export-csv').addEventListener('click', exportCsv);
 

@@ -610,6 +610,156 @@ await group('【管15】写真とおすすめメニューも同じように直�
 });
 
 /* ============================================================
+   【管17】カレンダーで、いつ予約が入っているかを見る
+
+   店主の言葉：「予約画面みたいな感じで、視覚的にいつ予約入ってるか
+   分かりやすく見たい」。ホットペッパーのサロンボードに慣れているので、
+   お客様向けの空席カレンダーと同じ「横＝日付／縦＝時間」のマス目です。
+
+   ここで確かめたいのは「読めるか」です。
+   埋まっている所が埋まって見え、空いている所が空いて見えること。
+   キャンセル済みを埋まったままにすると、その枠にお客様を入れられません。
+   ============================================================ */
+await group('【管17】カレンダーで、いつ予約が入っているかを見る', async () => {
+  await post({ type: 'reset' });
+
+  /* 休業日を、確かめたい2つの形で入れておきます。
+     終日（出張）と、時間帯だけ（仕入れ）です。 */
+  const before = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'closed', stamp: before.stamps.closed, rows: [
+    { '休業日': key(3), '開始': '', '終了': '', 'メモ': '' },
+    { '休業日': key(2), '開始': '14:00', '終了': '16:00', 'メモ': '仕入れ' }
+  ] });
+
+  // 本日の90分。1枠（30分）では終わらないので、続きの枠まで埋まります
+  await add({ date: key(0), time: '14:00', minutes: 90, name: '中村 太郎', tel: '09033334444', menu: 'カット＋カラー' });
+  await add({ date: key(1), time: '11:00', name: '佐藤 次郎', tel: '09055556666', menu: 'カット' });
+  await add({ date: key(-1), time: '10:00', name: '田村 四郎', tel: '09077778888', menu: 'カット' });
+  // キャンセルされた1件。この枠は空いています
+  const gone = await add({ date: key(5), time: '16:00', name: '高橋 三郎', tel: '09012341234', menu: 'カット' });
+  await post({ type: 'cancel', password: PW, code: gone.code });
+
+  const q = await newPhone('管17');
+  await login(q);
+
+  /* まだ何も選んでいない端末では一覧から始まります。
+     電話を受けている最中に開くのがいちばん切実な使い方で、
+     そのとき要るお名前・電話番号が並んでいるのは一覧のほうです。 */
+  check('管17', '初めて開いた端末は一覧から始まる', await q.locator('#admin-rows').isVisible(), true);
+  check('管17', 'カレンダーは畳まれている', await q.locator('#admin-calendar').isHidden(), true);
+
+  const toCal = () => q.locator('#reserve-view .tab', { hasText: 'カレンダー' }).click();
+  const toList = () => q.locator('#reserve-view .tab', { hasText: '一覧' }).click();
+  const cell = (date, time) => q.locator(`#acal-body td[data-date="${date}"][data-time="${time}"]`);
+
+  await toCal(); await q.waitForTimeout(400);
+  check('管17', 'カレンダーに切り替えられる', await q.locator('#admin-calendar').isVisible(), true);
+
+  // 予約が入っている時間のマスに、その予約が出る
+  check('管17', '予約の時間のマスにお名前が出る',
+    await textOf(cell(key(0), '14:00').locator('.cal-book')), '中村');
+  check('管17', '施術が続く時間も埋まっている（90分は3枠）',
+    await cell(key(0), '14:30').locator('.cal-book').count()
+      + await cell(key(0), '15:00').locator('.cal-book').count(), 2);
+  /* 続きのマスにお名前を繰り返さないこと。
+     繰り返すと、縦に並んだお名前を何件と数えてよいのか分かりません。 */
+  check('管17', '続きのマスにお名前は繰り返さない',
+    await textOf(cell(key(0), '14:30').locator('.cal-book')), '');
+  check('管17', '終わったあとの時間は空いている',
+    await cell(key(0), '15:30').locator('.cal-book').count(), 0);
+  check('管17', '空いているマスに「×」を並べない',
+    /[×✕]/.test(await q.locator('#acal-body').innerText()), false);
+
+  // キャンセル済みは「埋まっている」として描かない
+  check('管17', 'キャンセル済みは埋まっているとして出ない',
+    await cell(key(5), '16:00').locator('.cal-book').count(), 0);
+  /* ただし消してもいけません。店主が「あれ、消えた？」と探すことになります。
+     薄く取り消し線で、空いていることが分かる形にしてあります。 */
+  check('管17', 'キャンセル済みは取り消し線で残る',
+    await textOf(cell(key(5), '16:00').locator('.cal-off')), '高橋');
+  check('管17', '取り消し線が実際に引かれている',
+    /line-through/.test(await cell(key(5), '16:00').locator('.cal-off')
+      .evaluate(el => getComputedStyle(el).textDecorationLine)), true);
+
+  // 休業日・臨時休業の塗り分け
+  const closedCells = await q.locator(`#acal-body td[data-date="${key(3)}"]`).count();
+  check('管17', '終日お休みの日は、その列が全部塗られる',
+    await q.locator(`#acal-body td[data-date="${key(3)}"].is-off`).count(), closedCells);
+  check('管17', '時間帯だけのお休みも塗られる',
+    await cell(key(2), '14:00').getAttribute('class'), 'is-off');
+  check('管17', 'その手前の時間は塗らない',
+    await cell(key(2), '13:30').getAttribute('class'), '');
+
+  // 今日が一目で分かる
+  check('管17', '今日の列に「本日」と出る',
+    /本日/.test(await textOf(q.locator('#acal-head th.is-today'))), true);
+  check('管17', '今日のマスにも印が付く',
+    await cell(key(0), '09:00').getAttribute('class'), 'is-today');
+
+  /* マスに出すのは姓だけ。カレンダーは施術中に開くので、
+     お客様から画面が見えることがあります。 */
+  const grid = await q.locator('#acal-body').innerText();
+  check('管17', 'マスに電話番号を出さない', /\d{3}-?\d{4}|090|0297/.test(grid), false);
+  check('管17', 'マスにメールを出さない', /@/.test(grid), false);
+
+  // 片手のスマホ（390px）。横に送るのは表の中だけ
+  check('管17', 'ページ本体が横にはみ出さない',
+    await q.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+  const scroll = await q.evaluate(() => {
+    const s = document.querySelector('#admin-calendar .calendar-scroll');
+    return { inner: s.scrollWidth > s.clientWidth, page: document.body.scrollWidth };
+  });
+  check('管17', '横に送るのは表の中だけ', scroll.inner, true);
+  check('管17', '本体は揺れない', scroll.page <= 390, true);
+  const box = await cell(key(0), '14:00').locator('.cal-book').boundingBox();
+  check('管17', 'マスは指の幅（44px）以上', box.height >= 44, true);
+
+  // 過ぎた日。薄くはするが、読めなくはしない
+  await q.click('#acal-prev'); await q.waitForTimeout(300);
+  check('管17', '前の7日に戻れる',
+    await textOf(cell(key(-1), '10:00').locator('.cal-book')), '田村');
+  check('管17', '過ぎた日は薄くする', await cell(key(-1), '10:00').getAttribute('class'), 'is-past');
+  check('管17', 'ただし読めなくはしない',
+    Number(await cell(key(-1), '10:00').evaluate(el => getComputedStyle(el).opacity)) >= .5, true);
+  await q.click('#acal-next'); await q.waitForTimeout(300);
+
+  /* マスを押したら、その予約の詳細（一覧のカード）まで送ります。
+     マスの中に電話番号まで詰めると読めないので、詳細はカードに任せています。 */
+  await cell(key(0), '14:00').locator('.cal-book').click();
+  await q.waitForTimeout(500);
+  const card = await textOf(q.locator('#admin-rows .booking-card.is-focus'));
+  check('管17', '押した予約の詳細が出る', /中村 太郎/.test(card), true);
+  check('管17', '詳細には電話番号も出る', /09033334444/.test(card), true);
+  check('管17', '押すと一覧に戻る', await q.locator('#admin-rows').isVisible(), true);
+
+  // 一覧とカレンダーを行き来できる（一覧は消えていない）
+  await toCal(); await q.waitForTimeout(300);
+  check('管17', 'またカレンダーに戻れる', await q.locator('#admin-calendar').isVisible(), true);
+  await toList(); await q.waitForTimeout(300);
+  check('管17', '一覧に戻ると予定が並んでいる',
+    /中村 太郎/.test(await q.locator('#admin-rows').innerText()), true);
+  check('管17', '一覧のときカレンダーは畳まれる', await q.locator('#admin-calendar').isHidden(), true);
+  await q.context().close();
+
+  /* 開店初日。予約が1件も無くても、格子だけは出て壊れないこと */
+  await post({ type: 'reset' });
+  const z = await newPhone('管17-開店初日');
+  await login(z);
+  await z.locator('#reserve-view .tab', { hasText: 'カレンダー' }).click();
+  await z.waitForTimeout(400);
+  check('管17', '予約0件でもカレンダーが出る', await z.locator('#admin-calendar').isVisible(), true);
+  check('管17', '予約0件でも時間の目盛りは並ぶ',
+    await z.locator('#acal-body tr').count() > 1, true);
+  check('管17', '予約0件ならお名前は1つも出ない', await z.locator('#acal-body .cal-book').count(), 0);
+  await z.context().close();
+
+  // あと片付け。休業日を、この試験に入る前の状態に戻します
+  const now = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'closed',
+    rows: before.closedDates, stamp: now.stamps.closed });
+});
+
+/* ============================================================
    管16 受け口がまだ読めていないとき、店主が前に進めるか
 
    実際に起きたこと：Apps Script の設置は済んでいたのに、ブラウザが

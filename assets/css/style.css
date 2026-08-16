@@ -714,6 +714,50 @@ table { border-collapse: collapse; width: 100%; }
 .closed-block .booking-time { color: var(--muted); }
 .closed-block.is-allday { justify-content: center; font-weight: 700; }
 
+/* 管理ページのカレンダー表示。マス目そのものは空席カレンダー（.calendar）の使い回しで、
+   足しているのは、お客様向けには要らなかったぶんだけです。 */
+.view-switch { display: flex; gap: 8px; margin-bottom: 14px; }
+/* 施術の合間に片手で押します。指の幅（44px）より小さいと隣を押します */
+.view-switch .tab { min-height: 44px; padding: 9px 22px; }
+
+/* お客様向けは○×だけなので1列44pxで足りますが、こちらはお名前が入ります。
+   姓が「…」で切れると、どの列が誰なのか分からなくなります。 */
+.admin-cal { min-width: 660px; }
+.admin-cal thead th { min-width: 84px; }
+/* 今日の列。朝いちばんに見るのは今日なので、地と文字を反転させて先に目に入れます */
+.admin-cal thead th.is-today { background: var(--ink); }
+.admin-cal thead th.is-today .cal-date,
+.admin-cal thead th.is-today .cal-wd { color: var(--on-ink); }
+.admin-cal td.is-today { background: rgba(23, 20, 15, .04); }
+/* 過ぎた日。薄くはしますが、読めなくはしません（店主は昨日の実績も見ます） */
+.admin-cal thead th.is-past, .admin-cal td.is-past { opacity: .62; }
+/* 休業日・受付を止めている時間帯。一覧の .closed-block と同じ斜線にそろえます */
+.admin-cal td.is-off {
+  background: repeating-linear-gradient(
+    -45deg, transparent, transparent 7px, var(--panel-2) 7px, var(--panel-2) 14px);
+}
+/* 空いているマス。「×」を並べると、埋まっている所が逆に見えにくくなるので空欄です。
+   それでも高さは指の幅にそろえ、行の高さが予約の有無で変わらないようにします。 */
+.cal-cell { display: block; min-height: 44px; }
+.cal-book, .cal-off {
+  display: block; width: 100%; min-height: 44px; padding: 6px 4px;
+  line-height: 1.35; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cal-book {
+  font-size: 12px; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+.cal-book:hover { background: var(--accent); color: var(--on-ink); }
+/* 続きのマス。お名前を毎マス繰り返すと、何件入っているのか数えられません */
+.cal-book.is-cont { border-left-color: var(--accent-dim); }
+/* キャンセル済み。枠としては空いていますが、消してしまうと
+   「入れたはずの予約が消えた」と見えるので、薄く取り消し線で残します。 */
+.cal-off { font-size: 11.5px; color: var(--muted); text-decoration: line-through; }
+/* カレンダーから飛んできた1件。どれを押したのか分からないと、もう一度押します */
+.booking-card.is-focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
 /* お客様タブ */
 .customer-name { font-size: 16px; font-weight: 700; }
 .customer-history { margin-top: 12px; border-top: 1px solid var(--line-2); padding-top: 10px; }
@@ -883,6 +927,9 @@ table { border-collapse: collapse; width: 100%; }
   .breadcrumb, .draft-banner, .preview-note, .steps, .summary,
   .toolbar, .tabs, .line-invite, #gate, .saved-profile-actions,
   .btn, button { display: none !important; }   /* 紙の上では押せません */
+  /* ただしカレンダーのマスは押しボタンで作っています。ここまで消すと、
+     カレンダーを開いたまま刷ったときに、空の格子だけが出てきます。 */
+  .cal-book, .cal-off { display: block !important; background: #fff !important; color: #000 !important; }
 
   html, body { background: #fff !important; color: #000 !important; }
   body { padding: 0 !important; font-size: 11pt; }

@@ -68,6 +68,12 @@
 
         <!-- 予約一覧 -->
         <div class="admin-pane" data-pane="reserve">
+          <!-- 予定の見せ方。既定は一覧です（理由は admin.js の reserveView に書いています） -->
+          <div class="view-switch" id="reserve-view" role="group" aria-label="予定の見せ方">
+            <button class="tab" type="button" data-view="list" aria-selected="true">一覧</button>
+            <button class="tab" type="button" data-view="calendar" aria-selected="false">カレンダー</button>
+          </div>
+
           <div class="toolbar">
             <input class="input" type="date" id="filter-date" />
             <select class="select" id="filter-status">
@@ -134,6 +140,29 @@
           <!-- 電話予約を入れた結果。ページ末尾の保存メッセージは予約カードの下に
                埋もれてしまい、スマホでは画面に入りません -->
           <p class="notice is-info" id="add-result" hidden></p>
+
+          <!-- カレンダー表示。お客様向けの空席カレンダー（reserve.html）と同じ
+               「横＝日付／縦＝時間」のマス目です。出すものだけが違い、
+               あちらは○×（空いているか）、こちらはお名前（誰が入っているか）です。 -->
+          <div id="admin-calendar" hidden>
+            <div class="calendar-nav">
+              <button class="btn btn-ghost btn-sm" type="button" id="acal-prev">&lt; 前の7日</button>
+              <strong id="acal-range"></strong>
+              <button class="btn btn-ghost btn-sm" type="button" id="acal-next">次の7日 &gt;</button>
+            </div>
+            <!-- 横に長い表です。はみ出す分はこの中だけで送ります（ページ本体は揺らしません） -->
+            <div class="calendar-scroll">
+              <table class="calendar admin-cal">
+                <thead id="acal-head"></thead>
+                <tbody id="acal-body"></tbody>
+              </table>
+            </div>
+            <p class="legend">
+              <span><b>お名前</b>＝ご予約（押すと下に詳細が出ます）</span>
+              <span class="few">斜線</span><span>＝お休み・受付を止めている時間</span>
+              <span class="none"><s>取り消し線</s>＝キャンセル済み（その枠は空いています）</span>
+            </p>
+          </div>
 
           <div id="admin-rows"></div>
         </div>
