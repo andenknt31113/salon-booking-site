@@ -1,0 +1,123 @@
+# 掲載中の写真を assets/ に取り込む（手で実行するとき用）
+#
+# なぜ必要か：
+#   この作業をしている手元の環境は、GitHub 以外へ出られません。写真の配信元
+#   （imgbp.hotp.jp）にも届かないので、画像を取ってくることができません。
+#   GitHub の実行環境は外に出られるので、ここで取ってコミットします。
+#
+# これは一度きりの持ち込み作業です。店主の元データが届いたら、そちらに
+# 差し替えたうえで、このファイルは消して構いません。
+#
+# 実行のしかた：Actions タブ →「掲載写真の取り込み」→ Run workflow
+
+name: 掲載写真の取り込み
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 画像を取得する
+        run: |
+          set -u
+          mkdir -p assets
+
+          # 「保存先ファイル名<TAB>URL」の一覧。
+          # URL末尾の ?impolicy=...&w=..&h=.. は表示サイズの指定なので付けていません。
+          # 付けない形で原寸が返るかは分からないため、駄目だったときは
+          # サイズ指定付きで取り直します（下の fetch 関数）。
+          cat > /tmp/list.tsv <<'EOF'
+          assets/style1.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/01/40/B254100140/B254100140.jpg
+          assets/style2.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/01/98/B254100198/B254100198.jpg
+          assets/style3.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/04/55/B254100455/B254100455.jpg
+          assets/style4.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/94/14/B254199414/B254199414.jpg
+          assets/style5.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/99/16/B254199916/B254199916.jpg
+          assets/style6.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/73/01/B254247301/B254247301.jpg
+          assets/style7.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/40/53/B255434053/B255434053.jpg
+          assets/style8.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/28/19/B255492819/B255492819.jpg
+          assets/style9.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/29/21/B255542921/B255542921.jpg
+          assets/style10.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/23/45/B262012345/B262012345.jpg
+          assets/style11.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/97/80/B262629780/B262629780.jpg
+          assets/style12.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/99/07/B263359907/B263359907.jpg
+          assets/staff-matteo.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/46/30/B254124630/B254124630.jpg
+          assets/hero.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/03/15/B256450315/B256450315.jpg
+          assets/hero2.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/12/90/B255041290/B255041290.jpg
+          assets/hero3.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/99/24/B253329924/B253329924.jpg
+          assets/shop1.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/60/32/B254346032/B254346032.jpg
+          assets/shop2.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/40/36/B257124036/B257124036.jpg
+          assets/shop3.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/41/79/B257124179/B257124179.jpg
+          assets/skill1.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/66/53/B260346653/B260346653.jpg
+          assets/skill2.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/60/54/B260346054/B260346054.jpg
+          assets/skill3.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/66/70/B260346670/B260346670.jpg
+          assets/skill4.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/60/90/B260346090/B260346090.jpg
+          assets/skill5.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/00/90/B253330090/B253330090.jpg
+          assets/logo-hpb.jpg	https://imgbp.hotp.jp/CSP/IMG_SRC/80/57/B253338057/B253338057.jpg
+          EOF
+
+          # 中身が画像かどうかまで見ます。取れなかったときに 0 バイトや
+          # エラーページの HTML が assets/ に残ると、サイト側では
+          # 「読めない写真」として黙って消えるだけで、原因が分かりません。
+          ok=0; ng=0
+          : > /tmp/report.md
+          echo "| ファイル | 取得 | 大きさ | バイト数 |" >> /tmp/report.md
+          echo "| --- | --- | --- | --- |" >> /tmp/report.md
+
+          while IFS=$'\t' read -r out url; do
+            [ -z "${out:-}" ] && continue
+            out="$(echo "$out" | xargs)"
+            url="$(echo "$url" | xargs)"
+            how="原寸"
+            curl -sSL --fail --max-time 60 -A 'Mozilla/5.0' -o "$out" "$url" || true
+            if ! file -b --mime-type "$out" 2>/dev/null | grep -q '^image/'; then
+              # 原寸で駄目なら、掲載ページと同じサイズ指定付きで取り直す
+              how="サイズ指定つき"
+              curl -sSL --fail --max-time 60 -A 'Mozilla/5.0' \
+                -o "$out" "${url}?impolicy=HPB_policy_default&w=1000&h=1000" || true
+            fi
+            if file -b --mime-type "$out" 2>/dev/null | grep -q '^image/'; then
+              dim="$(file -b "$out" | grep -o '[0-9]\+x[0-9]\+' | head -1)"
+              size="$(stat -c%s "$out")"
+              echo "| $out | $how | ${dim:-不明} | $size |" >> /tmp/report.md
+              ok=$((ok+1))
+            else
+              rm -f "$out"
+              echo "| $out | **取得できず** | — | — |" >> /tmp/report.md
+              ng=$((ng+1))
+            fi
+          done < /tmp/list.tsv
+
+          echo "## 取り込み結果（成功 ${ok} / 失敗 ${ng}）" >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/report.md >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/report.md
+
+      - name: コミットする
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A assets/
+          if git diff --cached --quiet; then
+            echo '取り込めた写真がありません。コミットしません。'
+            exit 0
+          fi
+          git commit -m "$(cat <<'MSG'
+          掲載中の写真を取り込む
+
+          サイトに写真が1枚も無い状態が続いていました。店主の元データが
+          届くまでのあいだ、掲載中のものを持ってきて埋めます。
+
+          作業をしている手元の環境は GitHub 以外へ出られず、写真の配信元に
+          届かないため、この取り込みだけ GitHub の実行環境で行っています。
+
+          掲載中のものはリサイズ済みで、元データより粗いはずです。店主から
+          元ファイルが届いたら差し替えてください。
+          MSG
+          )"
+          git pull --rebase origin main
+          git push origin HEAD:main
