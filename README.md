@@ -152,12 +152,14 @@ node test/mail.mjs          # メールの文面（ブラウザ不要）
 node test/backend.mjs       # 受け口におかしな入力を投げる（ブラウザ不要）
 node test/mock-gas.mjs      # Apps Script の代わりのテスト用サーバー
 node test/usecase.mjs       # 別のターミナルで実行
+node test/admin.mjs         # 管理ページ（店の人が毎日使う画面）
+node test/mypage.mjs        # 予約確認ページ（お客様の変更・キャンセル）
 node test/quality.mjs       # 構造化データ・OGP・操作しやすさ
 node test/escape.mjs        # お客様が書いた文字の出方（画面）
 node test/slow.mjs          # 通信が遅いときの表示
 ```
 
-`test/usecase.mjs` `test/escape.mjs` `test/slow.mjs` は `test/mock-gas.mjs` を
+ブラウザを使う試験（usecase / admin / mypage / quality / escape / slow）は `test/mock-gas.mjs` を
 立ち上げてから実行してください。試験のはじめに台帳を空に戻すので、
 サーバーは立ち上げっぱなしで構いません。
 

@@ -96,6 +96,11 @@ async function login() {
 
 /** 記憶した合鍵を捨てて、もう一度パスワードを聞く状態に戻す */
 function forgetDevice() {
+  /* このボタンはタブの列に並んでいます。スマホではタブが折り返して
+     すぐ隣に来るので、タブを押したつもりで当たります。
+     押した瞬間にパスワードからやり直しになり、
+     お客様を待たせている最中だと手が止まります。 */
+  if (!confirm('この端末の記憶を消します。次からはパスワードの入力が必要になります。よろしいですか？')) return;
   adminToken = '';
   adminPw = '';
   try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* noop */ }
@@ -105,7 +110,17 @@ function forgetDevice() {
 async function openDashboard() {
   const res = await adminPost({ type: 'adminData' });
   if (!res.ok) {
-    $('#gate-error').textContent = res.error || '読み込みに失敗しました。';
+    const message = res.error || '読み込みに失敗しました。';
+    /* 開いたあとの読み直し（キャンセルの反映など）で失敗したときは、
+       ログイン画面のエラー欄は隠れたままで誰も読めません。
+       黙って古い予定を出しておくと、キャンセルが通ったのかどうか
+       分からないまま、その枠を空きだと思って別のお客様を入れてしまいます。 */
+    if (!$('#dashboard').hidden) {
+      alert('最新の予定を読み込めませんでした。\n' + message
+        + '\n電波の届くところで、この画面を開き直してください。');
+      return false;
+    }
+    $('#gate-error').textContent = message;
     $('#gate-error').style.display = 'block';
     return false;
   }
@@ -145,7 +160,9 @@ function filteredReservations() {
 function renderStats() {
   const live = (adminData.reservations || []).filter(r => r.status !== 'キャンセル');
   const today = toKey(new Date());
-  const week = new Date(); week.setDate(week.getDate() + 7);
+  /* 「今後7日間」は今日を1日目に数えます。+7 だと今日を入れて8日分になり、
+     売上見込みが1日ぶん多く出ます。仕入れの判断に使う数字なので合わせます。 */
+  const week = new Date(); week.setDate(week.getDate() + 6);
   const weekKey = toKey(week);
   const inWeek = live.filter(r => r.date >= today && r.date <= weekKey);
 
@@ -179,6 +196,13 @@ function closedAllDay(date) {
     .some(r => r['休業日'] === date && !(r['開始'] && r['終了']));
 }
 
+/* 過ぎたご予約を出しているか。
+   日付を選んでいないときは、本日より前を畳んでおきます。
+   台帳は消さずに溜まっていくので、半年も使えば古い日が何十件も先に並び、
+   本日にたどり着くまで指を動かし続けることになります。
+   この画面の主な使い方は、朝いちばんに「今日は何時から何件か」を見ることです。 */
+let showPast = false;
+
 function renderReservations() {
   const list = filteredReservations();
 
@@ -200,12 +224,35 @@ function renderReservations() {
     if (!byDate.has(d)) byDate.set(d, []);
   });
 
-  if (!byDate.size) {
-    $('#admin-rows').innerHTML = '<p class="empty-state">該当する予約はありません。</p>';
+  /* 日付を選んでいるときは、それが過ぎた日でもそのまま出します。
+     わざわざ選んだ日が出てこないほうが困ります。 */
+  const today = toKey(new Date());
+  const sorted = [...byDate.keys()].sort();
+  const pastKeys = dateFilter ? [] : sorted.filter(d => d < today);
+  const pastCount = pastKeys.reduce((n, d) => n + byDate.get(d).length, 0);
+  const keys = (pastKeys.length && !showPast) ? sorted.filter(d => d >= today) : sorted;
+
+  /* 過去は捨てずに、押せば出します。「先月の◯◯さんは何をしたか」を
+     見たいことがありますし、消えていると台帳から落ちたように見えます。 */
+  const pastButton = pastKeys.length
+    ? `<button class="btn btn-ghost btn-sm" type="button" data-toggle-past style="margin-bottom:14px;">${
+        showPast ? '過ぎたご予約を畳む' : `過ぎたご予約（${pastCount}件）も見る`}</button>`
+    : '';
+
+  if (!keys.length) {
+    /* 「該当する予約はありません」だけだと、絞り込んだままなのか
+       本当に1件も無いのかが分かりません。片方を思い込むと、
+       入っているはずの予約を見落とすか、入っていない予約を待つことになります。 */
+    const total = (adminData.reservations || []).length;
+    const message = (dateFilter || $('#filter-status').value !== 'all')
+      ? 'この条件に合うご予約はありません。上の「条件をクリア」で戻せます。'
+      : total ? '本日より先のご予約は、まだありません。'
+        : 'まだご予約はありません。電話で受けたご予約は「＋ 電話予約を入れる」から台帳に入れてください。';
+    $('#admin-rows').innerHTML = pastButton + `<p class="empty-state">${esc(message)}</p>`;
     return;
   }
 
-  $('#admin-rows').innerHTML = [...byDate.keys()].sort().map(date => {
+  $('#admin-rows').innerHTML = pastButton + keys.map(date => {
     const rows = byDate.get(date);
     const h = dayHeading(date);
     const live = rows.filter(r => r.status !== 'キャンセル').length;
@@ -243,6 +290,9 @@ function closedCard(c) {
 
 function reservationCard(r) {
   const off = r.status === 'キャンセル';
+  /* 電話で受けた予約は、番号を控えていないことがあります。
+     そのまま空のリンクを出すと、押しても何も起きない場所ができます。 */
+  const tel = telKey(r.tel);
   return `
     <article class="booking-card ${off ? 'is-cancelled' : ''}">
       <div class="booking-head">
@@ -252,8 +302,9 @@ function reservationCard(r) {
       </div>
       <p class="booking-name">${esc(r.name)} 様<small>${esc(r.visit || '—')}</small></p>
       <p class="booking-detail">${esc(r.menu)}／${esc(r.staffName)}</p>
-      <p class="booking-detail">${yen(r.price)}／
-        <a href="tel:${esc(r.tel.replace(/[^0-9]/g, ''))}" style="text-decoration:underline">${esc(r.tel)}</a>
+      <p class="booking-detail">${yen(r.price)}／${tel
+        ? `<a href="tel:${tel}" style="text-decoration:underline">${esc(r.tel)}</a>`
+        : '電話番号の控えなし'}
       </p>
       ${r.request ? `<p class="booking-request">ご要望：${esc(r.request)}</p>` : ''}
       ${off ? '' : `<div style="margin-top:12px;">
@@ -268,6 +319,8 @@ function reservationCard(r) {
 function toggleAddBooking(open) {
   $('#add-booking-form').hidden = !open;
   $('#ab-error').style.display = 'none';
+  // 前に入れたぶんの結果が残っていると、今入れた結果と読み違えます
+  if (open) $('#add-result').hidden = true;
   if (open) {
     // 何も入っていなければ今日を入れておく（毎回打つのは面倒なので）
     if (!$('#ab-date').value) $('#ab-date').value = toKey(new Date());
@@ -275,24 +328,52 @@ function toggleAddBooking(open) {
   }
 }
 
+/* 数字の欄に打たれた「４５００」「4,500円」「90分」を数にします。
+   店主は日本語入力のまま打つので、数字は全角になります。
+   全角を読み落とすと、金額は0円、所要は既定の60分として黙って登録され、
+   90分の施術に60分の枠しか押さえられず、次のお客様と重なります。 */
+function numberOf(value, fallback) {
+  const t = toHalfWidth(value).replace(/[,¥￥円分\s]/g, '').trim();
+  if (t === '') return fallback;
+  const n = Number(t);
+  return isFinite(n) ? n : NaN;
+}
+
 async function saveAddBooking(force = false) {
   const err = $('#ab-error');
   const btn = $('#ab-save');
   err.style.display = 'none';
 
+  const minutes = numberOf($('#ab-minutes').value, 60);
+  const price = numberOf($('#ab-price').value, 0);
   const payload = {
     type: 'adminAdd', force,
     date: $('#ab-date').value,
     time: $('#ab-time').value,
-    minutes: Number($('#ab-minutes').value) || 60,
-    price: Number($('#ab-price').value) || 0,
+    minutes,
+    price,
     name: $('#ab-name').value.trim(),
-    tel: $('#ab-tel').value.trim(),
+    /* 全角のまま台帳に入れると、お客様タブでまとめられず（番号なし扱い）、
+       カードの電話をかけるリンクも押せなくなります。 */
+    tel: normalizeTel($('#ab-tel').value),
     menu: $('#ab-menu').value.trim(),
     memo: $('#ab-memo').value.trim()
   };
   if (!payload.date || !payload.time) { showAddError('来店日と開始時刻をお選びください。'); return; }
   if (!payload.name) { showAddError('お名前をご入力ください。'); return; }
+  /* 所要が0や負だと、終わりの時刻が始まりより前になります。
+     押さえた気になっているのに枠が空いたままで、同じ時間にネット予約が入ります。 */
+  if (!(minutes >= 15 && minutes <= 480)) {
+    showAddError('所要（分）は15〜480の数字でご入力ください。'); return;
+  }
+  if (!(price >= 0)) { showAddError('金額は数字でご入力ください（空欄でもかまいません）。'); return; }
+  /* スマホの日付は目盛りを回して選ぶので、指がすべると年や月ごと動きます。
+     過ぎた日で入れると畳んだ過去側に入って一覧に出ないため、
+     入っていないと思ってもう一度入れることになります。 */
+  if (!force && payload.date < toKey(new Date())
+      && !confirm(`${formatDateJa(payload.date)}は過ぎた日付です。このまま台帳に入れますか？`)) {
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = '登録中…';
@@ -317,19 +398,36 @@ async function saveAddBooking(force = false) {
     name: payload.name, tel: payload.tel, email: '', visit: '電話・来店',
     request: payload.memo, status: '予約確定'
   });
+  /* 過ぎた日で入れたときは、過去を開いた状態にします。
+     承知のうえで入れた（先週ぶんの記録など）のに一覧から消えると、
+     入っていないと思ってもう一度入れることになります。 */
+  if (payload.date < toKey(new Date())) showPast = true;
   renderStats();
   renderReservations();
   ['#ab-name', '#ab-tel', '#ab-menu', '#ab-memo', '#ab-price'].forEach(id => { $(id).value = ''; });
   toggleAddBooking(false);
-  const ok = $('#save-ok');
-  ok.textContent = `台帳に入れました（予約番号 ${res.code}）。この時間はネット予約から埋まります。`;
-  ok.style.display = 'block';
+
+  /* 結果は一覧の手前に出して、その場まで画面を送ります。
+     ページのいちばん下の保存メッセージは、予約カードの下に隠れていて、
+     スマホでは見えません。入れたのに何も出ないと、
+     もう一度押して同じ予約を二重に入れてしまいます。 */
+  const note = $('#add-result');
+  const filterDate = $('#filter-date').value;
+  const outOfView = (filterDate && filterDate !== payload.date)
+    || $('#filter-status').value === 'cancelled';
+  note.textContent = `台帳に入れました（予約番号 ${res.code}）。`
+    + `${formatDateJa(payload.date)} ${payload.time}〜 は、ネット予約から埋まります。`
+    + (outOfView ? '（いま絞り込み中のため、下の一覧には出ていません）' : '');
+  note.hidden = false;
+  note.scrollIntoView({ block: 'center' });
 }
 
 function showAddError(message) {
   const err = $('#ab-error');
   err.textContent = message;
   err.style.display = 'block';
+  // 入力欄が長いので、押したボタンから離れた場所に出ると読まれません
+  err.scrollIntoView({ block: 'center' });
 }
 
 /* ---------- お客様 ----------
@@ -338,7 +436,19 @@ function showAddError(message) {
    メールは端末を変えると変わることがあるためです。
    新しい情報を集めていないので、消すときも予約台帳の行を消すだけで済みます。 */
 function telKey(tel) {
-  return String(tel || '').replace(/[^0-9]/g, '');
+  /* 全角で控えられた番号（０９０…）も同じ番号として扱います。
+     半角だけ見ていると、その行は「番号なし」としてお客様タブから丸ごと消え、
+     カードの電話リンクも空になります。シートに直接打たれた行や、
+     店主が全角のまま入れた電話予約が、ここに来ます。 */
+  return toHalfWidth(tel).replace(/[^0-9]/g, '');
+}
+
+/* 探すときの文字のゆれを、こちらで吸収します。
+   店主は日本語入力を切り替えずに打つので、番号もスペースも全角になります。
+   出てこないと「そのお客様は初めて」と思い込み、前回のご要望を見ないまま
+   施術に入ることになります。 */
+function searchKey(v) {
+  return toKatakana(toHalfWidth(v)).replace(/\s+/g, '').toLowerCase();
 }
 
 function buildCustomers() {
@@ -356,6 +466,11 @@ function buildCustomers() {
   });
   return [...map.values()].map(c => {
     c.visits.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+    /* 1つの番号を家族で使う店です（固定電話、親子でご来店）。
+       いちばん新しいお名前だけ覚えていると、ご主人の履歴が奥様の名前で並び、
+       前回のご要望を取り違えます。また、古いほうのお名前で探しても
+       出てこなくなります。使われたお名前は全部持っておきます。 */
+    c.names = [...new Set(c.visits.map(v => String(v.name || '').trim()).filter(Boolean))];
     c.done = c.visits.filter(v => v.status !== 'キャンセル');
     c.spent = c.done.reduce((s, v) => s + (Number(v.price) || 0), 0);
     return c;
@@ -365,11 +480,11 @@ function buildCustomers() {
 function renderCustomers() {
   const q = ($('#customer-search') || {}).value || '';
   const sort = ($('#customer-sort') || {}).value || 'recent';
-  const needle = q.trim().toLowerCase();
+  const needle = searchKey(q);
   const digits = telKey(q);
 
   let list = buildCustomers().filter(c => !needle
-    || String(c.name || '').toLowerCase().includes(needle)
+    || c.names.some(n => searchKey(n).includes(needle))
     || (digits && telKey(c.tel).includes(digits)));
 
   list.sort((a, b) => sort === 'visits' ? b.done.length - a.done.length
@@ -385,6 +500,9 @@ function renderCustomers() {
 
   $('#customer-rows').innerHTML = list.map(c => {
     const latest = c.done[0] || c.visits[0];
+    // 家族で番号を分け合っているときだけ、どなたのご来店かを添えます
+    const shared = c.names.length > 1;
+    const who = v => (shared ? esc(v.name || '（お名前なし）') + '／' : '');
     /* 来店回数は「キャンセルを除いた予約の数」です。
        実際に来られたかどうかまでは分からないので、そう書いておきます。 */
     return `
@@ -393,19 +511,21 @@ function renderCustomers() {
           <span class="customer-name">${esc(c.name || '（お名前なし）')}</span>
           <span class="status-chip">${c.done.length}回</span>
         </div>
+        ${shared ? `<p class="booking-detail">この番号でご予約：${esc(c.names.join('・'))} 様</p>` : ''}
         <p class="booking-detail">
           <a href="tel:${esc(telKey(c.tel))}" style="text-decoration:underline">${esc(c.tel)}</a>
           ${c.email ? `／ ${esc(c.email)}` : ''}
         </p>
         <p class="booking-detail">ご予約の合計 ${yen(c.spent)}</p>
-        ${latest ? `<p class="booking-detail">前回：${formatDateJa(latest.date)}／${esc(latest.menu)}</p>` : ''}
+        ${latest ? `<p class="booking-detail">前回：${formatDateJa(latest.date)}／${who(latest)}${
+          esc(latest.menu)}${latest.status === 'キャンセル' ? '（キャンセル）' : ''}</p>` : ''}
         <details class="customer-history">
           <summary>ご来店の履歴（${c.visits.length}件）</summary>
           <ul>
             ${c.visits.map(v => `
               <li${v.status === 'キャンセル' ? ' class="is-cancelled"' : ''}>
                 <span class="hist-date">${formatDateJa(v.date)} ${esc(v.time)}</span>
-                <span class="hist-menu">${esc(v.menu)}${v.status === 'キャンセル' ? '（キャンセル）' : ''}</span>
+                <span class="hist-menu">${who(v)}${esc(v.menu)}${v.status === 'キャンセル' ? '（キャンセル）' : ''}</span>
                 ${v.request ? `<span class="hist-request">ご要望：${esc(v.request)}</span>` : ''}
               </li>`).join('')}
           </ul>
@@ -779,6 +899,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 行の追加・削除・保存
   document.addEventListener('click', async e => {
+    const past = e.target.closest('[data-toggle-past]');
+    if (past) { showPast = !showPast; renderReservations(); return; }
+
     const add = e.target.closest('[data-add]');
     if (add) {
       const t = add.dataset.add;
@@ -809,7 +932,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await adminPost({ type: 'cancel', code, date: r.date, time: r.time, name: r.name });
       if (!res.ok) {
         cx.disabled = false;
-        alert('キャンセルできませんでした。' + (res.error ? '\n' + res.error : ''));
+        /* 受信側は「前日18時まで」でキャンセルを断ります。お客様向けの決まりですが、
+           店から入れた当日のキャンセルも同じ理由で断られます。
+           そのままの文言を出すと「店舗までご連絡ください」と自分に言われることになり、
+           何をすれば枠が空くのか分かりません。 */
+        alert(res.deadline
+          ? `予約番号 ${code} は、受付期限を過ぎているとして断られました。\n\n`
+            + '台帳（スプレッドシート）の「状態」欄をキャンセルにすると、この枠は空きます。\n'
+            + '※お客様へのキャンセルのお知らせは送られません。'
+          : 'キャンセルできませんでした。' + (res.error ? '\n' + res.error : ''));
         return;
       }
       await openDashboard();

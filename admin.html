@@ -95,13 +95,17 @@
                 <span>開始</span>
                 <input class="input" type="time" id="ab-time" step="900" />
               </label>
+              <!-- 数字の欄を type="number" にすると、日本語入力のまま打った全角
+                   （「９０」「４５００」）が入らず空欄になります。所要は既定の60分、
+                   金額は0円として黙って登録され、90分の施術に60分しか枠を押さえられません。
+                   文字として受け取り、admin.js で半角に直します。 -->
               <label class="form-field" style="margin:0;">
                 <span>所要（分）</span>
-                <input class="input" type="number" id="ab-minutes" value="60" min="15" step="15" />
+                <input class="input" type="text" id="ab-minutes" value="60" inputmode="numeric" />
               </label>
               <label class="form-field" style="margin:0;">
                 <span>金額（任意）</span>
-                <input class="input" type="number" id="ab-price" min="0" step="100" placeholder="0" />
+                <input class="input" type="text" id="ab-price" inputmode="numeric" placeholder="0" />
               </label>
             </div>
             <label class="form-field" style="margin:12px 0 0;">
@@ -126,6 +130,10 @@
               <button class="btn btn-primary btn-sm" type="button" id="ab-save" style="flex:1;">台帳に入れる</button>
             </div>
           </div>
+
+          <!-- 電話予約を入れた結果。ページ末尾の保存メッセージは予約カードの下に
+               埋もれてしまい、スマホでは画面に入りません -->
+          <p class="notice is-info" id="add-result" hidden></p>
 
           <div id="admin-rows"></div>
         </div>
