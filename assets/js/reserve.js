@@ -692,6 +692,22 @@ function showDeliveryWarning(sent) {
     </span>`;
 }
 
+/* 選んだ時間がもう取れないときの言い方。理由ごとに変えます。 */
+function slotStopMessage(reason) {
+  const tail = '\n別の日時をお選びください。';
+  if (reason === 'too-soon') {
+    return `恐れ入ります。ご選択の時間は、当日のご予約の受付時刻（${SALON.business.minLeadHours}時間前まで）を過ぎました。`
+      + tail + `\nお急ぎの場合は${SALON.tel ? `お電話（${SALON.tel}）で` : '店舗まで'}ご相談ください。`;
+  }
+  if (reason === 'closed' || reason === 'closed-range') {
+    return '恐れ入ります。ご選択の時間は、店舗の都合により受付を止めております。' + tail;
+  }
+  if (reason === 'over-close') {
+    return '恐れ入ります。ご選択の時間からですと、閉店までにお時間が足りません。' + tail;
+  }
+  return '申し訳ありません。ご選択の時間は、ちょうど他のお客様のご予約が入りました。' + tail;
+}
+
 async function submitReservation() {
   const btn = $('#submit-reservation');
   btn.disabled = true;
@@ -699,13 +715,14 @@ async function submitReservation() {
 
   // 選択中に他のお客様が同じ枠を押さえていないか、最新の状況で確認する
   await Remote.load(true);
-  if (!Availability.slotInfo(state.date, state.time, state.staffId, totalMinutes()).available) {
+  const info = Availability.slotInfo(state.date, state.time, state.staffId, totalMinutes());
+  if (!info.available) {
     btn.disabled = false;
     btn.textContent = changing ? 'この日時に変更する' : 'この内容で予約する';
-    alert(
-      '申し訳ありません。ご選択の時間は、ちょうど他のお客様のご予約が入りました。\n' +
-      '別の日時をお選びください。'
-    );
+    /* 断る理由は、そのとおりに伝えます。
+       画面を開いたまま時間が過ぎただけなのに「他のお客様のご予約が入りました」と
+       出すのは、事実と違います。 */
+    alert(slotStopMessage(info.reason));
     state.time = null;
     goTo(3);
     return;
@@ -1104,6 +1121,36 @@ document.addEventListener('DOMContentLoaded', () => {
   Remote.load().then(ok => {
     if (ok && state.step === 3) renderCalendar();
   });
+
+  /* 開きっぱなしのカレンダーを、戻ってきたときに描き直します。
+
+     スマホは、ほかの用事のあいだ画面をそのまま残します。朝に開いた
+     カレンダーを昼に見ると、もう過ぎた時間が「空いています」の顔で
+     並んでいます。それを選んで、お名前も電話番号も入れたところで
+     断られるのは、いちばん徒労です。
+
+     選んでいた時間がもう取れないときは、その場でお伝えして選び直して
+     いただきます。黙って選択を外すと、何が起きたのか分かりません。 */
+  const refreshCalendar = async () => {
+    if (state.step !== 3 || document.hidden) return;
+    const had = state.date && state.time
+      ? { date: state.date, time: state.time } : null;
+    await Remote.load(true);
+    if (had && !Availability.slotInfo(had.date, had.time, state.staffId, totalMinutes()).available) {
+      state.time = null;
+      renderCalendar();
+      updateSummary();
+      renderStepCta();
+      alert(`${formatDateJa(had.date)} ${had.time} は、ただいまお受けできなくなりました。\n`
+        + '別の日時をお選びください。');
+      return;
+    }
+    renderCalendar();
+  };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshCalendar(); });
+  window.addEventListener('focus', refreshCalendar);
+  // 開いたまま眺めているあいだも、5分ごとに見直します
+  setInterval(refreshCalendar, 5 * 60 * 1000);
 
   // ステップ表示をクリックして戻れるように
   $('#steps').addEventListener('click', e => {

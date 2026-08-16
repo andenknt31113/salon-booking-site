@@ -854,6 +854,63 @@ console.log('\n【UC23】営業終了を早めたら、その時間の枠が消�
 }
 
 /* ============================================================
+   UC24 予約画面を開いたまま、時間が過ぎる
+   ============================================================ */
+console.log('\n【UC24】朝に開いたカレンダーを、昼に見る');
+{
+  /* スマホは、ほかの用事のあいだ画面をそのまま残します。
+     朝9時に開いたカレンダーを昼に見ると、もう過ぎた時間が
+     「空いています」の顔で並んでいます。そこを選んで、お名前も
+     電話番号も入れたところで断られるのが、いちばん徒労です。
+
+     時計を進めて、戻ってきたときに描き直されるかを見ます。 */
+  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true,
+    hasTouch: true, timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
+  const p = await ctx.newPage();
+  p.on('pageerror', e => jsErrors.push(`[UC24] ${e.message}`));
+  let told = '';
+  p.on('dialog', d => { told = d.message(); d.dismiss(); });
+
+  /* 「今日の朝9時（日本時間）」を作ります。この機械はUTCで動いているので、
+     new Date().setHours(9) では日本時間の18時になってしまいます。 */
+  const jstNow = new Date(Date.now() + 9 * 3600e3);
+  const todayJst = `${jstNow.getUTCFullYear()}-${String(jstNow.getUTCMonth() + 1).padStart(2, '0')}-${String(jstNow.getUTCDate()).padStart(2, '0')}`;
+  const morning = new Date(`${todayJst}T09:00:00+09:00`);
+  await p.clock.install({ time: morning });
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+
+  /* 今日ぶんで、いちばん早く取れる枠を選びます。時刻を決め打ちにすると、
+     先のシナリオがそこを埋めていたときに落ちます。 */
+  const today = todayJst;
+  const slot = await p.evaluate(d => {
+    const b = [...document.querySelectorAll(`button[data-date="${d}"][data-time]`)]
+      .find(x => !x.disabled);
+    return b ? b.dataset.time : null;
+  }, today);
+  check('UC24', '朝の時点で、今日の枠が選べる', !!slot, true);
+  await p.locator(`button[data-date="${today}"][data-time="${slot}"]`).click();
+  await p.waitForTimeout(400);
+
+  /* 画面はそのままに、その枠が受付時刻（2時間前）を切るまで進めます */
+  const [sh, sm] = slot.split(':').map(Number);
+  const forwardMin = Math.max(30, (sh * 60 + sm) - 9 * 60 - 90);
+  await p.clock.fastForward(`${String(Math.floor(forwardMin / 60)).padStart(2, '0')}:${String(forwardMin % 60).padStart(2, '0')}:00`);
+  await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await p.waitForTimeout(900);
+
+  check('UC24', '受付時刻を過ぎた枠は選べなくなっている',
+    await p.locator(`button[data-date="${today}"][data-time="${slot}"]:not([disabled])`).count(), 0);
+  check('UC24', '選んでいた時間が外れたことを伝えている', /お受けできなくなりました/.test(told), true);
+  check('UC24', '選び直しの画面に戻っている',
+    await p.evaluate(() => [...document.querySelectorAll('.reserve-panel.is-active')].map(x => x.dataset.panel).join()), '3');
+  console.log('   お知らせ:', told.replace(/\n/g, ' ') || '（なし）');
+  await ctx.close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
