@@ -139,7 +139,13 @@ function revokeAllAdminTokens() {
 const CANCEL_DEADLINE_DAYS_BEFORE = 1;
 const CANCEL_DEADLINE_HOUR = 18;
 
-const NOTIFY_EMAIL  = 'zer01.barber.ryugasaki@gmail.com';  // 店舗の通知先メール（空にすると通知しません）
+/* 店舗の通知先メール。予約が入るたび、ここに届きます。
+   ★ここが空だと通知が飛びません。設置したら必ず入れてください（selfCheck が警告します）。
+   以前入れていた zer01.barber.ryugasaki@gmail.com は 2026/08/16 に Google に凍結され、
+   もう受け取れません。凍結アドレスを入れたままにすると、予約通知が
+   「送ったつもりで誰にも届かない」状態になり、いちばん気づきにくい壊れ方をします。
+   そのため、いったん空に戻してあります。 */
+const NOTIFY_EMAIL  = '';
 const SALON_NAME    = 'ZER01 barber/lounge';
 const SALON_TEL     = '080-4498-7036';           // メールの署名に入ります
 const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
