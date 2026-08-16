@@ -721,7 +721,7 @@ function doAvailability_(sheet) {
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
   const booked = rows
-    .filter(r => String(r[col('状態')]).trim() !== 'キャンセル')
+    .filter(r => !isCancelled_(r[col('状態')]))
     .map(r => ({
       date: normalizeDate_(r[col('来店日')]),
       time: normalizeTime_(r[col('開始')]),
@@ -942,7 +942,7 @@ function doReview_(sheet, d) {
   if (digits_(r[col('電話番号')]) !== digits_(d.tel)) {
     return { ok: false, error: 'ご予約が確認できませんでした。' };
   }
-  if (String(r[col('状態')] || '') === 'キャンセル') {
+  if (isCancelled_(r[col('状態')])) {
     return { ok: false, error: 'キャンセルされたご予約には投稿いただけません。' };
   }
 
@@ -1050,7 +1050,8 @@ function doLookup_(sheet, d) {
       staffName: String(r[col('担当')] || ''),
       totalPrice: Number(r[col('合計金額')]) || 0,
       name: String(r[col('お名前')] || ''),
-      status: String(r[col('状態')] || '')
+      /* 書き方のゆれは、ここで一つに揃えてから画面に渡します */
+      status: isCancelled_(r[col('状態')]) ? 'キャンセル' : String(r[col('状態')] || '')
     }
   };
 }
@@ -1067,6 +1068,34 @@ function halfWidth_(v) {
 /* 台帳に残す電話番号。半角に直し、ハイフンは読みやすさのため残します。 */
 function telText_(v) {
   return halfWidth_(v).replace(/[‐‑‒–—―ー−ｰ]/g, '-').replace(/[^0-9\-+()]/g, '').trim();
+}
+
+/* 半角カナを全角に直します。「ｷｬﾝｾﾙ」と手で書かれても読めるように。 */
+const KANA_HALF_GAS = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+const KANA_FULL_GAS = 'ヲァィゥェォャュョッーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+
+function kanaFull_(v) {
+  const t = String(v == null ? '' : v);
+  let out = '';
+  for (let i = 0; i < t.length; i++) {
+    const j = KANA_HALF_GAS.indexOf(t.charAt(i));
+    out += j >= 0 ? KANA_FULL_GAS.charAt(j) : t.charAt(i);
+  }
+  return out;
+}
+
+/* その予約はキャンセルされているか。
+
+   台帳の「状態」は、店の人が手で書き換えることもあります。
+   「キャンセル」「キャンセル済」「取消」――どれもふつうの書き方です。
+   決め打ちで一致だけを見ていると、書き方が少し違うだけで
+   「まだ生きている予約」として扱われ、その時間が空きに戻りません。
+   お客様には、なぜか取れない時間として見えます。 */
+const CANCELLED_WORDS = ['キャンセル', 'キャンセル済', 'キャンセル済み', '取消', '取り消し', '取消済', '中止'];
+
+function isCancelled_(v) {
+  const t = kanaFull_(halfWidth_(v)).replace(/\s|　/g, '');
+  return t !== '' && CANCELLED_WORDS.indexOf(t) >= 0;
 }
 
 function digits_(v) {
@@ -1101,7 +1130,7 @@ function doChange_(sheet, d) {
       && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
     return { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
   }
-  if (String(before[col('状態')] || '') === 'キャンセル') {
+  if (isCancelled_(before[col('状態')])) {
     return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
   }
   // 変更前の来店日で判定する（間近の予約を遠い日へ逃がすのも受付期限の対象）
@@ -1238,7 +1267,7 @@ function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
 
   return rows.some(r => {
     if (codeKey_(r[col('予約番号')]) === codeKey_(ownCode)) return false;
-    if (String(r[col('状態')] || '') === 'キャンセル') return false;
+    if (isCancelled_(r[col('状態')])) return false;
     if (normalizeDate_(r[col('来店日')]) !== dateKey) return false;
     /* 席の数で見ます。
 
@@ -1279,7 +1308,7 @@ function doCancel_(sheet, d) {
       && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
     return { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
   }
-  if (String(before[col('状態')] || '') === 'キャンセル') {
+  if (isCancelled_(before[col('状態')])) {
     // すでにキャンセル済み。二重に通知やメールを送らない。
     return { ok: true, alreadyCancelled: true };
   }
@@ -1369,7 +1398,8 @@ function doAdminData_(d) {
       email: String(r[col('メール')] || ''),
       visit: String(r[col('来店回数')] || ''),
       request: String(r[col('ご要望')] || ''),
-      status: String(r[col('状態')] || '')
+      /* 書き方のゆれは、ここで一つに揃えてから画面に渡します */
+      status: isCancelled_(r[col('状態')]) ? 'キャンセル' : String(r[col('状態')] || '')
     })).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
 
   return {
@@ -2013,7 +2043,7 @@ function sendReminders() {
   let sent = 0;
 
   rows.forEach(r => {
-    if (String(r[col('状態')]).trim() === 'キャンセル') return;
+    if (isCancelled_(r[col('状態')])) return;
     if (normalizeDate_(r[col('来店日')]) !== target) return;
 
     mailCustomer_(r[col('メール')], `明日のご予約のご案内（${normalizeTime_(r[col('開始')])}〜）`, [
