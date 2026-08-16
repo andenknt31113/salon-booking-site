@@ -799,6 +799,77 @@ await group('管16 受け口が読めていないとき', async () => {
 });
 
 /* ============================================================
+   管18 休業日を「終日」と「時間帯だけ」で取り違えない
+
+   実際に起きたこと：店主が休業日を登録したのに、お客様の画面から
+   その日が予約できてしまいました。原因は、開始・終了に時刻を入れると
+   「その帯だけ止める」指定になり、日付そのものは選べたまま残るためです。
+   入力欄が4つ並ぶだけの画面からは、この違いが読み取れませんでした。
+
+   「休みにしたのに予約が入った」は、店にとっていちばん起きてはいけない
+   事故なので、画面で先に休み方を選ばせ、選んだ結果を文で見せます。
+   ============================================================ */
+await group('管18 休業日の「終日」と「時間帯だけ」', async () => {
+  const p = await newPhone('管18');
+  await login(p);
+  await tab(p, '休業日'); await p.waitForTimeout(500);
+
+  await p.locator('[data-add="closed"]').first().click(); await p.waitForTimeout(400);
+  const card = p.locator('#closed-rows .booking-card').first();
+
+  check('管18', '休み方を選ばせている',
+    await card.locator('[data-closed-mode]').count(), 2);
+  check('管18', '既定は終日休み',
+    await card.locator('[data-closed-mode][value="allday"]').isChecked(), true);
+  /* 終日のあいだは時刻の欄そのものを出さない。
+     出しておくと、入れたまま残って効いてしまいます。 */
+  check('管18', '終日のときは時刻の欄を出さない',
+    await card.locator('[data-col="開始"]').count(), 0);
+
+  await card.locator('[data-col="休業日"]').fill(key(12)); await p.waitForTimeout(300);
+  check('管18', '終日だと分かる文が出る',
+    /終日お休み/.test(await card.innerText()), true);
+  check('管18', 'お客様が選べなくなると書いてある',
+    /選べません/.test(await card.innerText()), true);
+
+  // 「時間帯だけ」に切り替えると、時刻の欄が出る
+  await card.locator('[data-closed-mode][value="range"]').check(); await p.waitForTimeout(400);
+  const card2 = p.locator('#closed-rows .booking-card').first();
+  check('管18', '時間帯だけにすると時刻の欄が出る',
+    await card2.locator('[data-col="開始"]').count(), 1);
+
+  /* 初期値は営業時間そのものなので、実質は終日休みなのに
+     お客様の画面には「選べる日」として残ります。ここを黙って通さない。 */
+  check('管18', '営業時間を丸ごと覆う指定だと警告する',
+    /丸ごと覆って/.test(await card2.innerText()), true);
+  check('管18', '「選べる日として残る」と伝えている',
+    /選べる日/.test(await card2.innerText()), true);
+  check('管18', '終日休みを選び直すよう促している',
+    /「終日休み」を選んで/.test(await card2.innerText()), true);
+
+  // 一部だけの時間帯なら、他の時間は予約できると伝える
+  await card2.locator('[data-col="開始"]').fill('14:00');
+  await card2.locator('[data-col="終了"]').fill('16:00'); await p.waitForTimeout(300);
+  const card3 = p.locator('#closed-rows .booking-card').first();
+  check('管18', '一部の時間帯だと分かる文になる',
+    /14:00〜16:00 だけ受け付けません/.test(await card3.innerText()), true);
+  check('管18', '他の時間は予約できると伝えている',
+    /他の時間は/.test(await card3.innerText()), true);
+  check('管18', '丸ごと覆う警告は消えている',
+    /丸ごと覆って/.test(await card3.innerText()), false);
+
+  // 終日に戻したら、入れた時刻が残らない
+  await card3.locator('[data-closed-mode][value="allday"]').check(); await p.waitForTimeout(400);
+  check('管18', '終日に戻すと時刻が消える', await p.evaluate(
+    () => !edits.closed[0]['開始'] && !edits.closed[0]['終了']), true);
+
+  check('管18', '片手のスマホで横にはみ出さない',
+    await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

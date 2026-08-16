@@ -948,8 +948,10 @@ function fieldFor(col, value, target, index) {
   const type = (col === '通常価格' || col === '所要(分)') ? 'number'
     : col === '休業日' ? 'date'
       : (col === '開始' || col === '終了') ? 'time' : 'text';
-  const hint = col === '開始' ? '空欄なら終日お休みになります'
-    : col === '終了' ? '例）14:00〜16:00 だけ止める' : '';
+  /* 休み方は上のラジオで選ばせるようになったので、
+     ここで「空欄なら終日」と説明する必要はなくなりました。 */
+  const hint = col === '開始' ? '例）14:00'
+    : col === '終了' ? '例）16:00' : '';
   return `
     <label class="form-field"${mark} style="margin:0 0 10px;">
       <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(col)}${
@@ -974,8 +976,73 @@ function renderRows(target, cols, host) {
     : '<p class="empty-state">まだ登録がありません。下のボタンから追加してください。</p>';
 }
 
+/* 休業日の1行。
+
+   直す前は「休業日・開始・終了・メモ」の入力欄が4つ並ぶだけでした。
+   ところがこの4つは、2種類のまったく違うことを表しています。
+
+     開始・終了が空       → その日は終日お休み（お客様はその日を選べない）
+     開始・終了に時刻あり → その帯だけ止める（お客様は**その日を選べる**）
+
+   画面からはこの違いが読み取れません。実際に、終日休みにしたつもりで
+   時刻を入れてしまい、「休みにしたのにお客様の画面から予約できる」と
+   なりました。店にとっていちばん起きてはいけない事故です。
+
+   なので、どちらなのかを先に選ばせます。選んだ結果どうなるかも
+   その場に文で出します。「終日」を選んだら時刻の欄自体を消すので、
+   入れたまま残って効いてしまうこともありません。 */
+function closedSummary(row) {
+  const d = String(row['休業日'] || '').trim();
+  const st = String(row['開始'] || '').trim();
+  const en = String(row['終了'] || '').trim();
+  if (!d) return '日付を入れてください。入れるまで、この行は保存しても効きません。';
+  if (!st || !en) return `${d} は終日お休みになります。お客様はこの日を選べません。`;
+  /* 営業時間を丸ごと覆う指定は、店の頭の中では「終日休み」です。
+     ところが仕組みの上では「時間帯の指定がある日」なので、
+     お客様のカレンダーにはその日が**選べる日として残ります**。
+     枠は全部埋まって見えますが、休みだとは伝わりません。
+     ここを黙って通すと「休みにしたのに予約が入った」に一番近づきます。 */
+  const b = (typeof SALON !== 'undefined' && SALON.business) || {};
+  if (b.openTime && b.closeTime && st <= b.openTime && en >= b.closeTime) {
+    return `${d} の ${st}〜${en}。これは営業時間（${b.openTime}〜${b.closeTime}）を丸ごと覆っています。`
+      + 'この指定のままだと、お客様の画面にはこの日が「選べる日」として残ります。'
+      + '終日お休みにするなら「終日休み」を選んでください。';
+  }
+  return `${d} の ${st}〜${en} だけ受け付けません。`
+    + 'この日の他の時間は、お客様から予約できます。';
+}
+
 function renderClosed() {
-  renderRows('closed', CLOSED_COLS, '#closed-rows');
+  const rows = edits.closed;
+  $('#closed-rows').innerHTML = rows.length
+    ? rows.map((row, i) => {
+      const range = !!(String(row['開始'] || '').trim() && String(row['終了'] || '').trim());
+      return `
+        <div class="booking-card" style="border-left-color:var(--line);">
+          ${fieldFor('休業日', row['休業日'], 'closed', i)}
+          <div class="form-field" style="margin:0 0 10px;">
+            <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">休み方</span>
+            <label class="checkbox-line" style="margin-bottom:4px;">
+              <input type="radio" name="closed-mode-${i}" value="allday"
+                     data-closed-mode="${i}" ${range ? '' : 'checked'} />
+              <span>終日休み</span>
+            </label>
+            <label class="checkbox-line" style="margin-bottom:0;">
+              <input type="radio" name="closed-mode-${i}" value="range"
+                     data-closed-mode="${i}" ${range ? 'checked' : ''} />
+              <span>この時間帯だけ休み</span>
+            </label>
+          </div>
+          ${range ? fieldFor('開始', row['開始'], 'closed', i) + fieldFor('終了', row['終了'], 'closed', i) : ''}
+          ${fieldFor('メモ', row['メモ'], 'closed', i)}
+          <p data-closed-summary="${i}"
+             style="font-size:12.5px;line-height:1.7;color:var(--text-2);
+                    background:var(--panel-2);border-left:3px solid var(--accent);
+                    padding:9px 12px;margin:0 0 10px;">${esc(closedSummary(row))}</p>
+          <button class="btn btn-ghost btn-sm" type="button" data-remove="closed" data-index="${i}">この行を削除</button>
+        </div>`;
+    }).join('')
+    : '<p class="empty-state">まだ登録がありません。下のボタンから追加してください。</p>';
 }
 
 /* ============================================================
@@ -1435,6 +1502,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const row = edits[target][Number(el.dataset.index)];
     if (!row) return;
     row[el.dataset.col] = el.type === 'checkbox' ? (el.checked ? '○' : '×') : el.value;
+    /* 休業日は「いま入れた内容だとどうなるか」をその場に文で出しています。
+       打った先から追いつかないと、確かめるために保存する羽目になります。
+       入力欄ごと描き直すとカーソルが飛ぶので、文だけ差し替えます。 */
+    if (target === 'closed') {
+      const note = $(`[data-closed-summary="${el.dataset.index}"]`);
+      if (note) note.textContent = closedSummary(row);
+    }
     /* 一覧の行だけ描き直します（入力欄には触りません）。
        名前や値段を打った先から一覧に出ないと、どの行を直しているのか
        分からなくなりますが、入力欄まで描き直すとカーソルが飛びます。 */
@@ -1452,6 +1526,23 @@ document.addEventListener('DOMContentLoaded', () => {
     /* 定休曜日は保存時にまとめていたので、押しても「未保存」が出ませんでした。
        出ないと、押しただけで決まったと思って画面を離れます。 */
     if (el.dataset.weekday !== undefined) { collectWeekdays(); updateDirty(); return; }
+    /* 休み方の切り替え。終日を選んだら時刻を消します。
+       残したままにすると、画面には「終日」と出ているのに
+       中身は時間帯だけの休みのまま、という食い違いが起きます。 */
+    if (el.dataset.closedMode !== undefined && el.checked) {
+      const row = edits.closed[Number(el.dataset.closedMode)];
+      if (row) {
+        if (el.value === 'allday') { row['開始'] = ''; row['終了'] = ''; }
+        else if (!row['開始'] && !row['終了']) {
+          // 時刻の欄を出すだけでは、何を入れる欄なのか分かりません
+          row['開始'] = SALON.business.openTime;
+          row['終了'] = SALON.business.closeTime;
+        }
+        renderClosed();
+        updateDirty();
+      }
+      return;
+    }
     if (el.type === 'checkbox' && el.dataset.target !== undefined) {
       const row = edits[el.dataset.target][Number(el.dataset.index)];
       if (row) row[el.dataset.col] = el.checked ? '○' : '×';
