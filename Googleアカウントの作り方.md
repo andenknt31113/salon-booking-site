@@ -16,7 +16,7 @@
 | | |
 | --- | --- |
 | 作るもの | 無料のGoogleアカウント（Gmail）1つ |
-| アドレス | **`zer01.barber@gmail.com`**（後述のとおり、埋まっていたら少し変えます） |
+| アドレス | **`zer01.barber.ryugasaki@gmail.com`**（取得済み。`zer01.barber` は埋まっていました） |
 | 名義 | **お店（オーナーさん）** |
 | 費用 | 無料 |
 | 有料版（Workspace）は？ | **要りません。** 独自ドメインのメールが欲しくなったら、そのとき考えれば十分です |
@@ -151,9 +151,11 @@ zer01.barber
 2. `zer01barberlounge`
 3. `zer01.ryugasaki`
 
-**どれになったか、必ず控えて教えてください。**
-Apps Script の通知先（`gas/Code.gs` の `NOTIFY_EMAIL`）に入れる必要があります。
-いまは `zer01.barber@gmail.com` を前提に書いてあります。
+**このお店では `zer01.barber.ryugasaki@gmail.com` になりました。**
+（`zer01.barber` も `zer01barber` も、すでに誰かに使われていました）
+
+Apps Script の通知先（`gas/Code.gs` の `NOTIFY_EMAIL`）は、
+この住所に**書き換え済み**です。貼り付けるだけで通知が届きます。
 
 ### 6. パスワードを決める
 

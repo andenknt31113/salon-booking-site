@@ -139,7 +139,7 @@ function revokeAllAdminTokens() {
 const CANCEL_DEADLINE_DAYS_BEFORE = 1;
 const CANCEL_DEADLINE_HOUR = 18;
 
-const NOTIFY_EMAIL  = 'zer01.barber@gmail.com';  // 店舗の通知先メール（空にすると通知しません）
+const NOTIFY_EMAIL  = 'zer01.barber.ryugasaki@gmail.com';  // 店舗の通知先メール（空にすると通知しません）
 const SALON_NAME    = 'ZER01 barber/lounge';
 const SALON_TEL     = '080-4498-7036';           // メールの署名に入ります
 const SALON_ADDRESS = '茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002';
