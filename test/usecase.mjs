@@ -1161,6 +1161,54 @@ console.log('\n【UC30】何も選んでいない画面に「¥0」を出さな�
 }
 
 /* ============================================================
+   UC31 気になるスタイルを、書き写させない
+
+   スタイル一覧には「気になるスタイルは、ご予約時のご要望欄に名前を
+   書いていただければスムーズです」と書いてあります。つまり、写して
+   打ち直す作業をお客様にさせていました。押した時点で分かっている
+   ことなので、こちらで運びます。
+   ============================================================ */
+console.log('\n【UC31】スタイル名をご要望欄まで運ぶ');
+{
+  const p = await newPhone('UC31');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  await p.evaluate(() => rememberStyleRequest('ナチュラルセンターパート/曲がる縮毛矯正'));
+
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1800);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(300);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1200);
+  await p.locator('button[data-date][data-time]:not([disabled])').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+
+  const req = await p.inputValue('#f-request');
+  check('UC31', 'スタイル名がご要望欄に入っている',
+    req.includes('ナチュラルセンターパート/曲がる縮毛矯正'), true);
+  /* 一度使ったら捨てます。次に別のメニューで予約する人に、
+     前の人が見ていたスタイルが残っていると気味が悪いだけです。 */
+  check('UC31', '一度使ったら残らない',
+    await p.evaluate(() => takeStyleRequest()), '');
+  await p.context().close();
+}
+
+/* 書きかけの下書きがある人の文章を、こちらの都合で上書きしない */
+{
+  const p = await newPhone('UC31-2');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(300);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1200);
+  await p.locator('button[data-date][data-time]:not([disabled])').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.fill('#f-request', 'つむじが割れやすいので、そこだけ相談したいです。');
+  await p.evaluate(() => rememberStyleRequest('スパイキーショート'));
+  await p.reload(); await p.waitForTimeout(2200);
+  check('UC31', '書きかけの文章を上書きしない',
+    (await p.inputValue('#f-request')).includes('つむじが割れやすい'), true);
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

@@ -161,6 +161,36 @@ const STORE_KEY = 'salon.reservations.v1';
    この端末の中だけで渡します。 */
 const CHANGE_KEY = 'salon.changeTarget.v1';
 
+/* スタイル一覧から「このスタイルで予約」を押したときの受け渡し用。
+   スタイル一覧が書き、予約ページが読んで、ご要望欄に入れます。
+
+   スタイル一覧には「気になるスタイルは、ご予約時のご要望欄に名前を
+   書いていただければスムーズです」と案内しています。つまり、写して
+   打ち直す作業をお客様にさせていました。押した時点で分かっている
+   ことなので、こちらで運びます。
+
+   URLに載せないのは、日時変更と同じ理由です。お名前ではないので
+   実害は小さいのですが、共有されたリンクから来た人に、その人が
+   選んでいないスタイルが入るのは筋が違います。 */
+const STYLE_REQUEST_KEY = 'salon.styleRequest.v1';
+
+/** スタイル一覧から呼びます。押されたスタイル名を覚えておきます */
+function rememberStyleRequest(title) {
+  const t = String(title == null ? '' : title).trim();
+  if (!t) return;
+  try { localStorage.setItem(STYLE_REQUEST_KEY, t); } catch (e) { /* 使えなくても予約自体は進みます */ }
+}
+
+/** 予約ページから呼びます。1回読んだら捨てます（次の予約に持ち越さない） */
+function takeStyleRequest() {
+  let t = '';
+  try {
+    t = localStorage.getItem(STYLE_REQUEST_KEY) || '';
+    localStorage.removeItem(STYLE_REQUEST_KEY);
+  } catch (e) { /* noop */ }
+  return t.trim();
+}
+
 let memory = null; // localStorage が使えない環境（プライベートモード等）での代替
 
 const Store = {
