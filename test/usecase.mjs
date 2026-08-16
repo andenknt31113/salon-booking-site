@@ -926,6 +926,198 @@ console.log('\n【UC24】朝に開いたカレンダーを、昼に見る');
 }
 
 /* ============================================================
+   UC25 スタイリストが1名の店で、「指名」を探させない
+   ============================================================ */
+console.log('\n【UC25】1人1席の店に、「指名」という選択はない');
+{
+  /* この店のスタイリストは1名です。誰に切ってもらうかは選びようがなく、
+     指名料も発生しません。それなのに予約画面は
+     「ご指名のスタッフをお選びください」「指名なしの場合は、当日空いている
+     スタッフが担当いたします」と書いていました。
+     お客様は在りもしない「指名なし」を探して止まります。
+     （staff.html では同じ言い方をすでに直してあります。test/pages.mjs 【6】） */
+  const p = await newPhone('UC25');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
+  check('UC25', '在籍は1名（この試験の前提）', await p.evaluate(() => SALON.staff.length), 1);
+
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  const step1Btn = await p.locator('#step-cta button').innerText();
+  check('UC25', '「スタッフの選択へ」と言っていない', /スタッフの選択/.test(step1Btn), false);
+
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(800);
+  const lead = (await p.locator('#h-step2').innerText()) + '\n' + (await p.locator('#staff-lead').innerText());
+  check('UC25', '「ご指名」と書いていない', /指名/.test(lead), false);
+  check('UC25', '他に空いているスタッフがいるように書いていない', /空いているスタッフ/.test(lead), false);
+  check('UC25', '1名でお受けしていると伝えている', /マンツーマン|1名/.test(lead), true);
+  check('UC25', '選択肢に「指名なし」は出さない', await p.locator('[data-staff=""]').count(), 0);
+  /* かからない指名料を「¥0」と書いても、読む理由がありません */
+  check('UC25', 'かからない指名料を並べていない',
+    /指名料/.test(await p.locator('#staff-choices').innerText()), false);
+  console.log('   案内文:', lead.replace(/\n/g, ' '));
+  await p.context().close();
+}
+
+/* ============================================================
+   UC26 カレンダーの記号と、横に長い表
+   ============================================================ */
+console.log('\n【UC26】出ない記号を探させない／表が横に動くと伝える');
+{
+  /* スタイリストが1名の店では、slotInfo は ○ と × しか返しません。
+     それなのに凡例には ◎（空きに余裕あり）と △（残りわずか）が
+     並んでいました。お客様は「◎の日を探そう」として、いつまでも
+     見つけられません。
+
+     表は14日ぶんありますが、390pxの画面には7日ぶんしか映りません。
+     指で送れることを書いておかないと、先の日付に辿り着けません。 */
+  const p = await newPhone('UC26');
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1400);
+
+  const legend = await p.locator('#cal-legend').innerText();
+  const shown = await p.evaluate(() =>
+    [...new Set([...document.querySelectorAll('button[data-date][data-time]')].map(b => b.textContent.trim()))]);
+  check('UC26', '表に出るのは ○ と × と - だけ',
+    shown.every(s => ['○', '×', '-'].includes(s)), true);
+  check('UC26', '出ない ◎ を凡例に並べていない', /◎/.test(legend), false);
+  check('UC26', '出ない △ を凡例に並べていない', /△/.test(legend), false);
+  check('UC26', '出る ○ は説明している', /○/.test(legend), true);
+  check('UC26', '休業日の印も説明している', /休業日/.test(legend), true);
+
+  const wide = await p.evaluate(() => {
+    const box = document.querySelector('.calendar-scroll');
+    return box.scrollWidth > box.clientWidth + 1;
+  });
+  check('UC26', '表は画面より横に長い（送らないと先が見えない）', wide, true);
+  check('UC26', '横に動かせることを書いている',
+    /横に/.test(await p.locator('.cal-hint').innerText()), true);
+  console.log('   凡例:', legend.replace(/\n/g, ' / '));
+  await p.context().close();
+}
+
+/* ============================================================
+   UC27 電波の細い場所で「この内容で予約する」を押す
+   ============================================================ */
+console.log('\n【UC27】応答が返ってくるまで、押せたことが分かる');
+{
+  /* 外出先の電波では、応答まで数秒かかります。そのあいだボタンの文字が
+     変わるだけだと、画面を送っていて手元にボタンが無い方には
+     何も起きていないように見えます。もう一度押されるか、閉じられます。
+
+     送信中は、その旨をはっきり出し、二重に送れないようにします。 */
+  const p = await newPhone('UC27');
+  // 予約の送信だけを、わざと遅らせる
+  await p.route('**/exec', async route => {
+    const body = route.request().postData() || '';
+    if (/"type"\s*:\s*"reserve"/.test(body)) await new Promise(r => setTimeout(r, 3000));
+    await route.continue();
+  });
+
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  await p.locator('button[data-date][data-time]:not([disabled])').nth(20).click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
+  await p.fill('#f-name', '電波 細子'); await p.fill('#f-kana', 'デンパ');
+  await p.fill('#f-tel', '09011110027'); await p.fill('#f-email', 'slow@example.com');
+  await p.locator('label.radio-chip:has-text("初めて")').first().click();
+  await p.locator('.checkbox-line > span').click();
+  await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(600);
+
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(900);
+  check('UC27', '送信中だと、ボタン以外の場所でも伝えている',
+    await p.locator('#sending-note').isVisible(), true);
+  check('UC27', '送信ボタンは押せなくなっている',
+    await p.locator('#submit-reservation').isDisabled(), true);
+  /* ステップ表示は押すと戻れます。送信中に戻られると、
+     送っている内容と画面が食い違うので、そこも止めます */
+  await p.locator('.step[data-step="3"]').click(); await p.waitForTimeout(300);
+  check('UC27', '送信中はステップ表示から戻らせない',
+    await p.evaluate(() => [...document.querySelectorAll('.reserve-panel.is-active')]
+      .map(x => x.dataset.panel).join()), '5');
+
+  await p.waitForTimeout(5000);
+  const code = (await p.locator('#done-code').innerText()).trim();
+  check('UC27', '待ったあと、予約は取れている', /^LM-[A-Z0-9]{5}$/.test(code), true);
+  check('UC27', '送信中の知らせは消えている', await p.locator('#sending-note').isVisible(), false);
+  const mine = (await post({ type: 'adminData', password: PW })).reservations
+    .filter(r => r.tel === '09011110027');
+  check('UC27', '台帳にも二重に入っていない', mine.length, 1);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC28 予約が取れたあと、控えて、この先どうすればいいか分かる
+   ============================================================ */
+console.log('\n【UC28】完了画面で、番号を控えて、この先が分かる');
+{
+  /* 外を歩きながら5文字を手で書き写すのは、まず無理です。
+     そして完了画面は、お客様が最後に抱える2つの不安
+     「本当に取れたのか」「都合が変わったらどうするのか」に
+     答えられる最後の場所です。ここで答えないと、店に電話がかかります。 */
+  const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP',
+    permissions: ['clipboard-read', 'clipboard-write'] });
+  const p = await ctx.newPage();
+  p.on('pageerror', e => jsErrors.push(`[UC28] ${e.message}`));
+
+  const r = await book(p, { name: '控え 太郎', tel: '09011110028', slotIndex: 24 });
+
+  const follow = await p.locator('#done-follow').innerText();
+  check('UC28', '確認メールを送ったことを書いている', /確認メール/.test(follow), true);
+  check('UC28', 'どこ宛に送ったかを書いている', /test@example\.com/.test(follow), true);
+  check('UC28', '届かないときに見る場所を書いている', /迷惑メール/.test(follow), true);
+  check('UC28', 'いつまで変更・キャンセルできるかを書いている', /前日18時/.test(follow), true);
+  check('UC28', '期限後の連絡先も書いている', /080-4498-7036/.test(follow), true);
+
+  await p.locator('#copy-code').click(); await p.waitForTimeout(500);
+  check('UC28', 'コピーしたと伝えている', await p.locator('#copy-done').isVisible(), true);
+  check('UC28', '予約番号がそのままコピーされている',
+    (await p.evaluate(() => navigator.clipboard.readText())).trim(), r.code);
+  console.log('   案内:', follow.replace(/\s+/g, ' ').slice(0, 90));
+  await ctx.close();
+}
+
+/* ============================================================
+   UC29 届かなかったのに「メールを送りました」と言わない
+   ============================================================ */
+console.log('\n【UC29】店舗に届かなかったときは、送っていない案内を出さない');
+{
+  /* UC28 で足した案内は、届いたときだけ正しい文です。
+     届かなかった画面に「確認メールをお送りしました」が残っていると、
+     お客様はメールを待ち、来ない理由が分からないままになります。
+     UC12（通信が切れた）と同じ場面を、この案内の側から見ています。 */
+  const p = await newPhone('UC29');
+  await p.route('**/exec', async route => {
+    const body = route.request().postData() || '';
+    if (/"type"\s*:\s*"reserve"/.test(body)) { await route.abort('failed'); return; }
+    await route.continue();
+  });
+  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
+  await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  await p.locator('button[data-date][data-time]:not([disabled])').nth(30).click(); await p.waitForTimeout(400);
+  await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
+  await p.fill('#f-name', '不達 太郎'); await p.fill('#f-kana', 'フタツ');
+  await p.fill('#f-tel', '09011110029'); await p.fill('#f-email', 'ng@example.com');
+  await p.locator('label.radio-chip:has-text("初めて")').first().click();
+  await p.locator('.checkbox-line > span').click();
+  await p.locator('[data-next="5"]').first().click(); await p.waitForTimeout(600);
+  await p.locator('#submit-reservation').click(); await p.waitForTimeout(7000);
+
+  const follow = await p.locator('#done-follow').innerText();
+  check('UC29', '届いていないことを見出しで伝えている',
+    /届いて/.test(await p.locator('#h-done').innerText()), true);
+  check('UC29', '送っていないメールを「送りました」と書かない', /確認メール/.test(follow), false);
+  check('UC29', '店舗へ連絡する道は残している', /080-4498-7036/.test(follow), true);
+  check('UC29', '予約番号は出している', /^LM-/.test((await p.locator('#done-code').innerText()).trim()), true);
+  await p.context().close();
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

@@ -224,26 +224,58 @@ function initStep1() {
 /* ============================================================
  *  STEP2: スタッフ選択
  * ============================================================ */
+/* スタイリストが1名の店では「指名」という考え方そのものがありません。
+   誰に切ってもらうかは選びようがなく、指名料も発生しません。
+   それでも「ご指名のスタッフをお選びください」「指名なしの場合は当日
+   空いているスタッフが」と書いていたため、お客様は在りもしない
+   「指名なし」を探すことになっていました（staff.html では
+   すでに直っている言い方に、予約画面もそろえます）。 */
+const soloStylist = () => SALON.staff.length <= 1;
+
+function renderStaffLead() {
+  const head = $('#h-step2');
+  const lead = $('#staff-lead');
+  if (!head || !lead) return;
+  const solo = soloStylist();
+  head.textContent = solo ? 'ご担当のご確認' : 'ご指名のスタッフをお選びください';
+  lead.textContent = solo
+    ? `当店は${SALON.staff[0] ? SALON.staff[0].name : 'スタイリスト'}が`
+      + 'マンツーマンでお受けしています。そのまま日時の選択へお進みください。'
+    : '指名なしの場合は、当日空いているスタッフが担当いたします。';
+  // ステップ表示と、STEP1 の「進む」ボタンの言い方もそろえる
+  const chip = $('#step2-label');
+  if (chip) chip.textContent = solo ? 'ご担当' : 'スタッフ';
+  const btn = $('#to-staff');
+  if (btn) btn.textContent = solo ? 'ご担当の確認へ進む' : 'スタッフ選択へ進む';
+}
+
 function renderStaffChoices() {
   // スタイリストが1名のサロンでは「指名なし」は出さない
-  const none = SALON.staff.length <= 1 ? '' : `
+  const none = soloStylist() ? '' : `
     <button class="selectable ${state.staffChosen && !state.staffId ? 'is-selected' : ''}" type="button" data-staff="">
       <span class="selectable-title">指名なし（おまかせ）</span>
       <span class="selectable-sub">当日空いているスタッフが担当いたします。指名料はかかりません。</span>
       <span class="selectable-meta"><span>指名料 <strong>¥0</strong></span></span>
     </button>`;
 
-  const list = SALON.staff.map(s => `
+  const list = SALON.staff.map(s => {
+    /* 選びようがなく、かからない指名料を「¥0」と書いても読む理由がありません。
+       1名の店では、その行ごと出しません。 */
+    const fee = (soloStylist() && !s.nominationFee) ? ''
+      : `<span class="selectable-meta"><span>指名料 <strong>${s.nominationFee > 0 ? yen(s.nominationFee) : '¥0'}</strong></span></span>`;
+    return `
     <button class="selectable ${state.staffId === s.id ? 'is-selected' : ''}" type="button" data-staff="${esc(s.id)}">
       <span class="selectable-title">${esc(s.name)}（${esc(s.role)}）</span>
       <span class="selectable-sub">${esc(s.tags.map(t => '#' + t).join(' '))}／出勤：${s.workdays.map(d => WEEKDAY_JA[d]).join('・')}曜</span>
-      <span class="selectable-meta"><span>指名料 <strong>${s.nominationFee > 0 ? yen(s.nominationFee) : '¥0'}</strong></span></span>
-    </button>`).join('');
+      ${fee}
+    </button>`;
+  }).join('');
 
   $('#staff-choices').innerHTML = none + list;
 }
 
 function initStep2() {
+  renderStaffLead();
   renderStaffChoices();
   bindOnce('staff-choices', () => $('#staff-choices').addEventListener('click', e => {
     const btn = e.target.closest('[data-staff]');
@@ -263,6 +295,32 @@ function initStep2() {
 function resetDateTime() {
   state.date = null;
   state.time = null;
+}
+
+/* カレンダーの記号の説明。
+   ◎（余裕あり）と △（残りわずか）は、担当を指定したときと
+   スタイリストが1名の店では slotInfo が返しません。
+   出ない記号を並べておくと、お客様は「◎の日を探そう」として
+   いつまでも見つけられません。出るものだけ書きます。 */
+function renderLegend() {
+  const host = $('#cal-legend');
+  if (!host) return;
+  const graded = !soloStylist() && !state.staffId;
+  host.innerHTML = [
+    graded ? '<li><b>◎</b> 空きに余裕あり</li>' : '',
+    '<li><b>○</b> 予約できます</li>',
+    graded ? '<li><span class="few">△</span> 残りわずか</li>' : '',
+    '<li><span class="none">×</span> 予約できません</li>',
+    '<li><span class="none">-</span> 休業日</li>'
+  ].filter(Boolean).join('');
+}
+
+/* 他のお客様の予約状況を取りにいっているあいだの表示。
+   届く前のカレンダーは、この端末の記録だけで描いた古い空き状況です。
+   黙って出しておくと、それを最新だと思って選ばれます。 */
+function showCalendarLoading(on) {
+  const el = $('#cal-status');
+  if (el) el.hidden = !on;
 }
 
 function renderCalendar() {
@@ -304,6 +362,8 @@ function renderCalendar() {
             data-date="${d}" data-time="${t}" aria-label="${esc(label)}">${info.symbol}</button></td>`;
       }).join('')}
     </tr>`).join('');
+
+  renderLegend();
 }
 
 function initStep3() {
@@ -708,17 +768,34 @@ function slotStopMessage(reason) {
   return '申し訳ありません。ご選択の時間は、ちょうど他のお客様のご予約が入りました。' + tail;
 }
 
-async function submitReservation() {
+/* 送信中であることを、ボタンの文字だけに頼らずに出します。
+   電波の細い場所では応答まで数秒かかります。そのあいだボタンが画面の外に
+   あると、お客様には何も起きていないように見え、戻るを押されます。
+   送信が終わるまではステップ表示からの移動も止めます（飛んだ先で日時を
+   選び直されると、送っている内容と画面が食い違うため）。 */
+let submitting = false;
+
+function setSubmitting(on) {
+  submitting = on;
+  const note = $('#sending-note');
+  if (note) note.hidden = !on;
   const btn = $('#submit-reservation');
-  btn.disabled = true;
-  btn.textContent = '送信中…';
+  if (!btn) return;
+  btn.disabled = on;
+  btn.textContent = on ? '送信中…'
+    : (changing ? 'この日時に変更する' : 'この内容で予約する');
+  if (on) btn.scrollIntoView({ block: 'center' });
+}
+
+async function submitReservation() {
+  if (submitting) return;   // 二重送信の入口をここで閉じる
+  setSubmitting(true);
 
   // 選択中に他のお客様が同じ枠を押さえていないか、最新の状況で確認する
   await Remote.load(true);
   const info = Availability.slotInfo(state.date, state.time, state.staffId, totalMinutes());
   if (!info.available) {
-    btn.disabled = false;
-    btn.textContent = changing ? 'この日時に変更する' : 'この内容で予約する';
+    setSubmitting(false);
     /* 断る理由は、そのとおりに伝えます。
        画面を開いたまま時間が過ぎただけなのに「他のお客様のご予約が入りました」と
        出すのは、事実と違います。 */
@@ -746,8 +823,7 @@ async function submitReservation() {
     /* 店舗に届かなかったときは、日時を書き換えずに知らせる。
        画面だけ変えると、お客様は変更できたつもりで元の時間に来てしまう。 */
     if (!sent.ok && !sent.noEndpoint) {
-      btn.disabled = false;
-      btn.textContent = 'この日時に変更する';
+      setSubmitting(false);
       // 受付期限切れ・枠の埋まりは、送信できなかったのとは理由が違う
       alert(sent.deadline || sent.taken ? sent.error : deliveryFailureMessage(sent, '変更'));
       if (sent.taken) { state.time = null; await Remote.load(true); goTo(3); }
@@ -768,8 +844,7 @@ async function submitReservation() {
        予約として保存せず日時の選び直しに戻す。
        画面側の確認をすり抜けて同時に押されたときにここへ来る。 */
     if (sent.taken) {
-      btn.disabled = false;
-      btn.textContent = 'この内容で予約する';
+      setSubmitting(false);
       alert(sent.error || 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。');
       state.time = null;
       await Remote.load(true);
@@ -803,6 +878,7 @@ async function submitReservation() {
   const calBtn = $('#add-to-calendar');
   if (calBtn) calBtn.onclick = () => downloadIcs(reservation);
 
+  renderDoneFollow(reservation);
   renderLineInvite();
 
   clearDraft();
@@ -810,9 +886,54 @@ async function submitReservation() {
   saveProfile(state.customer);
   state.step = 6;
   renderStep();
-  btn.disabled = false;
-  btn.textContent = changing ? 'この日時に変更する' : 'この内容で予約する';
+  setSubmitting(false);
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------- 完了画面のあとの案内 ----------
+   ここまで来たお客様が最後に抱えるのは「本当に取れたのか」と
+   「都合が変わったらどうすればいいのか」の2つです。
+   その場で答えておかないと、確かめるために店に電話がかかります。
+   （届かなかったときは showDeliveryWarning が別の顔に直すので、
+     そのときは「メールを送りました」と言い切らないようにします） */
+function renderDoneFollow(r) {
+  const host = $('#done-follow');
+  if (!host) return;
+  const rule = SALON.business.cancelDeadline || { daysBefore: 1, hour: 18 };
+  const limit = rule.daysBefore === 1 ? `前日${rule.hour}時` : `${rule.daysBefore}日前の${rule.hour}時`;
+  const mail = r.delivered && r.customer && r.customer.email
+    ? `<span>確認メールを <b>${esc(r.customer.email)}</b> 宛にお送りしました。
+         数分たっても届かないときは、迷惑メールフォルダをご確認ください。</span>` : '';
+  host.innerHTML = mail
+    + `<span>ご都合が変わった場合は、<b>${esc(limit)}まで</b>
+         「予約内容を確認する」から日時の変更・キャンセルができます。
+         それ以降は${contactWay({ html: true })}</span>`;
+}
+
+/* 予約番号を控える。
+   外を歩きながら5文字を手で書き写すのは、まず無理です。
+   コピーできない端末（対応していない・許可されない）では、
+   番号そのものは上に出したままなので行き止まりにはなりません。 */
+async function copyCode() {
+  const code = ($('#done-code').textContent || '').trim();
+  const done = $('#copy-done');
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch (e) {
+    // 許可されない端末では、せめて選択された状態にして手で写せるようにする
+    const range = document.createRange();
+    range.selectNodeContents($('#done-code'));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    if (done) { done.textContent = '上の番号を長押しでコピーしてください'; done.hidden = false; }
+    return;
+  }
+  if (!done) return;
+  done.textContent = 'コピーしました';
+  done.hidden = false;
+  setTimeout(() => { done.hidden = true; }, 4000);
 }
 
 /* ============================================================
@@ -869,11 +990,14 @@ function renderStep() {
    メニューは23件あるので、選んでから一覧の最後まで送らないと次に進めない、
    というのは操作としてつらすぎます。選んだ時点で押せるようにします。
    STEP5（確認）には出しません。送信ボタンを2か所に置くと二重送信の元になるためです。 */
+/* label が関数なのは、1名の店では「スタッフの選択」という言い方が
+   合わないためです（選びようがありません）。 */
 const STEP_CTA = {
-  1: { to: 2, label: 'スタッフの選択へ', ok: () => hasMenu(), hint: 'メニューをお選びください' },
-  2: { to: 3, label: '日時の選択へ', ok: () => state.staffChosen, hint: 'ご担当をお選びください' },
-  3: { to: 4, label: 'お客様情報の入力へ', ok: () => !!(state.date && state.time), hint: 'ご来店日時をお選びください' },
-  4: { to: 5, label: '入力内容の確認へ', ok: () => true }
+  1: { to: 2, label: () => (soloStylist() ? 'ご担当の確認へ' : 'スタッフの選択へ'),
+       ok: () => hasMenu(), hint: 'メニューをお選びください' },
+  2: { to: 3, label: () => '日時の選択へ', ok: () => state.staffChosen, hint: 'ご担当をお選びください' },
+  3: { to: 4, label: () => 'お客様情報の入力へ', ok: () => !!(state.date && state.time), hint: 'ご来店日時をお選びください' },
+  4: { to: 5, label: () => '入力内容の確認へ', ok: () => true }
 };
 
 function renderStepCta() {
@@ -888,7 +1012,7 @@ function renderStepCta() {
   host.innerHTML = `
     <span class="step-cta-info">${esc(info)}</span>
     <button class="btn btn-primary" type="button" data-next="${cta.to}"${ready ? '' : ' disabled'}>
-      ${esc(cta.label)}
+      ${esc(cta.label())}
     </button>`;
   host.hidden = false;
 }
@@ -1082,6 +1206,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#submit-reservation').addEventListener('click', submitReservation);
+  $('#copy-code').addEventListener('click', copyCode);
 
   /* メニューをスプレッドシートから取り込む。
      待ってから描くと、応答が遅いあいだ選択肢が1つも出ません。
@@ -1117,8 +1242,13 @@ document.addEventListener('DOMContentLoaded', () => {
     saveDraft();
   });
 
-  // 他のお客様の予約状況を取得し、届いたらカレンダーを描き直す
+  /* 他のお客様の予約状況を取得し、届いたらカレンダーを描き直す。
+     取りにいっているあいだは、そう書いておきます。届く前のカレンダーは
+     この端末の記録だけで描いた古いもので、黙って出しておくと
+     お客様はそれを最新だと思って選びます。 */
+  showCalendarLoading(true);
   Remote.load().then(ok => {
+    showCalendarLoading(false);
     if (ok && state.step === 3) renderCalendar();
   });
 
@@ -1135,7 +1265,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.step !== 3 || document.hidden) return;
     const had = state.date && state.time
       ? { date: state.date, time: state.time } : null;
+    showCalendarLoading(true);
     await Remote.load(true);
+    showCalendarLoading(false);
     if (had && !Availability.slotInfo(had.date, had.time, state.staffId, totalMinutes()).available) {
       state.time = null;
       renderCalendar();
@@ -1156,6 +1288,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#steps').addEventListener('click', e => {
     const step = e.target.closest('.step');
     if (!step) return;
+    // 送信中に飛ばれると、送っている内容と画面が食い違う
+    if (submitting) return;
     const n = Number(step.dataset.step);
     if (n < state.step) goTo(n);
   });

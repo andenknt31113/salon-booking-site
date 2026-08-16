@@ -41,7 +41,7 @@
         <div class="notice" id="change-notice" hidden></div>
         <ol class="steps" id="steps">
           <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
-          <li class="step" data-step="2"><b>STEP 2</b>スタッフ</li>
+          <li class="step" data-step="2"><b>STEP 2</b><span id="step2-label">スタッフ</span></li>
           <li class="step" data-step="3"><b>STEP 3</b>日時</li>
           <li class="step" data-step="4"><b>STEP 4</b>お客様情報</li>
           <li class="step" data-step="5"><b>STEP 5</b>確認</li>
@@ -62,14 +62,17 @@
               <div id="menu-choices"></div>
 
               <div class="panel-actions">
-                <button class="btn btn-primary btn-lg" type="button" data-next="2">スタッフ選択へ進む</button>
+                <button class="btn btn-primary btn-lg" type="button" data-next="2" id="to-staff">スタッフ選択へ進む</button>
               </div>
             </section>
 
-            <!-- STEP2 スタッフ -->
+            <!-- STEP2 スタッフ。
+                 見出しと説明は reserve.js が在籍人数に合わせて書き換えます。
+                 1名の店で「指名なし」「当日空いているスタッフ」と案内すると、
+                 お客様は在りもしない選択肢を探すことになります -->
             <section class="reserve-panel" data-panel="2" aria-labelledby="h-step2">
               <h2 class="section-title" id="h-step2" style="font-size:19px;margin-bottom:6px;">ご指名のスタッフをお選びください</h2>
-              <p class="section-desc" style="margin-bottom:20px;">指名なしの場合は、当日空いているスタッフが担当いたします。</p>
+              <p class="section-desc" id="staff-lead" style="margin-bottom:20px;">指名なしの場合は、当日空いているスタッフが担当いたします。</p>
               <div id="staff-choices"></div>
               <div class="panel-actions">
                 <button class="btn btn-ghost" type="button" data-prev="1">戻る</button>
@@ -90,20 +93,24 @@
                 <button class="btn btn-ghost btn-sm" type="button" id="cal-next">次の期間 &gt;</button>
               </div>
 
+              <!-- 他のお客様の予約状況を取りにいっているあいだの表示。
+                   出さないと、古い空き状況を最新だと思って選ばれます -->
+              <p class="cal-status" id="cal-status" hidden>最新の空き状況を確認しています…</p>
+
               <div class="calendar-scroll">
                 <table class="calendar" id="calendar">
                   <thead id="cal-head"></thead>
                   <tbody id="cal-body"></tbody>
                 </table>
               </div>
+              <!-- 表は画面より横に長く、7日ぶんしか見えません。
+                   指で送れることを書いておかないと、先の日付に辿り着けません -->
+              <p class="cal-hint">← 表を横に動かすと、先の日付もご覧いただけます →</p>
 
-              <ul class="legend">
-                <li><b>◎</b> 空きに余裕あり</li>
-                <li><b>○</b> 予約可</li>
-                <li><span class="few">△</span> 残りわずか</li>
-                <li><span class="none">×</span> 予約不可</li>
-                <li><span class="none">-</span> 休業日</li>
-              </ul>
+              <!-- 記号の説明は reserve.js が組み立てます。
+                   スタイリスト1名の店では ◎ と △ は出ないので、
+                   そのまま並べると「出ない記号」を探させることになります -->
+              <ul class="legend" id="cal-legend"></ul>
 
               <div class="panel-actions">
                 <button class="btn btn-ghost" type="button" data-prev="2">戻る</button>
@@ -190,6 +197,12 @@
                 <span id="confirm-lead">内容に間違いがないかご確認のうえ、「この内容で予約する」ボタンを押してください。</span>
               </div>
               <table class="confirm-table"><tbody id="confirm-body"></tbody></table>
+              <!-- 送信中であることを、ボタンの文字以外にも出します。
+                   電波の細い場所では応答まで数秒かかり、そのあいだボタンが
+                   画面の外にあると、何も起きていないように見えます -->
+              <p class="sending-note" id="sending-note" hidden>
+                店舗へ送信しています。この画面を閉じずに、少々お待ちください。
+              </p>
               <div class="panel-actions">
                 <button class="btn btn-ghost" type="button" data-prev="4">修正する</button>
                 <button class="btn btn-primary btn-lg" type="button" id="submit-reservation">この内容で予約する</button>
@@ -204,6 +217,15 @@
                 <p class="section-desc">ご予約番号はこちらです。予約の確認・キャンセルの際に必要になります。</p>
                 <div class="notice is-warn" id="done-warning" hidden style="text-align:left;"></div>
                 <p class="done-code" id="done-code"></p>
+                <!-- 番号を手で書き写すのは、外を歩きながらではまず無理です。
+                     押せなかった端末のために、番号そのものは上に出したままにします -->
+                <div class="done-code-actions">
+                  <button class="btn btn-outline btn-sm" type="button" id="copy-code">予約番号をコピー</button>
+                  <span class="copy-done" id="copy-done" hidden role="status">コピーしました</span>
+                </div>
+                <!-- 「本当に取れたのか」「やめたくなったらどうするのか」は、
+                     この場で答えておかないと、お客様は電話で確かめることになります -->
+                <p class="done-follow" id="done-follow"></p>
                 <div style="max-width:520px;margin:28px auto 0;text-align:left;">
                   <table class="confirm-table"><tbody id="done-body"></tbody></table>
                 </div>

@@ -310,7 +310,9 @@ console.log('\n【MP9】番号が見つからない／この端末に記録が�
 
   const empty = await text(p, '#upcoming-list');
   check('MP9', '記録が無いことを書いている', /記録はありません/.test(empty), true);
-  check('MP9', '照会の入り口へ案内している', /ご予約番号でお調べする/.test(empty), true);
+  /* 照会欄はページの下に移しました（MP15）。
+     案内の言葉も、その場所を指すものに直しています。 */
+  check('MP9', '照会の入り口へ案内している', /ご予約番号での照会/.test(empty), true);
 
   await p.fill('#lookup-code', 'LM-ZZZZZ');
   await p.fill('#lookup-tel', '09099990000');
@@ -319,18 +321,26 @@ console.log('\n【MP9】番号が見つからない／この端末に記録が�
   check('MP9', '見つからなかったと伝えている', /見つかりません/.test(err), true);
   check('MP9', '予約番号のありかを書いている', /メール|完了画面/.test(err), true);
   check('MP9', '連絡先で行き止まりを塞いでいる', /080-4498-7036/.test(err), true);
-
-  /* 上の照会欄とすぐ下の絞り込み欄は、どちらも「予約番号」を打つ場所です。
-     取り違えて絞り込み欄に打った方に「見つかりません」とだけ返すと、
-     ご予約そのものが無いように読めます。 */
-  await p.fill('#search-code', 'LM-ZZZZZ');
-  await p.click('#search-btn'); await p.waitForTimeout(400);
-  const filtered = await text(p, '#upcoming-list');
-  check('MP9', '絞り込みは「この端末の中で」と断っている', /この端末の記録の中/.test(filtered), true);
-  check('MP9', '絞り込み0件でも照会へ案内している', /ご予約番号でお調べする/.test(filtered), true);
-  check('MP9', '過去側も絞り込み中だと分かる',
-    /この端末の記録の中/.test(await text(p, '#past-list')), true);
   await p.context().close();
+
+  /* 照会欄と絞り込み欄は、どちらも「予約番号」を打つ場所です。
+     取り違えて絞り込み欄に打った方に「見つかりません」とだけ返すと、
+     ご予約そのものが無いように読めます。
+
+     絞り込み欄は、記録が2件以上ないと出しません（MP15）。
+     取り違えが起こりうるのはその状態なので、そこで確かめます。 */
+  const q = await newPhone('MP9-絞り込み');
+  await seedInto(q, [record({ code: 'LM-FIL01', date: day(5) }),
+                     record({ code: 'LM-FIL02', date: day(6), time: '14:00', endTime: '15:00' })]);
+  await q.goto(B + '/mypage.html'); await q.waitForTimeout(1400);
+  await q.fill('#search-code', 'LM-ZZZZZ');
+  await q.click('#search-btn'); await q.waitForTimeout(400);
+  const filtered = await text(q, '#upcoming-list');
+  check('MP9', '絞り込みは「この端末の中で」と断っている', /この端末の記録の中/.test(filtered), true);
+  check('MP9', '絞り込み0件でも照会へ案内している', /ご予約番号での照会/.test(filtered), true);
+  check('MP9', '過去側も絞り込み中だと分かる',
+    /この端末の記録の中/.test(await text(q, '#past-list')), true);
+  await q.context().close();
 }
 
 /* ============================================================
@@ -475,6 +485,115 @@ console.log('\n【MP14】幅390pxのスマホで、はみ出さずに押せる')
   await p.locator('[data-cancel]').click({ trial: true });
   await p.locator('[data-review]').click({ trial: true });
   check('MP14', '変更・キャンセル・感想がすべて押せる', true, true);
+  await p.context().close();
+}
+
+/* ============================================================
+   MP15 予約したその端末で開いた人に、番号を尋ねない
+   ============================================================ */
+console.log('\n【MP15】自分の予約が、照会フォームより先に出る');
+{
+  /* ここに来る方のほとんどは、予約したときと同じ端末で開きます。
+     その方に、まず「ご予約番号でお調べする」というフォームを見せていました。
+     自分の予約は、そのフォームを越えた先にあります。
+     番号を控えていない方は、そこで「番号がないと見られない」と読んで止まります。
+
+     ご自分のご予約を先に出し、照会はその下に置きます。 */
+  const p = await newPhone('MP15');
+  await seedInto(p, [record({ code: 'LM-MINE1', date: day(6) })]);
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1400);
+
+  const order = await p.evaluate(() => {
+    const y = s => document.querySelector(s).getBoundingClientRect().top + window.scrollY;
+    return { card: y('.booking-card'), lookup: y('#lookup-box'),
+             fold: window.innerHeight };
+  });
+  check('MP15', '自分の予約が、照会フォームより上にある', order.card < order.lookup, true);
+  check('MP15', '自分の予約が、開いてすぐの画面に入っている', order.card < order.fold, true);
+
+  /* 記録が1件しかない方に、絞り込みの欄は要りません。
+     出しておくと「番号を入れないと見られないのか」と読ませます */
+  check('MP15', '1件だけなら絞り込みの欄は出さない',
+    await p.locator('#search-box').isVisible(), false);
+  await p.context().close();
+
+  // 2件あれば、絞り込みは使う場面があるので出す
+  const q = await newPhone('MP15-2件');
+  await seedInto(q, [record({ code: 'LM-MINE1', date: day(6) }),
+                     record({ code: 'LM-MINE2', date: day(7), time: '14:00', endTime: '15:00' })]);
+  await q.goto(B + '/mypage.html'); await q.waitForTimeout(1400);
+  check('MP15', '2件あれば絞り込みの欄を出す', await q.locator('#search-box').isVisible(), true);
+  await q.locator('#search-code').fill('LM-MINE2');
+  await q.locator('#search-btn').click(); await q.waitForTimeout(500);
+  check('MP15', '絞り込みは効いている', await q.locator('.booking-card').count(), 1);
+  check('MP15', '絞り込み中は、解除できるよう欄を出したままにする',
+    await q.locator('#search-box').isVisible(), true);
+  await q.context().close();
+}
+
+/* ============================================================
+   MP16 この端末に記録が無い方の行き止まりを作らない
+   ============================================================ */
+console.log('\n【MP16】記録が無い方に、次にすることが読める形で伝わる');
+{
+  /* 機種変更した方・ご家族の端末から見る方が、ここへ来ます。
+     案内が「上の照会から」のままだと、照会欄を下に移したあとは
+     見当たらない場所を指すことになります。 */
+  const p = await newPhone('MP16');
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1400);
+  const empty = await text(p, '#upcoming-list');
+  check('MP16', '記録が無いことを伝えている', /記録はありません/.test(empty), true);
+  check('MP16', '無い場所（上）を指していない', /上の/.test(empty), false);
+  check('MP16', '照会できることを伝えている', /ご予約番号/.test(empty), true);
+
+  // 案内の中のリンクから、実際に照会欄まで行ける
+  await p.locator('#upcoming-list a[href="#lookup-box"]').click(); await p.waitForTimeout(700);
+  check('MP16', 'その案内から照会欄まで行ける',
+    await p.locator('#lookup-code').isVisible(), true);
+
+  /* 読めることも見ます。ここは行き止まりになりやすい一文なので、
+     薄い文字のままにしておけない場所です（実測 3.49:1 でした） */
+  const ratio = await p.evaluate(() => {
+    const lum = c => { const [r, g, b] = c.map(v => { v /= 255;
+      return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
+      return .2126 * r + .7152 * g + .0722 * b; };
+    const rgb = s => (s.match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
+    const el = document.querySelector('.empty-state');
+    let bg = [255, 255, 255];
+    for (let n = el; n; n = n.parentElement) {
+      const c = getComputedStyle(n).backgroundColor;
+      if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) { bg = rgb(c); break; }
+    }
+    const a = lum(rgb(getComputedStyle(el).color)) + .05, b = lum(bg) + .05;
+    return Math.round((Math.max(a, b) / Math.min(a, b)) * 100) / 100;
+  });
+  check('MP16', '小さな文字に必要な 4.5:1 を満たしている', ratio >= 4.5, true);
+  console.log('   コントラスト比:', ratio);
+  await p.context().close();
+}
+
+/* ============================================================
+   MP17 片手で押せる大きさになっているか
+   ============================================================ */
+console.log('\n【MP17】幅390pxで、指の腹で押せる大きさか');
+{
+  /* MP14 は 32px を下限にしていました。片手持ちで狙うには小さすぎます。
+     目安は44px角です。「日時を変更する」「キャンセルする」は
+     押し間違えると取り返しがつかない側なので、ここは詰めておきます。 */
+  const p = await newPhone('MP17');
+  await seedInto(p, [record({ code: 'LM-TAP01', date: day(5) })]);
+  await p.goto(B + '/mypage.html'); await p.waitForTimeout(1400);
+
+  const small = await p.evaluate(() => {
+    const bad = [];
+    document.querySelectorAll('main button, main a.btn').forEach(el => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      if (r.height < 44) bad.push(`${el.textContent.trim().slice(0, 12)}=${Math.round(r.height)}px`);
+    });
+    return bad;
+  });
+  check('MP17', '44pxより小さい押しどころがない', small.join(' / ') || 'なし', 'なし');
   await p.context().close();
 }
 

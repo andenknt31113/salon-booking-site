@@ -167,12 +167,18 @@ function bookingCard(r) {
    「ありません」だけで終わらせると、確かめる手立てが無くなります。 */
 function noRecordHint() {
   return SALON.reservationEndpoint
-    ? '別の端末でご予約された場合は、上の「ご予約番号でお調べする」からご確認いただけます。'
+    ? '別の端末でご予約された場合は、このページの下にある'
+      + '<a href="#lookup-box" style="text-decoration:underline">ご予約番号での照会</a>からご確認いただけます。'
     : `お手数ですが${contactWay({ html: true })}`;
 }
 
 function render() {
   let list = Store.all();
+  /* 絞り込みは、記録が1件しかない方には要りません。
+     出しておくと「番号を入れないと見られないのか」と読ませてしまいます。
+     絞り込み中は、解除できるように必ず出したままにします。 */
+  const box = $('#search-box');
+  if (box) box.hidden = !filterCode && list.length < 2;
   if (filterCode) {
     list = list.filter(r => normalizeCode(r.code).includes(normalizeCode(filterCode)));
   }

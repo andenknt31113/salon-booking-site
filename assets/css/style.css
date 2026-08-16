@@ -1140,3 +1140,122 @@ textarea.input { resize: vertical; line-height: 1.8; }
 .admin-editor > [data-field="価格"],
 .admin-editor > [data-field="通常価格"],
 .admin-editor > [data-field="所要(分)"] { grid-column: auto; }
+
+/* ===== 予約の流れ：使いやすさの手直し ===== */
+
+/* --- 読めること ---
+   390pxのスマホで実測したところ、お客様がいちばん読む必要のある文字ほど
+   薄くて小さくなっていました。数字は背景に対するコントラスト比です。
+
+     入力の不備（.field-error）              2.24 : 1
+     いま何をすればいいか（.step-cta-info）  3.49 : 1
+     記録が無い方への案内（.empty-state）    3.49 : 1
+     所要時間（.selectable-time）            3.88 : 1
+     STEP表示（.step）                       3.88 : 1（しかも10px）
+     土日の日付（.cal-date）                 2.34 : 1
+
+   小さな文字に必要なのは 4.5:1 です。50代のお客様が外の明るさの中で
+   読むことを考えると、ここは意匠より先に立てるべきところと判断しました。
+   色は既存の変数から選び、新しい色は増やしていません。 */
+
+/* 不備の指摘は、止まった方が最後に頼る一文です */
+.field-error { color: var(--danger); font-size: 12.5px; }
+
+/* 画面下に貼りつく案内。「次に何をすればいいか」を書いている場所 */
+.step-cta-info { color: var(--text-2) !important; }
+
+/* 記録が無い方への案内。ここが行き止まりになりやすい */
+body[data-page="mypage"] .empty-state,
+body[data-page="reserve"] .empty-state { color: var(--text-2); }
+
+/* 金額のとなりの所要時間。「一目で分かる」ことを求められている情報 */
+.selectable-time, .summary-note { color: var(--text-2); }
+
+/* STEP表示。10px・3.88:1 では、あることに気づいても読めません。
+   「STEP 1」の側に色を固定していたため、現在地（黒地）の上でも
+   薄い灰色のままでした。地の色に合わせて読めるようにします。 */
+.step { color: var(--text-2); }
+.step b { color: inherit; }
+
+/* 曜日と日付。いちばん予約が集まる土日の列が、いちばん薄い状態でした */
+.calendar .cal-wd { color: var(--text-2); }
+.calendar th.is-sat .cal-wd, .calendar th.is-sat .cal-date { color: #34608A; }
+.calendar th.is-sun .cal-wd, .calendar th.is-sun .cal-date { color: #963C36; }
+
+/* 記号の説明。マス目の×は薄いままでかまいません（押せないという印です）。
+   ただし、その意味を読む凡例まで薄いと、表そのものが読み解けません */
+.legend { font-size: 12.5px; color: var(--text-2); }
+.legend .none { color: var(--text-2); }
+
+/* 「任意」の印 */
+.optional { color: var(--text-2); }
+
+/* パンくず。迷ったときに戻る道です */
+body[data-page="reserve"] .breadcrumb a,
+body[data-page="mypage"] .breadcrumb a { color: var(--text-2); }
+
+/* 予約番号。電話で読み上げたり、控えたりする文字列です */
+.booking-code { font-size: 13px; color: var(--text-2); }
+
+/* --- 指が届くこと ---
+   タップ対象は44px角が目安です。実測で足りなかったものを起こします。
+   マウスのある画面では、そこまで大きくする必要はありません。 */
+@media (pointer: coarse) {
+  /* カレンダーのマス。36pxだと、09:00と09:30を押し分けるのに神経を使います */
+  .slot { height: 44px; font-size: 16px; }
+  .calendar thead th { min-width: 46px; }
+  /* 「前の期間」「絞り込む」「日時を変更する」などの小さめのボタン */
+  .btn-sm { min-height: 44px; }
+  /* 同意チェック。ラベルを押しても入りますが、四角そのものも狙われます */
+  .checkbox-line input { width: 24px; height: 24px; }
+}
+
+/* --- 迷わないこと --- */
+
+/* ステップ表示は押すと戻れます。そう見えないと、誰も押しません */
+.step { cursor: default; }
+.step.is-done { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.step.is-done:hover { background: var(--accent-soft); }
+
+/* カレンダーは画面より横に長く、7日ぶんしか見えません */
+.cal-hint {
+  font-size: 12px; color: var(--text-2); text-align: center; margin-top: 8px;
+}
+/* 空き状況を取りにいっているあいだの表示。
+   届く前の表は、この端末の記録だけで描いた古いものです */
+.cal-status {
+  font-size: 13px; color: var(--accent); margin-bottom: 10px;
+  padding-left: 10px; border-left: 3px solid var(--accent-dim);
+}
+.cal-status[hidden] { display: none; }
+
+/* 送信中であることを、ボタンの文字以外にも出す */
+.sending-note {
+  margin-top: 18px; padding: 13px 15px; font-size: 13.5px; font-weight: 700;
+  color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-dim);
+  text-align: center;
+}
+.sending-note[hidden] { display: none; }
+
+/* 完了画面。番号を控えるためのボタンと、そのあとの案内 */
+.done-code-actions {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 10px 14px; margin-top: 14px;
+}
+.copy-done { font-size: 12.5px; color: var(--ok); font-weight: 700; }
+.copy-done[hidden] { display: none; }
+.done-follow {
+  max-width: 520px; margin: 24px auto 0; text-align: left;
+  font-size: 13.5px; line-height: 1.85; color: var(--text-2);
+}
+.done-follow span { display: block; }
+.done-follow span + span { margin-top: 10px; }
+.done-follow b { color: var(--text); }
+
+/* 予約ページの STEP 表示は、10px では読めませんでした。
+   5つ並べる都合で大きくはできないので、折り返して高さを使います */
+@media (max-width: 640px) {
+  .step { font-size: 11.5px; padding: 9px 3px; line-height: 1.45; }
+  .step b { font-size: 9.5px; }
+  .done-box { padding: 40px 18px; }
+}

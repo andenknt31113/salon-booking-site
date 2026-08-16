@@ -43,47 +43,54 @@
           <span id="deadline-note"></span>
         </div>
 
-        <!-- 予約番号 + 電話番号での照会（別の端末からでも確認できます） -->
-        <section id="lookup-box" style="border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:34px;background:var(--panel);">
-          <h2 class="section-title" style="font-size:16px;margin-bottom:6px;">ご予約番号でお調べする</h2>
-          <p class="section-desc" style="margin:0 0 18px;font-size:12.5px;">
-            機種変更などで下の一覧に出てこない場合は、ご予約番号とお電話番号でご確認いただけます。
-          </p>
-          <div class="form-field" style="margin-bottom:14px;">
-            <label for="lookup-code">ご予約番号</label>
-            <input class="input" type="text" id="lookup-code" placeholder="LM-8F3K2" autocomplete="off" />
-          </div>
-          <div class="form-field" style="margin-bottom:16px;">
-            <label for="lookup-tel">お電話番号</label>
-            <input class="input" type="tel" id="lookup-tel" inputmode="tel" placeholder="09012345678" />
-          </div>
-          <button class="btn btn-primary btn-block" type="button" id="lookup-btn">ご予約を確認する</button>
-          <p class="field-error" id="lookup-error" style="margin-top:12px;"></p>
-          <div id="lookup-result" style="margin-top:18px;"></div>
-        </section>
-
-        <h2 class="section-title" style="font-size:17px;margin:0 0 14px;">この端末からのご予約</h2>
-        <!-- 上の照会欄とすぐ下に並ぶので、同じ「予約番号」でも役割が違うと
-             分かる言い方にしています。ここは手元の記録を絞り込むだけです -->
-        <div class="toolbar">
-          <label class="sr-only" for="search-code">この端末の記録を予約番号で絞り込む</label>
-          <input class="input" type="text" id="search-code" placeholder="この端末の記録を絞り込む" />
-          <button class="btn btn-ghost btn-sm" type="button" id="search-btn">絞り込む</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="clear-btn">すべて表示</button>
-        </div>
+        <!-- ここに来る方のほとんどは、予約した端末そのままで開きます。
+             その方に、まず予約番号を尋ねるフォームを見せてはいけません。
+             ご自分のご予約を先に出し、照会はその下に置いています -->
 
         <!-- 手続きを受け付けたことを伝える場所。文面は mypage.js が入れます。
              キャンセルするとカードは下の「過去・キャンセル」へ移るため、
              押した場所から消えただけに見えてしまいます -->
         <div class="notice is-info" id="flash" style="display:none;"></div>
 
-        <h2 class="section-title" style="font-size:17px;margin:26px 0 14px;">これからのご予約</h2>
+        <h2 class="section-title" style="font-size:17px;margin:0 0 14px;">これからのご予約</h2>
         <div id="upcoming-list"></div>
+
+        <!-- 件数が少ないうちは絞り込む理由がありません。
+             mypage.js が、2件以上あるときだけ出します -->
+        <div class="toolbar" id="search-box" hidden>
+          <label class="sr-only" for="search-code">この端末の記録を予約番号で絞り込む</label>
+          <input class="input" type="text" id="search-code" placeholder="この端末の記録を絞り込む" />
+          <button class="btn btn-ghost btn-sm" type="button" id="search-btn">絞り込む</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="clear-btn">すべて表示</button>
+        </div>
 
         <!-- キャンセル済みのご予約は、ご来店日が先でもこちらに入ります。
              「過去」とだけ書くと、来週のキャンセル分が並んだときに読めません -->
         <h2 class="section-title" style="font-size:17px;margin:36px 0 14px;">過去・キャンセルのご予約</h2>
         <div id="past-list"></div>
+
+        <!-- 予約番号 + 電話番号での照会（別の端末からでも確認できます） -->
+        <section id="lookup-box" style="border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-top:36px;background:var(--panel);">
+          <h2 class="section-title" style="font-size:16px;margin-bottom:6px;">上に出てこないご予約をお探しの方へ</h2>
+          <p class="section-desc" style="margin:0 0 18px;font-size:13px;">
+            機種変更やご家族の端末からのご予約は、上の一覧に出ません。
+            ご予約番号とお電話番号でご確認いただけます。
+          </p>
+          <div class="form-field" style="margin-bottom:14px;">
+            <label for="lookup-code">ご予約番号</label>
+            <!-- 番号は英大文字と数字だけです。自動大文字化と自動修正を切らないと、
+                 打った番号が勝手に別の綴りへ直されます -->
+            <input class="input" type="text" id="lookup-code" placeholder="LM-8F3K2"
+                   autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" />
+          </div>
+          <div class="form-field" style="margin-bottom:16px;">
+            <label for="lookup-tel">お電話番号</label>
+            <input class="input" type="tel" id="lookup-tel" inputmode="tel" autocomplete="tel" placeholder="09012345678" />
+          </div>
+          <button class="btn btn-primary btn-block" type="button" id="lookup-btn">ご予約を確認する</button>
+          <p class="field-error" id="lookup-error" style="margin-top:12px;"></p>
+          <div id="lookup-result" style="margin-top:18px;"></div>
+        </section>
 
         <p style="text-align:center;margin-top:36px;">
           <a class="btn btn-primary btn-lg" href="reserve.html">新しく予約する</a>
