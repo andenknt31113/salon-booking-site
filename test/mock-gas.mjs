@@ -376,9 +376,18 @@ http.createServer((req, res) => {
         const toMin = t => { const m = String(t||'').match(/^(\d{1,2}):(\d{2})/); return m ? +m[1]*60 + +m[2] : null; };
         const open = toMin(SHEET_SETTINGS['営業開始']) ?? toMin('09:00');
         const close = toMin(SHEET_SETTINGS['営業終了']) ?? toMin('22:00');
+        const last = Math.min(toMin(SHEET_SETTINGS['最終受付']) ?? close, close);
         const start = toMin(d.time);
-        if (start === null || start < open || start + (Number(d.totalMinutes) || 30) > close) {
+        if (start === null || start < open || start > last || start + (Number(d.totalMinutes) || 30) > close) {
           return reply(res, { ok:false, error:'営業時間外のご予約は承れません。' });
+        }
+        // 定休曜日（本物と同じ読み方）
+        const days = String(SHEET_SETTINGS['定休曜日'] || '').trim()
+          .split(/[,、・\s]+/).map(t => ['日','月','火','水','木','金','土'].indexOf(t.replace(/曜日?$/, '')))
+          .filter(i => i >= 0);
+        const q = String(d.date).split('-').map(Number);
+        if (days.length && q[0] && days.includes(new Date(Date.UTC(q[0], q[1]-1, q[2], 12)).getUTCDay())) {
+          return reply(res, { ok:false, error:'その日は定休日のため、ご予約を承れません。' });
         }
       }
 

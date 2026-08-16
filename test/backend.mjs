@@ -612,6 +612,71 @@ console.log('\n【設定】早く閉める日を設定したら、受け口も�
     ? note('閉店をまたぐ予約', 'が通ってしまう') : ok('閉店をまたぐ予約は断られる');
 }
 
+console.log('\n【設定】最終受付と定休曜日を、受け口も見ているか');
+{
+  /* お客様の画面は、最終受付までしか枠を出しませんし、定休曜日は出しません。
+     設定を変える前に開いていた画面からは、その時間もまだ送られてきます。
+     受け口が見ていないと、締めたはずの時間に予約が入ります。 */
+  const withSettings = (rows, fn, payload) => {
+    const ctx = {
+      console: { log() {}, warn() {}, error() {} },
+      MailApp: { sendEmail() {} }, UrlFetchApp: { fetch() {} },
+      CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+      PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {}, deleteProperty() {} }) },
+      LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+      DriveApp: {}, ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
+      Utilities: {
+        formatDate: (d, tz, f) => {
+          const j = new Date(new Date(d).getTime() + 9 * 3600e3);
+          const p = n => String(n).padStart(2, '0');
+          return f === 'HH:mm' ? `${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`
+            : `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`;
+        },
+        getUuid: () => 'uuid', computeDigest: () => [1], DigestAlgorithm: { MD5: 'md5' },
+        Charset: { UTF_8: 'utf8' }, newBlob: () => ({}), base64Decode: () => [], base64Encode: () => ''
+      }
+    };
+    const setting = {
+      getLastRow: () => rows.length + 1, getLastColumn: () => 2,
+      getRange: (r, c, nr, nc) => ({ getValues: () => (r === 1 ? [['項目', '内容']]
+        : rows.slice(r - 2, r - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || 2)))) })
+    };
+    const ledger = makeSheet();
+    const ss = { getSheetByName: n => (n === '設定' ? setting : null), insertSheet: () => null };
+    ledger.getParent = () => ss;
+    ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } };
+    vm.createContext(ctx);
+    vm.runInContext(src + `;globalThis.__g = ${fn};`, ctx);
+    try { return ctx.__g(ledger, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
+  };
+
+  const hours = [['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00']];
+  const at = day(17);
+  withSettings(hours, 'doReserve_', base({ date: at, time: '21:30', endTime: '22:00', totalMinutes: 30 })).ok
+    ? note('最終受付', 'を過ぎた時間でも受け付ける（締めたはずの時間に予約が入ります）')
+    : ok('最終受付（21:00）を過ぎた時間は断られる');
+  withSettings(hours, 'doReserve_', base({ date: at, time: '21:00', endTime: '21:30', totalMinutes: 30 })).ok
+    ? ok('最終受付ちょうどは通る') : note('最終受付ちょうど', 'まで断られる');
+
+  /* 定休曜日。日曜を休みにして、次の日曜と月曜で試します。 */
+  const sunday = (() => { let n = 1; while (new Date(Date.UTC(...day(n).split('-').map((v, i) => i === 1 ? +v - 1 : +v), 12)).getUTCDay() !== 0) n++; return day(n); })();
+  const monday = (() => { const p = sunday.split('-').map(Number); const d2 = new Date(Date.UTC(p[0], p[1] - 1, p[2] + 1, 12));
+    const q = n => String(n).padStart(2, '0');
+    return `${d2.getUTCFullYear()}-${q(d2.getUTCMonth() + 1)}-${q(d2.getUTCDate())}`; })();
+  const closedSun = hours.concat([['定休曜日', '日']]);
+
+  withSettings(closedSun, 'doReserve_', base({ date: sunday, time: '10:00', endTime: '11:00', totalMinutes: 60 })).ok
+    ? note('定休曜日', `の予約を受け付ける（${sunday}）`) : ok(`定休曜日（日）の予約は断られる（${sunday}）`);
+  withSettings(closedSun, 'doReserve_', base({ date: monday, time: '10:00', endTime: '11:00', totalMinutes: 60 })).ok
+    ? ok(`定休日以外は通る（${monday}）`) : note('定休日以外', `まで断られる（${monday}）`);
+  withSettings(hours.concat([['定休曜日', '日曜・水曜']]), 'doReserve_',
+    base({ date: sunday, time: '10:00', endTime: '11:00', totalMinutes: 60 })).ok
+    ? note('定休曜日「日曜・水曜」', 'の書き方を読めていない') : ok('「日曜・水曜」の書き方でも読める');
+  withSettings(hours.concat([['定休曜日', '']]), 'doReserve_',
+    base({ date: sunday, time: '10:00', endTime: '11:00', totalMinutes: 60 })).ok
+    ? ok('定休曜日が空欄なら、どの曜日も受ける') : note('定休曜日が空欄', 'なのに断られる');
+}
+
 console.log('\n【シート】隠したいときの書き方');
 {
   const shown = cell => !!readSheets({ 'メニュー': [['カット', 'テスト', 4000, 60, '', '', cell]] }, 'readMenuSheet_');

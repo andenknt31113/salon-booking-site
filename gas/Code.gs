@@ -356,19 +356,54 @@ function timeToMin_(v) {
   return h * 60 + mi;
 }
 
-/** 営業時間。設定シートを見て、読めなければ既定値 */
+/** 営業時間。設定シートを見て、読めなければ既定値
+
+    最終受付は「最後に始められる時刻」です。お客様の画面はここまでしか
+    枠を出しません。受け口が見ていないと、設定を変える前に開いていた画面から
+    送られた予約が、受付を締めたあとの時間に入ります。 */
 function openHours_(sheet) {
   let st = {};
   try { st = readSettings_(sheet.getParent()) || {}; } catch (e) { st = {}; }
   const open = timeToMin_(st['営業開始']);
   const close = timeToMin_(st['営業終了']);
-  return {
+  const last = timeToMin_(st['最終受付']);
+  const hours = {
     open: open == null ? timeToMin_(DEFAULT_OPEN) : open,
     close: close == null ? timeToMin_(DEFAULT_CLOSE) : close
   };
+  hours.last = (last == null || last > hours.close) ? hours.close : last;
+  return hours;
 }
 const DEFAULT_OPEN  = '09:00';
 const DEFAULT_CLOSE = '22:00';
+
+/* 定休曜日。設定シートに「日,水」「日曜・水曜」のどちらで書かれていても読みます。
+   画面側（common.js）と同じ読み方です。 */
+const WEEKDAY_JA_GAS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function closedWeekdays_(sheet) {
+  let st = {};
+  try { st = readSettings_(sheet.getParent()) || {}; } catch (e) { return []; }
+  const raw = String(st['定休曜日'] == null ? '' : st['定休曜日']).trim();
+  if (!raw) return [];
+  const out = [];
+  raw.split(/[,、・\s]+/).forEach(function (t) {
+    const i = WEEKDAY_JA_GAS.indexOf(t.replace(/曜日?$/, ''));
+    if (i >= 0 && out.indexOf(i) < 0) out.push(i);
+  });
+  return out;
+}
+
+/** その日が定休曜日か（日本時間の曜日で見ます） */
+function isClosedWeekday_(sheet, dateKey) {
+  const days = closedWeekdays_(sheet);
+  if (!days.length) return false;
+  const p = String(dateKey).split('-').map(Number);
+  if (!p[0]) return false;
+  // 時差で前日・翌日にならないよう、正午のUTCで曜日を出します
+  const wd = new Date(Date.UTC(p[0], p[1] - 1, p[2], 12)).getUTCDay();
+  return days.indexOf(wd) >= 0;
+}
 
 /** 今日（日本時間）の yyyy-MM-dd */
 function todayKey_() {
@@ -404,8 +439,14 @@ function checkReserve_(sheet, d) {
   }
 
   const h = openHours_(sheet);
-  if (start < h.open || start + minutes > h.close) {
+  if (start < h.open || start > h.last || start + minutes > h.close) {
     return '営業時間外のご予約は承れません。';
+  }
+
+  /* 毎週の定休日。お客様の画面には出していない日ですが、
+     設定を変える前に開いていた画面からは、まだ送られてきます。 */
+  if (isClosedWeekday_(sheet, date)) {
+    return 'その日は定休日のため、ご予約を承れません。';
   }
 
   const price = Number(d.totalPrice || 0);
@@ -1071,8 +1112,11 @@ function doChange_(sheet, d) {
     return { ok: false, error: '所要時間が正しくありません。' };
   }
   const hrs = openHours_(sheet);
-  if (startMin < hrs.open || startMin + minutes > hrs.close) {
+  if (startMin < hrs.open || startMin > hrs.last || startMin + minutes > hrs.close) {
     return { ok: false, error: '営業時間外のご予約は承れません。' };
+  }
+  if (isClosedWeekday_(sheet, newDate)) {
+    return { ok: false, error: 'その日は定休日のため、ご予約を承れません。' };
   }
 
   if (hitsClosed_(sheet, newDate, newTime, minutes)) {
