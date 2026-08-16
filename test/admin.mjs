@@ -397,6 +397,219 @@ await group('【管11】まだ1件も予約が無い開店初日', async () => {
 });
 
 /* ============================================================
+   【管12】メニューを直す（一覧 → 押した1件だけ開く）
+
+   作り替える前は、1件ぶんの入力欄（区分・メニュー名・価格・所要・説明・画像・表示）が
+   件数ぶん縦に並んでいるだけでした。メニュー4件で単品メニュータブは
+   縦2892px（ページ全体で3648px）、画面は844pxです。
+   ・どんなメニューがあるのか、一覧では見えない
+   ・カードの先頭が「区分」なので、何を編集中なのか2つ目の欄まで読まないと分からない
+   ・保存がいちばん下にあるので、1件の値段を直すだけで長い往復になる
+   使うのは50代の理容師で、施術の合間に片手でスマホを見ます。
+   ============================================================ */
+await group('【管12】メニューを直す（一覧→押した1件だけ開く）', async () => {
+  await post({ type: 'reset' });        // シートを初期値（メニュー4件）に戻す
+  const m = await newPhone('メニュー');
+  await login(m);
+  await tab(m, '単品メニュー'); await m.waitForTimeout(400);
+
+  const rows = m.locator('#menu-rows .admin-row');
+  const editor = m.locator('#menu-rows .admin-editor');
+  const paneH = () => m.evaluate(() => Math.round(
+    document.querySelector('.admin-pane[data-pane="menus"]').getBoundingClientRect().height));
+
+  /* まず一覧。ここに全件が出ていないと、そもそも探せません。
+     「表示」を外した行（旧メニュー）も出します。隠すと、消したつもりが無いのに
+     消えたように見えて、同じメニューをもう1件作ってしまいます。 */
+  check('管12', '一覧に全件（非表示のものも）出る', await rows.count(), 4);
+  const listText = await textOf(m.locator('#menu-rows .admin-list'));
+  check('管12', '非表示のメニューも一覧に残る', /旧メニュー/.test(listText), true);
+  check('管12', '非表示だと分かる印が付く',
+    await m.locator('#menu-rows .admin-row .admin-mark.is-off').count(), 1);
+
+  /* 1行だけ見れば、それが何か分かること */
+  const first = await textOf(rows.first());
+  console.log('   一覧の1行目:', first.replace(/\n/g, ' / '));
+  check('管12', '行の先頭がメニュー名', /^メンズカット/.test(first.trim()), true);
+  check('管12', '行に値段が出ている', /¥4,000〜/.test(first), true);
+  check('管12', '行に所要時間が出ている', /50分/.test(first), true);
+
+  /* 開いているのは1件だけ。ここが崩れると元の3648pxに逆戻りします */
+  check('管12', '入力欄は1件ぶんしか出ていない', await editor.count(), 1);
+  check('管12', '開いた1件の名前が入力欄の先頭に出る',
+    /メンズカット/.test(await textOf(m.locator('#menu-rows .admin-editor-title'))), true);
+
+  // 3件目（炭酸スパ）を押す
+  await rows.nth(2).click(); await m.waitForTimeout(500);
+  check('管12', '押した1件が開く',
+    /炭酸スパ/.test(await textOf(m.locator('#menu-rows .admin-editor-title'))), true);
+  check('管12', '開くのはやはり1件だけ', await editor.count(), 1);
+  check('管12', '開いた1件の入力欄に、その1件の値が入っている',
+    await m.locator('#menu-rows input[data-col="メニュー名"]').inputValue(), '【シート追加】炭酸スパ');
+  check('管12', '押した行だけ開いた印が付く',
+    await m.locator('#menu-rows .admin-row.is-open').count(), 1);
+
+  // 閉じれば一覧に戻る
+  await m.locator('#menu-rows [data-close-editor]').first().click(); await m.waitForTimeout(400);
+  check('管12', '閉じると入力欄が消えて一覧に戻る', await editor.count(), 0);
+  check('管12', '閉じても一覧は全件そのまま', await rows.count(), 4);
+
+  /* 一覧だけなら、直したい1件を画面1つぶんで見つけられること。
+     直す前は、ここが2892pxありました（画面は844px）。 */
+  const listOnly = await paneH();
+  console.log('   一覧だけのときのタブの高さ:', listOnly + 'px（直す前 2892px）');
+  check('管12', '一覧だけなら画面1つぶん（844px）に収まる', listOnly <= 844, true);
+
+  // 1件開いた状態でも、全部を開いていた直す前より短いこと
+  await rows.first().click(); await m.waitForTimeout(500);
+  const openedH = await paneH();
+  console.log('   1件開いたときのタブの高さ:', openedH + 'px（直す前 2892px）');
+  check('管12', '1件開いても、直す前の全部開きより短い', openedH < 2892, true);
+
+  await m.context().close();
+});
+
+/* ============================================================
+   【管13】直したのに保存を押していない
+
+   保存は「溜めておいて、保存ボタンで一括」です。1件直して一覧に戻ると
+   画面が落ち着くので、そこで手が離れます。押さないまま閉じると、
+   直した値段は消えて元のままになります。
+   ============================================================ */
+await group('【管13】直したのに保存を押していない', async () => {
+  const m = await newPhone('未保存');
+  await login(m);
+  await tab(m, '単品メニュー'); await m.waitForTimeout(400);
+
+  check('管13', '直す前は未保存の印が無い',
+    await m.locator('#menu-rows .admin-mark.is-dirty').count(), 0);
+
+  await m.locator('#menu-rows input[data-col="価格"]').first().fill('5500');
+  await m.waitForTimeout(400);
+
+  check('管13', '直すと、その行に未保存の印が出る',
+    await m.locator('#menu-rows .admin-row .admin-mark.is-dirty').count(), 1);
+  check('管13', '直していない行には印が出ない',
+    await m.locator('#menu-rows .admin-row .admin-mark.is-dirty').count() < 4, true);
+  check('管13', '保存していないことが文でも出る',
+    /保存/.test(await textOf(m.locator('[data-note="menus"]'))), true);
+  /* タブを離れても気づけること。別のタブに移ると、一覧の印は見えなくなります */
+  check('管13', 'タブそのものにも印が付く',
+    await m.locator('#admin-tabs .tab[data-pane="menus"].admin-tab-dirty').count(), 1);
+  await tab(m, '写真'); await m.waitForTimeout(300);
+  check('管13', '別のタブへ移っても、その印は残る',
+    await m.locator('#admin-tabs .tab[data-pane="menus"].admin-tab-dirty').count(), 1);
+  await tab(m, '単品メニュー'); await m.waitForTimeout(300);
+
+  /* 保存ボタンは画面の下に貼り付いていて、どこまで送っても押せること。
+     いちばん下に置いていたころは、1件直すだけで長い往復になりました。 */
+  await m.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await m.waitForTimeout(300);
+  check('管13', '一覧の先頭にいても保存ボタンが画面に見えている',
+    await inView(m.locator('[data-save="menus"]')), true);
+
+  await m.locator('[data-save="menus"]').click(); await m.waitForTimeout(1600);
+
+  const saved = (await post({ type: 'adminData', password: PW })).menus || [];
+  check('管13', '保存すると受け口に届く', String((saved[0] || {})['価格']), '5500');
+  check('管13', '保存すると未保存の印が消える',
+    await m.locator('#menu-rows .admin-mark.is-dirty').count(), 0);
+  check('管13', '保存するとタブの印も消える',
+    await m.locator('#admin-tabs .tab[data-pane="menus"].admin-tab-dirty').count(), 0);
+  check('管13', '保存できたことが伝わる',
+    /保存しました/.test(await textOf(m.locator('[data-note="menus"]'))), true);
+
+  await m.context().close();
+});
+
+/* ============================================================
+   【管14】メニューを足す・消す
+   ============================================================ */
+await group('【管14】メニューを足す・消す', async () => {
+  const m = await newPhone('追加削除');
+  await login(m);
+  await tab(m, '単品メニュー'); await m.waitForTimeout(400);
+  const rows = m.locator('#menu-rows .admin-row');
+
+  await m.locator('[data-add="menus"]').click(); await m.waitForTimeout(500);
+  check('管14', '足すと一覧が1件増える', await rows.count(), 5);
+  check('管14', '足した1件が開いて、すぐ打てる',
+    await m.locator('#menu-rows .admin-editor').count(), 1);
+  check('管14', '名前が空でも一覧から消えない',
+    /名前がまだ入っていません/.test(await textOf(m.locator('#menu-rows .admin-list'))), true);
+
+  await m.locator('#menu-rows input[data-col="メニュー名"]').fill('眉カット');
+  await m.waitForTimeout(400);
+  check('管14', '打った名前が一覧にもすぐ出る',
+    /眉カット/.test(await textOf(m.locator('#menu-rows .admin-list'))), true);
+
+  /* 削除は確かめてから。指がすべって消えると、説明も写真も打ち直せません */
+  m.__dialogs.length = 0;
+  m.__answer = 'dismiss';
+  await m.locator('#menu-rows [data-remove="menus"]').click(); await m.waitForTimeout(500);
+  check('管14', '削除の前に確認が出る', /削除/.test(lastDialog(m)), true);
+  check('管14', '何を消すのかが確認に書いてある', /眉カット/.test(lastDialog(m)), true);
+  check('管14', 'やめれば消えない', await rows.count(), 5);
+
+  m.__answer = 'accept';
+  await m.locator('#menu-rows [data-remove="menus"]').click(); await m.waitForTimeout(500);
+  m.__answer = 'dismiss';
+  check('管14', 'はいを押せば消える', await rows.count(), 4);
+
+  /* 元からあった1件を消したとき。保存を押すまでサイトは変わりません。
+     ここで「消えた＝終わった」と思って画面を離れると、メニューは戻ります。 */
+  m.__answer = 'accept';
+  await rows.first().click(); await m.waitForTimeout(400);
+  await m.locator('#menu-rows [data-remove="menus"]').click(); await m.waitForTimeout(500);
+  m.__answer = 'dismiss';
+  check('管14', '元からあった1件を消すと一覧から減る', await rows.count(), 3);
+  check('管14', '消した時点ではまだ保存していないと分かる',
+    /保存/.test(await textOf(m.locator('[data-note="menus"]'))), true);
+  check('管14', '保存を押すまで受け口の中身は変わらない',
+    ((await post({ type: 'adminData', password: PW })).menus || []).length, 4);
+
+  await m.context().close();
+});
+
+/* ============================================================
+   【管15】写真とおすすめメニューも、同じように直せる
+   ============================================================ */
+await group('【管15】写真とおすすめメニューも同じように直せる', async () => {
+  const m = await newPhone('写真');
+  await login(m);
+
+  await tab(m, '写真'); await m.waitForTimeout(400);
+  const srows = m.locator('#style-rows .admin-row');
+  check('管15', '写真も全件（非表示のものも）一覧に出る', await srows.count(), 4);
+  /* タイトルだけ並べても、どの写真のことか思い出せません */
+  check('管15', '一覧に写真の見本が出る',
+    await m.locator('#style-rows .admin-row-thumb img').count(), 2);
+  check('管15', '写真が無い行も一覧に出る',
+    await m.locator('#style-rows .admin-row-thumb:has-text("写真なし")').count(), 2);
+  await srows.nth(1).click(); await m.waitForTimeout(500);
+  check('管15', '押した1件だけ開く', await m.locator('#style-rows .admin-editor').count(), 1);
+  check('管15', '開いたのは押した写真',
+    await m.locator('#style-rows input[data-col="タイトル"]').inputValue(), 'スパイキーショート');
+
+  await tab(m, 'おすすめメニュー'); await m.waitForTimeout(400);
+  check('管15', 'おすすめメニューも一覧で出る',
+    await m.locator('#coupon-rows .admin-row').count(), 2);
+  check('管15', 'おすすめメニューも開くのは1件だけ',
+    await m.locator('#coupon-rows .admin-editor').count(), 1);
+
+  /* 片手のスマホ（390px）。1件開いた状態でも横に漏れないこと */
+  for (const name of ['単品メニュー', 'おすすめメニュー', '写真']) {
+    await tab(m, name); await m.waitForTimeout(300);
+    check('管15', `${name}タブが、1件開いても横にはみ出さない`,
+      await m.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+  }
+  await m.context().close();
+  /* あと片付け。この試験でメニューの値段を書き換えたままにすると、
+     次に流す試験が「サイトのせいではない失敗」を出します。 */
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

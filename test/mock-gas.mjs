@@ -33,8 +33,8 @@ const SHEET_STYLE = [
 ];
 
 const SHEET_COUPON = [
-  { クーポン名: '【シート】men\'s骨格補正カット＋眉カット', 価格: 6900, 通常価格: '', '所要(分)': 70, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '/mock-image.svg?seed=cp', 表示: '○' },
-  { クーポン名: '【シート】メンズ縮毛矯正', 価格: 22000, 通常価格: 24000, '所要(分)': 180, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '', 表示: '○' }
+  { メニュー名: '【シート】men\'s骨格補正カット＋眉カット', 価格: 6900, 通常価格: '', '所要(分)': 70, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '/mock-image.svg?seed=cp', 表示: '○' },
+  { メニュー名: '【シート】メンズ縮毛矯正', 価格: 22000, 通常価格: 24000, '所要(分)': 180, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '', 表示: '○' }
 ];
 
 /* 初期値の控え。reset で全部ここに戻します。
@@ -137,7 +137,7 @@ function buildStyles() {
 function buildCoupons() {
   const out = SHEET_COUPON.filter(r => String(r.表示).trim() !== '×').map((r, i) => {
     const p = parsePrice(r.価格);
-    return { id: 'sc' + i, badge: String(r.対象 || '全員').trim(), title: r.クーポン名, detail: r.説明,
+    return { id: 'sc' + i, badge: String(r.対象 || '全員').trim(), title: r.メニュー名, detail: r.説明,
       price: p.value, priceFrom: p.from, listPrice: Number(r.通常価格) || null,
       minutes: r['所要(分)'], terms: r.条件, image: String(r.画像 || '') };
   });

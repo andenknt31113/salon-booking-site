@@ -164,39 +164,54 @@
           </p>
           <div id="closed-rows"></div>
           <button class="btn btn-ghost btn-sm" type="button" data-add="closed">＋ 休業日を追加</button>
-          <button class="btn btn-primary btn-block" type="button" data-save="closed">休業日を保存</button>
+          <!-- 保存ボタンは画面の下に貼り付けます。ページのいちばん下に置くと、
+               1か所直しただけでも下まで指を送ることになり、
+               その途中でお客様に呼ばれると保存を押さないまま画面を離れます。 -->
+          <div class="admin-savebar">
+            <p class="admin-savebar-note" data-note="closed"></p>
+            <button class="btn btn-primary" type="button" data-save="closed">休業日を保存</button>
+          </div>
         </div>
 
         <!-- メニュー -->
         <div class="admin-pane" data-pane="menus" hidden>
           <p class="note" style="margin:0 0 16px;">
+            まず一覧から<b>直したい1件を押してください</b>。その1件だけ入力欄が開きます。<br />
             所要時間は空席カレンダーの押さえ時間になります。実際の施術時間を入れてください。
-            「表示」を外すと、消さずにサイトから隠せます。
+            「表示」を外すと、消さずにサイトから隠せます（一覧には「非表示」と出ます）。
           </p>
           <div id="menu-rows"></div>
-          <button class="btn btn-ghost btn-sm" type="button" data-add="menus">＋ メニューを追加</button>
-          <button class="btn btn-primary btn-block" type="button" data-save="menus">メニューを保存</button>
+          <div class="admin-savebar">
+            <p class="admin-savebar-note" data-note="menus"></p>
+            <button class="btn btn-primary" type="button" data-save="menus">メニューを保存</button>
+          </div>
         </div>
 
         <!-- おすすめメニュー -->
         <div class="admin-pane" data-pane="coupons" hidden>
           <p class="note" style="margin:0 0 16px;">
-            一番上に大きく並ぶメニューです。通常価格を入れた場合だけ、その金額に取り消し線が付きます。
+            一番上に大きく並ぶメニューです。通常価格を入れた場合だけ、その金額に取り消し線が付きます。<br />
+            一覧から<b>直したい1件を押す</b>と、その1件だけ入力欄が開きます。
           </p>
           <div id="coupon-rows"></div>
-          <button class="btn btn-ghost btn-sm" type="button" data-add="coupons">＋ おすすめメニューを追加</button>
-          <button class="btn btn-primary btn-block" type="button" data-save="coupons">おすすめメニューを保存</button>
+          <div class="admin-savebar">
+            <p class="admin-savebar-note" data-note="coupons"></p>
+            <button class="btn btn-primary" type="button" data-save="coupons">おすすめメニューを保存</button>
+          </div>
         </div>
 
         <!-- 写真（ヘアカタログ・店内） -->
         <div class="admin-pane" data-pane="styles" hidden>
           <p class="note" style="margin:0 0 16px;">
-            ギャラリーに並ぶ写真です。「分類」に入れた言葉が、そのまま絞り込みのタブになります
+            ギャラリーに並ぶ写真です。一覧から<b>直したい1件を押す</b>と、その1件だけ入力欄が開きます。<br />
+            「分類」に入れた言葉が、そのまま絞り込みのタブになります
             （例：ショート／フェード／カラー／パーマ／店内）。同じ分類の写真はまとめて並びます。
           </p>
           <div id="style-rows"></div>
-          <button class="btn btn-ghost btn-sm" type="button" data-add="styles">＋ 写真を追加</button>
-          <button class="btn btn-primary btn-block" type="button" data-save="styles">写真を保存</button>
+          <div class="admin-savebar">
+            <p class="admin-savebar-note" data-note="styles"></p>
+            <button class="btn btn-primary" type="button" data-save="styles">写真を保存</button>
+          </div>
         </div>
 
         <!-- 口コミ -->
@@ -209,7 +224,10 @@
             掲載したくないものは「非掲載」にするか、行を削除してください。
           </p>
           <div id="review-rows"></div>
-          <button class="btn btn-primary btn-block" type="button" data-save="reviews">口コミを保存</button>
+          <div class="admin-savebar">
+            <p class="admin-savebar-note" data-note="reviews"></p>
+            <button class="btn btn-primary" type="button" data-save="reviews">口コミを保存</button>
+          </div>
         </div>
 
         <!-- 店舗情報 -->
@@ -218,7 +236,10 @@
             ここで変更した内容がサイトに反映されます。空欄にすると、その項目は表示されません。
           </p>
           <div id="setting-rows"></div>
-          <button class="btn btn-primary btn-block" type="button" data-save="settings">店舗情報を保存</button>
+          <div class="admin-savebar">
+            <p class="admin-savebar-note" data-note="settings"></p>
+            <button class="btn btn-primary" type="button" data-save="settings">店舗情報を保存</button>
+          </div>
         </div>
 
         <p class="field-error" id="save-error" style="margin-top:16px;"></p>

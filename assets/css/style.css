@@ -971,3 +971,124 @@ textarea.input { resize: vertical; line-height: 1.8; }
 
 /* 口コミの本文は改行を活かす（お客様が書いたまま出す） */
 .review-body { white-space: pre-wrap; }
+
+/* ============================================================
+   管理ページ：一覧 → 押した1件だけ開いて直す
+   （メニュー／おすすめメニュー／写真。ここから下は管理ページ専用）
+
+   直す前は、1件ぶんの入力欄が件数ぶん縦に並んでいるだけで、
+   単品メニュー4件でタブの高さが3648pxありました（画面は844px）。
+   使うのは50代の理容師で、施術の合間に片手でスマホを見ます。
+   何があるかを一覧で見せて、直す1件だけ開く形に変えています。
+   ============================================================ */
+.admin-list {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); margin-bottom: 16px;
+}
+.admin-list-body > .empty-state { padding: 40px 20px; }
+
+/* 1行1件。片手の親指で押すので、高さは指1本ぶん（56px以上）とる */
+.admin-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 62px; padding: 12px 13px;
+  border: 0; border-bottom: 1px solid var(--line-2); border-left: 3px solid transparent;
+  background: transparent; text-align: left; cursor: pointer;
+  font-family: inherit; color: var(--text); transition: .15s;
+}
+.admin-list-body > .admin-row:last-child { border-bottom: 0; }
+.admin-row:hover { background: var(--accent-soft); }
+/* いま開いている1件。どこを直しているのか、一覧を見れば分かるようにする */
+.admin-row.is-open {
+  background: var(--accent-soft); border-left-color: var(--accent);
+}
+.admin-row.is-open .admin-row-chev { transform: rotate(90deg); color: var(--accent); }
+
+/* 中身が長くても、行の幅からはみ出させない（390pxで横スクロールが出る） */
+.admin-row-main { flex: 1 1 auto; min-width: 0; display: block; }
+.admin-row-title { display: block; font-size: 14.5px; font-weight: 700; line-height: 1.5; }
+.admin-row-sub {
+  display: block; margin-top: 2px; font-size: 12px; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.admin-row-chev {
+  flex: none; font-size: 20px; color: var(--muted); line-height: 1;
+  transition: .15s; transform-origin: 50% 50%;
+}
+
+/* 写真タブの見本。タイトルだけでは、どの写真か思い出せない */
+.admin-row-thumb {
+  flex: none; width: 46px; height: 46px; overflow: hidden;
+  border: 1px solid var(--line); background: var(--panel-2);
+  display: grid; place-items: center;
+}
+.admin-row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.admin-row-thumb > span { font-size: 9px; color: var(--muted); text-align: center; line-height: 1.3; }
+
+/* 行に付く印。非表示・写真あり・未保存 */
+.admin-row-marks {
+  flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.admin-mark {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em; white-space: nowrap;
+  padding: 2px 7px; border: 1px solid var(--line); color: var(--muted); background: var(--panel);
+}
+/* サイトに出していない行も一覧からは消さない。消すと、消したつもりが無いのに
+   消えたように見えて、同じメニューをもう1件作ってしまう */
+.admin-mark.is-off { border-color: var(--off); color: var(--muted); }
+.admin-row.is-off .admin-row-title { color: var(--muted); text-decoration: line-through; }
+.admin-mark.is-dirty {
+  border-color: var(--danger); color: var(--danger); background: rgba(163, 53, 42, .07);
+}
+
+.admin-add { display: flex; width: 100%; margin-top: 0; border-radius: 0; border: 0;
+  border-top: 1px solid var(--line); padding: 14px 16px; }
+
+/* 押した1件ぶんの入力欄。一覧の下に出す */
+.admin-editor {
+  border: 1px solid var(--accent-dim); border-top: 3px solid var(--accent);
+  border-radius: var(--radius); background: var(--panel); padding: 16px 15px 18px;
+}
+.admin-editor-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-2);
+}
+/* 直す前は先頭が「区分」の入力欄で、何を編集中なのか2つ目の欄まで
+   読まないと分からなかった。名前をいちばん上に置く */
+.admin-editor-title { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 700; }
+.admin-editor-foot {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px;
+  padding-top: 14px; border-top: 1px solid var(--line-2);
+}
+.admin-editor-foot .btn { flex: 1 1 140px; }
+
+/* 保存バー。画面の下に貼り付けて、どこまで送っても押せるようにする。
+   いちばん下に置いていたころは、1件直すだけで長い往復になり、
+   その途中でお客様に呼ばれると保存を押さないまま画面を離れていた */
+.admin-savebar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 18px; padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: var(--ground); border-top: 1px solid var(--line);
+}
+.admin-savebar .btn { flex: 1 1 100%; }
+.admin-savebar-note { flex: 1 1 100%; margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.admin-savebar-note:empty { display: none; }
+.admin-savebar-note.is-dirty { color: var(--danger); font-weight: 700; }
+.admin-savebar-note.is-ok { color: var(--ok); font-weight: 700; }
+/* まだ保存していないタブは、保存ボタンの色を変えて気づかせる */
+.admin-savebar.is-dirty .btn-primary { background: var(--accent); }
+
+/* タブそのものに付ける印。別のタブへ移っても、
+   保存していないタブがあることに気づける */
+.admin-tab-dirty::after {
+  content: "●"; margin-left: 6px; font-size: 9px; vertical-align: 2px; color: var(--danger);
+}
+.tab[aria-selected="true"].admin-tab-dirty::after { color: #E9948B; }
+
+/* 入力欄は2列に組む。価格・所要のような短い欄を横に並べると、
+   1件ぶんが画面に収まりやすくなり、直しているものを見失わずに済む */
+.admin-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-items: start; }
+.admin-editor > * { grid-column: 1 / -1; }
+.admin-editor > [data-field="価格"],
+.admin-editor > [data-field="通常価格"],
+.admin-editor > [data-field="所要(分)"] { grid-column: auto; }

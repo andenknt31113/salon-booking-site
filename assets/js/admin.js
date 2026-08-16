@@ -15,6 +15,30 @@ let adminData = null;      // 取得した内容
 let stamps = {};
 const edits = { closed: [], menus: [], coupons: [], styles: [], reviews: [], settings: {} };
 
+/* いま入力欄を開いている行（メニュー・おすすめメニュー・写真）。
+   -1 なら一覧だけ。
+
+   なぜ「1件だけ」か：以前はメニュー4件ぶんの入力欄が縦に全部並んでいて、
+   単品メニューのタブは3648pxありました（画面は844px）。
+   どんなメニューがあるのかを見るだけでも、全項目を読みながら
+   何度も指を送ることになり、直したい1件を探せませんでした。 */
+const openRow = { menus: 0, coupons: 0, styles: 0 };
+
+/* 読み込んだ時点の中身。「まだ保存していない」を出すために使います。
+
+   保存は「edits に溜めて、保存ボタンで一括」です。1件直して一覧に戻ると
+   見た目は落ち着くので、そこで手が離れて保存を押し忘れます。
+   押し忘れたまま画面を閉じると、直した値段は消えて元のままになります。
+
+   行そのもの（オブジェクト）を鍵にします。番号で覚えると、
+   途中で1件消したときに残りの行の番号がずれ、直していない行まで
+   「未保存」と出て、どれを直したのか分からなくなります。 */
+const rowBase = new WeakMap();
+const baseCount = {};
+let settingsBase = '';
+/* 保存できたことを、そのタブの保存バーに残しておくための控え */
+const savedNote = {};
+
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
 const TOKEN_KEY = 'salon.adminToken.v1';
@@ -133,17 +157,23 @@ async function openDashboard() {
   edits.settings = { ...(res.settings || {}) };
   stamps = { ...(res.stamps || {}) };
 
+  /* 読み直したので、前に開いていた行の番号はもう当てになりません。
+     先頭に戻します（先頭を開いておく理由は renderList のところに書いています）。 */
+  openRow.menus = 0; openRow.coupons = 0; openRow.styles = 0;
+  ['closed', 'menus', 'coupons', 'styles', 'reviews', 'settings'].forEach(markSaved);
+
   $('#gate').hidden = true;
   $('#dashboard').hidden = false;
   renderStats();
   renderReservations();
   renderCustomers();
   renderClosed();
-  renderRows('menus', MENU_COLS, '#menu-rows');
-  renderRows('coupons', COUPON_COLS, '#coupon-rows');
-  renderRows('styles', STYLE_COLS, '#style-rows');
+  renderList('menus');
+  renderList('coupons');
+  renderList('styles');
   renderReviews();
   renderSettings();
+  updateDirty();
   return true;
 }
 
@@ -577,10 +607,10 @@ async function uploadImage(file, slot) {
 }
 
 /** 画像1つぶんの入力欄。URL欄・選択ボタン・小さな見本 */
-function imageField(label, url, attrs, slot) {
+function imageField(label, url, attrs, slot, mark = '') {
   const v = url == null ? '' : String(url);
   return `
-    <div class="form-field" style="margin:0 0 10px;">
+    <div class="form-field"${mark} style="margin:0 0 10px;">
       <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(label)}</span>
       <div class="image-picker">
         <div class="image-preview">${v ? `<img src="${esc(v)}" alt="" />` : '<span>写真なし</span>'}</div>
@@ -630,14 +660,19 @@ async function handleUpload(input) {
 /* ---------- 行の編集（休業日 / メニュー / おすすめメニュー / 写真） ---------- */
 function fieldFor(col, value, target, index) {
   const v = value == null ? '' : value;
+  /* どの欄かをCSSから見分けられるようにしておきます。
+     価格・所要のような短い欄を横に2つ並べて、入力欄の縦を詰めるためです。
+     縦に全部並べると、1件ぶんだけで画面1つぶんを超えて、
+     いちばん下の「表示」に届く前に何を直していたか分からなくなります。 */
+  const mark = ` data-field="${esc(col)}"`;
   if (col === '画像') {
     return imageField('画像',
       v,
       `data-target="${target}" data-index="${index}" data-col="画像"`,
-      target + '-' + index);
+      target + '-' + index, mark);
   }
   if (col === '表示') {
-    return `<label class="checkbox-line" style="margin-top:8px;">
+    return `<label class="checkbox-line"${mark} style="margin-top:8px;">
         <input type="checkbox" data-target="${target}" data-index="${index}" data-col="${esc(col)}"
                ${String(v).trim() === '×' ? '' : 'checked'} />
         <span>サイトに表示する</span>
@@ -650,7 +685,7 @@ function fieldFor(col, value, target, index) {
   const hint = col === '開始' ? '空欄なら終日お休みになります'
     : col === '終了' ? '例）14:00〜16:00 だけ止める' : '';
   return `
-    <label class="form-field" style="margin:0 0 10px;">
+    <label class="form-field"${mark} style="margin:0 0 10px;">
       <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(col)}${
         hint ? `<small style="margin-left:8px;font-weight:400;">${esc(hint)}</small>` : ''}</span>
       <input class="input" type="${type}" value="${esc(v)}"
@@ -658,6 +693,9 @@ function fieldFor(col, value, target, index) {
     </label>`;
 }
 
+/* 休業日だけは、日付・開始・終了・メモの4つしかなく、
+   しかも入れたその場で見比べたい（同じ日が2つ無いか）ので、
+   いままでどおり全部そのまま並べます。 */
 function renderRows(target, cols, host) {
   const rows = edits[target];
   $(host).innerHTML = rows.length
@@ -674,6 +712,229 @@ function renderClosed() {
   renderRows('closed', CLOSED_COLS, '#closed-rows');
 }
 
+/* ============================================================
+   一覧 → 押した1件だけ入力欄を開く（メニュー／おすすめメニュー／写真）
+
+   直す前は、1件ぶんの入力欄（区分・メニュー名・価格・所要・説明・画像・表示）が
+   件数ぶん縦に並んでいるだけでした。単品メニュー4件で縦3648px、画面の4画面ぶんです。
+   ・どんなメニューがあるのか、一覧では分からない
+   ・カードの先頭が「区分」なので、何を編集しているのか2つ目の欄まで読まないと分からない
+   ・保存がいちばん下にあるので、1件の値段を直すだけで長い往復になる
+   という状態でした。
+
+   そこで「1行1件の一覧」を上に置き、押した1件ぶんだけ入力欄を一覧の下に出します。
+   一覧は上に残したままなので、直したあとも何があるかを見失いません。
+
+   はじめは先頭の1件を開いた形で出します（openRow の初期値）。全部閉じていると、
+   行が押せること自体に気づけません。使うのはコードを触らない方で、
+   説明を読まずに触ります。いちばん上は必ず目に入るので、そこが開いていれば
+   「押すと、その1件が開く」と分かります。
+   ============================================================ */
+
+/* 一覧の1行に何を出すか。タブごとに「何を見れば、その1件だと分かるか」が違います */
+const LIST_VIEW = {
+  menus: {
+    title: r => r['メニュー名'],
+    sub: r => `${priceText(r['価格'])} ・ ${minutesText(r['所要(分)'])}`,
+    thumb: false,
+    addLabel: '＋ メニューを追加',
+    empty: 'まだメニューがありません。下の「＋ メニューを追加」から入れてください。'
+  },
+  coupons: {
+    title: r => r['メニュー名'],
+    sub: r => {
+      const list = String(r['通常価格'] ?? '').trim();
+      return `${priceText(r['価格'])}${list ? `（通常 ${priceText(list)}）` : ''}`
+        + ` ・ ${minutesText(r['所要(分)'])}`;
+    },
+    thumb: false,
+    addLabel: '＋ おすすめメニューを追加',
+    empty: 'まだおすすめメニューがありません。下の「＋ おすすめメニューを追加」から入れてください。'
+  },
+  styles: {
+    title: r => r['タイトル'],
+    /* 写真タブだけは一覧にも写真を出します。
+       タイトルだけ並べても、どの写真のことか思い出せません。 */
+    /* タグはシートに「ショート,フェード」のように区切って入っています。
+       打たれたままだと読点が並んで読みにくいので、サイト側と同じ区切りで割り直します。 */
+    sub: r => [String(r['分類'] || '').trim() || '分類なし',
+               String(r['タグ'] || '').split(/[,、・\s]+/).filter(Boolean).join('・')]
+      .filter(Boolean).join(' ・ '),
+    thumb: true,
+    addLabel: '＋ 写真を追加',
+    empty: 'まだ写真がありません。下の「＋ 写真を追加」から入れてください。'
+  }
+};
+
+/* どのタブが、どの列と、どの置き場所を使うか */
+const PANE = {
+  closed:  [CLOSED_COLS, '#closed-rows'],
+  menus:   [MENU_COLS, '#menu-rows'],
+  coupons: [COUPON_COLS, '#coupon-rows'],
+  styles:  [STYLE_COLS, '#style-rows']
+};
+
+/* 一覧に出す金額。シートには「4000〜」「2500」「￥3,000」など、
+   店主が打ったままの形で入っています。そのまま出すと桁が読み取れないので、
+   数として読めたものだけ ¥4,000〜 の形に直します。
+   読めなかったときは、打たれたままを出します（勝手に消さない）。 */
+function priceText(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return '価格未設定';
+  const half = toHalfWidth(t);
+  const n = Number(half.replace(/[^0-9.]/g, ''));
+  if (!isFinite(n) || !/[0-9]/.test(half)) return t;
+  return yen(n) + (/[〜~]/.test(half) ? '〜' : '');
+}
+function minutesText(v) {
+  const n = Number(toHalfWidth(String(v ?? '')).replace(/[^0-9]/g, ''));
+  return n ? `${n}分` : '所要未設定';
+}
+/* 名前が空のままの行。一覧から消すと、消えたと思って同じものを作り直します */
+const rowTitle = (target, row) =>
+  String(LIST_VIEW[target].title(row) || '').trim() || '（名前がまだ入っていません）';
+
+/* 削除の確認に出す「何を消そうとしているか」。
+   「削除しますか？」だけだと、どの行を押したのか分からないまま はい を押します。 */
+function removeLabel(target, row) {
+  if (target === 'closed') {
+    const d = String(row['休業日'] || '').trim();
+    if (!d) return '休業日（日付がまだ入っていません）';
+    return `休業日：${d}`
+      + (row['開始'] && row['終了'] ? `　${row['開始']}〜${row['終了']}` : '　終日');
+  }
+  if (target === 'reviews') {
+    const who = String(row['ニックネーム'] || 'お客様').trim();
+    const what = String(row['タイトル'] || row['本文'] || '').trim().slice(0, 24);
+    return `口コミ：${who} 様${what ? `「${what}」` : ''}`;
+  }
+  return rowTitle(target, row);
+}
+
+/** 一覧（1行1件）＋「＋ 追加」ボタン */
+function listHtml(target) {
+  const view = LIST_VIEW[target];
+  const rows = edits[target];
+  const body = rows.length ? rows.map((row, i) => {
+    /* 「表示」を外した行も必ず一覧に出します。隠すと、消したつもりが無いのに
+       消えたように見えて、同じメニューをもう1件作ってしまいます。 */
+    const off = String(row['表示'] ?? '').trim() === '×';
+    const img = String(row['画像'] || '').trim();
+    const marks = [
+      off ? '<span class="admin-mark is-off">非表示</span>' : '',
+      /* 写真タブは左の見本で分かるので、印は出しません */
+      (!view.thumb && img) ? '<span class="admin-mark">写真あり</span>' : '',
+      rowDirty(row) ? '<span class="admin-mark is-dirty">未保存</span>' : ''
+    ].join('');
+    return `
+      <button class="admin-row${i === openRow[target] ? ' is-open' : ''}${off ? ' is-off' : ''}"
+              type="button" data-open="${esc(target)}" data-index="${i}"
+              aria-expanded="${i === openRow[target] ? 'true' : 'false'}">
+        ${view.thumb ? `<span class="admin-row-thumb">${img
+          ? `<img src="${esc(img)}" alt="" />` : '<span>写真なし</span>'}</span>` : ''}
+        <span class="admin-row-main">
+          <span class="admin-row-title">${esc(rowTitle(target, row))}</span>
+          <span class="admin-row-sub">${esc(view.sub(row))}</span>
+        </span>
+        ${marks ? `<span class="admin-row-marks">${marks}</span>` : ''}
+        <span class="admin-row-chev" aria-hidden="true">›</span>
+      </button>`;
+  }).join('') : `<p class="empty-state">${esc(view.empty)}</p>`;
+
+  return `<div class="admin-list-body">${body}</div>
+    <button class="btn btn-ghost btn-sm admin-add" type="button"
+            data-add="${esc(target)}">${esc(view.addLabel)}</button>`;
+}
+
+/** 開いている1件ぶんの入力欄。開いていなければ空 */
+function editorHtml(target) {
+  const i = openRow[target];
+  const row = edits[target][i];
+  if (!row) return '';
+  const cols = PANE[target][0];
+  return `
+    <div class="admin-editor" data-editor="${esc(target)}">
+      <div class="admin-editor-head">
+        <span class="admin-editor-title">編集中：${esc(rowTitle(target, row))}</span>
+        <button class="btn btn-ghost btn-sm" type="button"
+                data-close-editor="${esc(target)}">閉じる</button>
+      </div>
+      ${cols.map(c => fieldFor(c, row[c], target, i)).join('')}
+      <div class="admin-editor-foot">
+        <button class="btn btn-outline btn-sm" type="button"
+                data-close-editor="${esc(target)}">一覧に戻る</button>
+        <button class="btn btn-ghost btn-sm" type="button"
+                data-remove="${esc(target)}" data-index="${i}">この行を削除</button>
+      </div>
+    </div>`;
+}
+
+/* 一覧と、開いている1件ぶんの入力欄をまとめて描き直します。
+   入力欄は一覧の「下」に置きます。行と行のあいだに挟むと、
+   開けた瞬間に下の行が画面外へ押し出され、何件あるのか見えなくなります。 */
+function renderList(target) {
+  $(PANE[target][1]).innerHTML =
+    `<div class="admin-list" data-list="${esc(target)}">${listHtml(target)}</div>`
+    + editorHtml(target);
+}
+
+/* 打っている最中に呼ばれます。一覧の行だけ描き直して、入力欄には触りません。
+   入力欄まで描き直すと、1文字打つたびにカーソルが飛んで先が打てなくなります。 */
+function refreshList(target) {
+  const box = document.querySelector(`[data-list="${target}"]`);
+  if (!box) return;                     // 休業日・口コミ・店舗情報には一覧がありません
+  box.innerHTML = listHtml(target);
+  const title = document.querySelector(`[data-editor="${target}"] .admin-editor-title`);
+  const row = edits[target][openRow[target]];
+  if (title && row) title.textContent = '編集中：' + rowTitle(target, row);
+}
+
+/* ---------- まだ保存していない、を出す ---------- */
+function markSaved(target) {
+  if (target === 'settings') { settingsBase = JSON.stringify(edits.settings); return; }
+  (edits[target] || []).forEach(r => rowBase.set(r, JSON.stringify(r)));
+  baseCount[target] = (edits[target] || []).length;
+}
+/** その行が、読み込んだときから変わっているか（足したばかりの行も「変わっている」） */
+function rowDirty(row) {
+  return !rowBase.has(row) || rowBase.get(row) !== JSON.stringify(row);
+}
+function isDirty(target) {
+  if (target === 'settings') return JSON.stringify(edits.settings) !== settingsBase;
+  const rows = edits[target] || [];
+  return rows.length !== (baseCount[target] || 0) || rows.some(rowDirty);
+}
+function dirtyText(target) {
+  if (target === 'settings') return 'まだ保存していません。下の保存ボタンを押してください。';
+  const rows = edits[target] || [];
+  const changed = rows.filter(rowDirty).length;
+  const removed = Math.max(0, (baseCount[target] || 0) - rows.length);
+  const bits = [];
+  if (changed) bits.push(`${changed}件`);
+  if (removed) bits.push(`削除${removed}件`);
+  return `まだ保存していません（${bits.join('・') || '変更あり'}）。下の保存ボタンを押してください。`;
+}
+
+/* 保存バーの文言・タブの赤い点・一覧の「未保存」を、まとめて出し直します */
+function updateDirty() {
+  ['closed', 'menus', 'coupons', 'styles', 'reviews', 'settings'].forEach(t => {
+    const dirty = isDirty(t);
+    if (dirty) savedNote[t] = '';       // 直したのに「保存しました」が残っていると読み違えます
+    const note = document.querySelector(`[data-note="${t}"]`);
+    if (note) {
+      note.textContent = dirty ? dirtyText(t) : (savedNote[t] || '');
+      note.className = 'admin-savebar-note'
+        + (dirty ? ' is-dirty' : savedNote[t] ? ' is-ok' : '');
+    }
+    const bar = note && note.closest('.admin-savebar');
+    if (bar) bar.classList.toggle('is-dirty', dirty);
+    /* タブを離れても気づけるように、タブそのものにも印を付けます。
+       別のタブに移ってから保存を押しに戻れるのは、この点があるからです。 */
+    const tab = document.querySelector(`#admin-tabs .tab[data-pane="${t}"]`);
+    if (tab) tab.classList.toggle('admin-tab-dirty', dirty);
+  });
+}
+
 /* 追加ボタンで作られる空の行 */
 const BLANK_ROW = {
   closed:  { '休業日': '', '開始': '', '終了': '', 'メモ': '' },
@@ -682,17 +943,12 @@ const BLANK_ROW = {
   styles:  { 'タイトル': '', '分類': 'ショート', 'タグ': '', '画像': '', '表示': '○' }
 };
 
-/* どのタブの一覧を描き直すか */
-const PANE = {
-  closed:  [CLOSED_COLS, '#closed-rows'],
-  menus:   [MENU_COLS, '#menu-rows'],
-  coupons: [COUPON_COLS, '#coupon-rows'],
-  styles:  [STYLE_COLS, '#style-rows']
-};
+/* そのタブを丸ごと描き直します（追加・削除・保存のあと） */
 function redraw(target) {
-  if (target === 'reviews') { renderReviews(); return; }
-  const pane = PANE[target];
-  if (pane) renderRows(target, pane[0], pane[1]);
+  if (target === 'reviews') renderReviews();
+  else if (target === 'closed') renderClosed();
+  else if (LIST_VIEW[target]) renderList(target);
+  updateDirty();
 }
 
 function renderSettings() {
@@ -818,6 +1074,12 @@ async function save(target) {
   }
   ok.textContent = '保存しました。サイトに反映されています。';
   ok.style.display = 'block';
+  /* ここが保存の折り返し地点です。いま画面にある内容を「保存済み」として覚え直し、
+     一覧の「未保存」とタブの点を消します。消さないと、保存したのに
+     まだ残っているように見えて、同じ内容をもう一度送ることになります。 */
+  markSaved(target);
+  savedNote[target] = '保存しました。サイトに反映されています。';
+  redraw(target);
 }
 
 /* ---------- CSV ---------- */
@@ -877,23 +1139,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = e.target;
     if (el.dataset.setting !== undefined) {
       edits.settings[el.dataset.setting] = el.value;
+      updateDirty();
       return;
     }
     if (el.dataset.target === undefined) return;
-    const row = edits[el.dataset.target][Number(el.dataset.index)];
+    const target = el.dataset.target;
+    const row = edits[target][Number(el.dataset.index)];
     if (!row) return;
     row[el.dataset.col] = el.type === 'checkbox' ? (el.checked ? '○' : '×') : el.value;
+    /* 一覧の行だけ描き直します（入力欄には触りません）。
+       名前や値段を打った先から一覧に出ないと、どの行を直しているのか
+       分からなくなりますが、入力欄まで描き直すとカーソルが飛びます。 */
+    refreshList(target);
+    updateDirty();
   });
   document.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset.reviewState !== undefined && el.checked) {
       const row = edits.reviews[Number(el.dataset.reviewState)];
       if (row) row['状態'] = el.value;
+      updateDirty();
       return;
     }
+    /* 定休曜日は保存時にまとめていたので、押しても「未保存」が出ませんでした。
+       出ないと、押しただけで決まったと思って画面を離れます。 */
+    if (el.dataset.weekday !== undefined) { collectWeekdays(); updateDirty(); return; }
     if (el.type === 'checkbox' && el.dataset.target !== undefined) {
       const row = edits[el.dataset.target][Number(el.dataset.index)];
       if (row) row[el.dataset.col] = el.checked ? '○' : '×';
+      refreshList(el.dataset.target);
+      updateDirty();
     }
   });
 
@@ -902,18 +1177,55 @@ document.addEventListener('DOMContentLoaded', () => {
     const past = e.target.closest('[data-toggle-past]');
     if (past) { showPast = !showPast; renderReservations(); return; }
 
+    /* 一覧の行を押した。押した1件だけを開き、ほかは閉じたままにする。
+       もう一度同じ行を押せば閉じて、一覧だけに戻る。 */
+    const op = e.target.closest('[data-open]');
+    if (op) {
+      const t = op.dataset.open;
+      const i = Number(op.dataset.index);
+      openRow[t] = (openRow[t] === i) ? -1 : i;
+      redraw(t);
+      /* 入力欄は一覧の下に出ます。写真が何十枚もあると一覧が長くなり、
+         押しても画面が変わらないように見えるので、その場まで送ります。 */
+      const ed = document.querySelector(`[data-editor="${t}"]`);
+      if (ed) ed.scrollIntoView({ block: 'start' });
+      return;
+    }
+
+    const cl = e.target.closest('[data-close-editor]');
+    if (cl) {
+      const t = cl.dataset.closeEditor;
+      openRow[t] = -1;
+      redraw(t);
+      const list = document.querySelector(`[data-list="${t}"]`);
+      if (list) list.scrollIntoView({ block: 'start' });
+      return;
+    }
+
     const add = e.target.closest('[data-add]');
     if (add) {
       const t = add.dataset.add;
       edits[t].push(BLANK_ROW[t] ? { ...BLANK_ROW[t] } : {});
+      // 足した行は、そのまま打ち込めるように開いておく
+      if (openRow[t] !== undefined) openRow[t] = edits[t].length - 1;
       redraw(t);
+      const ed = document.querySelector(`[data-editor="${t}"]`);
+      if (ed) ed.scrollIntoView({ block: 'start' });
       return;
     }
 
     const rm = e.target.closest('[data-remove]');
     if (rm) {
       const t = rm.dataset.remove;
-      edits[t].splice(Number(rm.dataset.index), 1);
+      const i = Number(rm.dataset.index);
+      const row = edits[t][i];
+      if (!row) return;
+      /* 確かめずに消していました。指がすべって消えると、何が入っていたか
+         思い出せません（説明や写真は打ち直せません）。 */
+      if (!confirm(`${removeLabel(t, row)}\n\nこの行を削除します。よろしいですか？\n`
+          + '※「保存」を押すまで、サイトはまだ変わりません。')) return;
+      edits[t].splice(i, 1);
+      if (openRow[t] !== undefined) openRow[t] = -1;
       redraw(t);
       return;
     }
