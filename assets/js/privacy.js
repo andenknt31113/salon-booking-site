@@ -1,8 +1,9 @@
 /* ============================================================
  *  プライバシーポリシーページ
  *  連絡先は data.js の内容から組み立てます。
+ *  店主が管理ページ（設定シート）で埋めた内容が届いたら、そちらで描き直します。
  * ============================================================ */
-document.addEventListener('DOMContentLoaded', () => {
+function renderPrivacy() {
   const rows = [
     ['事業者名', SALON.operator || `${SALON.name} ${SALON.nameSub || ''}`.trim()],
     ['代表者', SALON.operatorName],
@@ -30,4 +31,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const notice = document.querySelector('main .notice');
     if (notice) notice.remove();
   }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderPrivacy();
+  /* このページだけは、これまで設定シートを取りに行っていませんでした。
+     事業者名・代表者名・問い合わせ先・制定日は、店主が管理ページから
+     埋める項目です。取りに行かないと、埋めたのにこのページだけが
+     「準備中」のまま残ります。 */
+  Catalog.load();
 });
+
+/* 設定が届いたら、その内容で描き直します（common.js が知らせます） */
+document.addEventListener('salon:settings', renderPrivacy);

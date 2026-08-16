@@ -812,6 +812,9 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
     const d = [];
     return { getName: () => name, getLastRow: () => d.length, getLastColumn: () => 3,
       appendRow: r => d.push(r),
+      /* 別の端末から保存されていないかを見る「印」を作るのに使います
+         （Code.gs の sheetStamp_）。無いと、管理ページの読み込みごと落ちます。 */
+      getDataRange: () => ({ getValues: () => d }),
       getRange: () => ({ getValues: () => d, setValue(){}, setValues(){}, clearContent(){},
         setFontWeight: () => ({ setBackground: () => {} }), setNote(){},
         setFontLine: () => ({ setFontColor: () => {} }) }),
@@ -1013,7 +1016,14 @@ function shop(sheetsInit = {}) {
     call: (fn, payload) => {
       vm.runInContext(`globalThis.__w = ${fn};`, ctx);
       try { return ctx.__w(payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
-    }, sheets
+    },
+    /* 台帳を第1引数に取る入口（doCancel_ など）用。
+       この店の予約一覧シートを、本番と同じ getSheet_ で渡します。 */
+    callOnLedger: (fn, payload) => {
+      vm.runInContext(`globalThis.__w = d => ${fn}(getSheet_(), d);`, ctx);
+      try { return ctx.__w(payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
+    },
+    sheets
   };
 }
 
@@ -1167,6 +1177,96 @@ console.log('\n【空き状況】誰でも受け取れる応答の中身');
   const b = (out.booked || [])[0] || {};
   (b.date && b.time && b.minutes) ? ok('埋まっている時間帯は分かる')
                                   : note('空き状況', '埋まっている時間が分からない');
+}
+
+/* ============================================================
+   設定シートに項目を足したとき
+
+   店主が触れる項目を増やすたびに、設定シートの行が増えます。
+   ところが、すでにシートを作ってある店では、増えた行がありません。
+   足りないまま管理ページを開かせると、管理ページは画面にある項目を
+   まとめて保存するので、シートに無い項目まで空欄として書き込まれ、
+   触ってもいない住所や支払い方法がサイトから消えます。
+   店の人には、勝手に消えたようにしか見えません。
+   ============================================================ */
+console.log('\n【設定シート】あとから項目を足したとき');
+{
+  /* 古い設定シート。当時あった3項目だけが入っています。
+     電話番号は店主が自分で書き換えてあります。 */
+  const w = shop({ '設定': { head: ['項目', '内容'], rows: [
+    ['電話番号', '0297-00-0000'],
+    ['営業開始', '10:00'],
+    ['営業終了', '20:00']
+  ] } });
+
+  const read = w.call('doAdminData_', { password: 'himitsu' });
+  const st = read.settings || {};
+
+  st['電話番号'] === '0297-00-0000'
+    ? ok('もとからあった行は、店主が書いた値のまま')
+    : note('もとからあった行', `が書き換わる（${st['電話番号']}）`);
+  st['営業開始'] === '10:00'
+    ? ok('営業開始も書き換わらない') : note('営業開始', `が書き換わる（${st['営業開始']}）`);
+
+  st['住所'] ? ok('足りない項目が足される（住所）') : note('住所', 'の行が足されない');
+  st['支払い方法'] ? ok('足りない項目が足される（支払い方法）') : note('支払い方法', 'の行が足されない');
+  /* 空で足してはいけません。足した直後の保存で、そのまま消えます。 */
+  String(st['住所'] || '').includes('龍ケ崎')
+    ? ok('足した項目には、いま掲載している内容が入っている')
+    : note('足した項目', `が空のまま（${JSON.stringify(st['住所'])}）`);
+  st['事業者名'] === ''
+    ? ok('もともと空の項目（事業者名）は、空のまま足される')
+    : note('事業者名', `に何か入っている（${JSON.stringify(st['事業者名'])}）`);
+
+  /* 店主が電話番号だけ直して保存した、という場面です。 */
+  const saved = w.call('doAdminSave_', { password: 'himitsu', target: 'settings',
+    stamp: read.stamps.settings, rows: Object.assign({}, st, { '電話番号': '080-1111-2222' }) });
+  saved.ok ? ok('店舗情報を保存できる') : note('店舗情報の保存', `ができない（${saved.error || saved.threw}）`);
+
+  const after = (w.call('doAdminData_', { password: 'himitsu' }).settings) || {};
+  after['電話番号'] === '080-1111-2222'
+    ? ok('直した電話番号が入っている') : note('電話番号', `が入らない（${after['電話番号']}）`);
+  String(after['支払い方法'] || '').includes('現金')
+    ? ok('触っていない支払い方法は消えていない')
+    : note('触っていない支払い方法', `が消える（${JSON.stringify(after['支払い方法'])}）`);
+  String(after['道案内'] || '').includes('ロイヤルヤエ')
+    ? ok('触っていない道案内も消えていない')
+    : note('触っていない道案内', 'が消える');
+
+  /* 2度目に開いても、同じ行がもう1回足されないこと */
+  const twice = (w.call('doAdminData_', { password: 'himitsu' }).settings) || {};
+  Object.keys(twice).length === Object.keys(after).length
+    ? ok('もう一度開いても、同じ項目が増えない')
+    : note('設定シート', `を開くたびに項目が増える（${Object.keys(after).length}→${Object.keys(twice).length}）`);
+}
+
+console.log('\n【設定シート】受付期限を店主が変えたら、受け口も同じ期限で断る');
+{
+  /* 受付期限は設定シートが正です。ここを画面側だけの設定にすると、
+     画面では「まだ変更できます」と出るのに、送ると断られます。 */
+  const at = day(3);
+  const guest = { code: 'LM-DDL01', tel: '09011112222' };
+  const ledger = [['LM-DDL01', '', at, '10:00', '11:00', 60, 'カット', 'MATTEO', 'st01', 0, 4000,
+    'テスト', 'テスト', "'09011112222", 'a@b.co', '初めて', '', '', '']];
+
+  /* 前日18時まで（初期値）なら、3日後のご予約はまだ変更できます */
+  const near = shop({ '予約一覧': { head: HEAD, rows: ledger.map(r => r.slice()) },
+    '設定': { head: ['項目', '内容'], rows: [] } });
+  near.callOnLedger('doCancel_', guest).ok
+    ? ok('初期値（前日18時）なら、3日後のご予約はキャンセルできる')
+    : note('初期値の期限', '3日後のご予約すらキャンセルできない');
+
+  /* 店主が「7日前まで」に変えたら、3日後のご予約はもう受け付けません */
+  const far = shop({ '予約一覧': { head: HEAD, rows: ledger.map(r => r.slice()) },
+    '設定': { head: ['項目', '内容'], rows: [
+      ['変更・キャンセル期限（何日前）', 7], ['変更・キャンセル期限（何時）', 18]] } });
+  const res = far.callOnLedger('doCancel_', guest);
+  res.ok
+    ? note('シートで変えた期限', 'を受け口が見ていない（画面だけ変わります）')
+    : ok('シートで変えた期限を、受け口も見ている');
+  String(res.error || '').includes('7日前の18時')
+    ? ok('断る文にも、シートで変えた期限が出る')
+    : note('断る文', `が古い期限のまま（${res.error}）`);
 }
 
 console.log('\n' + '='.repeat(52));

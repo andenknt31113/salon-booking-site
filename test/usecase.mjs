@@ -405,6 +405,9 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
   await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
   await a.click('#gate-btn'); await a.waitForTimeout(1700);
   await a.locator('.tab', { hasText: '店舗情報' }).first().click(); await a.waitForTimeout(500);
+  /* 店舗情報タブは項目が多いので、見出しで畳んであります。押して開いてから触ります */
+  await a.locator('#setting-rows summary', { hasText: 'お知らせ・ご連絡先' }).first().click();
+  await a.waitForTimeout(400);
   await a.fill('[data-setting="LINE友だち追加URL"]', 'https://lin.ee/zer01test');
   await a.locator('[data-save="settings"]').first().click(); await a.waitForTimeout(1800);
   check('UC14', 'コードを触らずに保存できる',
@@ -422,6 +425,8 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
   await b2.fill('#passcode', PW); await b2.locator('#remember-me').setChecked(false);
   await b2.click('#gate-btn'); await b2.waitForTimeout(1700);
   await b2.locator('.tab', { hasText: '店舗情報' }).first().click(); await b2.waitForTimeout(500);
+  await b2.locator('#setting-rows summary', { hasText: 'お知らせ・ご連絡先' }).first().click();
+  await b2.waitForTimeout(400);
   await b2.fill('[data-setting="LINE友だち追加URL"]', 'javascript:alert(1)');
   await b2.locator('[data-save="settings"]').first().click(); await b2.waitForTimeout(1800);
   await b2.context().close();

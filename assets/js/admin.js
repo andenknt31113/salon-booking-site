@@ -51,24 +51,138 @@ const COUPON_COLS = ['メニュー名', '価格', '通常価格', '所要(分)',
 const STYLE_COLS = ['タイトル', '分類', 'タグ', '説明', '画像', '表示'];
 const REVIEW_COLS = ['投稿日', '予約番号', 'ニックネーム', '年代', '性別',
                      '評価', 'タイトル', '本文', '担当', 'メニュー', '状態'];
-const SETTING_KEYS = [
-  ['電話番号', 'tel', '例）0297-00-0000。空欄にすると電話ボタンを出しません'],
-  ['営業開始', 'time', ''],
-  ['営業終了', 'time', ''],
-  ['最終受付', 'time', ''],
-  ['キャッチコピー', 'text', 'トップの大見出しに出ます'],
-  ['お知らせ', 'text', 'トップの上部に帯で出ます。空欄なら出ません'],
-  ['通知先メール', 'text',
-   'ご予約が入ったときに知らせるメールアドレス。複数入れるときはカンマで区切ります'
-   + '（例）tenshu@example.com, staff@example.com　★空欄にすると、ご予約が入っても誰にも届きません'],
-  ['LINE友だち追加URL', 'url',
-   'LINE公式アカウントの「友だち追加」URL（https://lin.ee/… ）。入れると予約完了画面とフッターに案内が出ます'],
-  ['Google口コミURL', 'url',
-   'Googleビジネスプロフィールの「クチコミを書く」URL。空欄なら案内を出しません'],
-  ['ロゴ画像', 'image', 'ヘッダーとトップに出るロゴ。写真を選ぶと自動で入ります'],
-  ['スタッフ写真', 'image', 'スタッフ紹介に出る写真'],
-  ['メイン写真', 'image', 'トップの一番上に大きく出る写真。店内や施術中の写真がおすすめです']
+/* 「店舗情報」タブに並べる項目。
+
+   ひとつながりに並べていたころは11項目でした。いまは34項目あります。
+   そのまま縦に並べると、390pxの画面では目的の欄にたどり着けません
+   （電話番号を直すのに、住所も紹介文も通り過ぎることになります）。
+   見出しで区切り、畳んでおきます。畳んでおけば、タブを開いた最初の画面が
+   「何がどこにあるか」の目次になります。
+
+   blank は、その欄を空にしたときどうなるかです。画面にもそのまま出します。
+     'clear' … サイトから消える（いちど入れた案内を、消せるようにするため）
+     'keep'  … いま出ている内容のまま（空だと予約の枠が作れない、
+               あるいはお客様の連絡先が画面から消えてしまう項目）
+   読み取り側は common.js の applySettings と対になっています。 */
+const SETTING_SECTIONS = [
+  {
+    title: 'サイトの公開',
+    note: '「準備中」の帯を出すか出さないかです。ここがこのサイトの公開スイッチです。',
+    fields: [
+      { key: '準備中の帯', type: 'choice', choices: ['出す', '出さない'],
+        current: () => (SALON.draft ? '出す' : '出さない'),
+        hint: '「出さない」にすると帯が消えて、ふつうのサイトになります。' },
+      { key: '準備中の文言', type: 'textarea', blank: 'keep',
+        hint: '帯に出る文です。お客様が読みます。店への申し送りは書かないでください。' }
+    ]
+  },
+  {
+    title: 'お知らせ・ご連絡先',
+    fields: [
+      { key: 'お知らせ', type: 'text', blank: 'clear',
+        hint: 'トップの上部に帯で出ます。「◯日は休みます」など。' },
+      { key: '電話番号', type: 'tel', blank: 'keep',
+        hint: '例）0297-00-0000。お客様の連絡先なので、ここは空にしても消えません。' },
+      { key: '通知先メール', type: 'text', blank: 'clear',
+        hint: 'ご予約が入ったときに知らせるメールアドレス。複数入れるときはカンマで区切ります'
+          + '（例）tenshu@example.com, staff@example.com'
+          + '　★空欄にすると、ご予約が入っても誰にも届きません' },
+      { key: 'LINE友だち追加URL', type: 'url', blank: 'clear',
+        hint: 'LINE公式アカウントの「友だち追加」URL（https://lin.ee/… ）。'
+          + '入れると予約完了画面とフッターに案内が出ます。' },
+      { key: 'Google口コミURL', type: 'url', blank: 'clear',
+        hint: 'Googleビジネスプロフィールの「クチコミを書く」URL。' }
+    ]
+  },
+  {
+    title: '営業時間・ご予約の受付',
+    note: 'この4つはお客様が選べる枠に直に効きます。空欄にすると枠が作れないので、'
+      + 'いま出ている内容のままになります。',
+    fields: [
+      { key: '営業開始', type: 'time', blank: 'keep' },
+      { key: '営業終了', type: 'time', blank: 'keep' },
+      { key: '最終受付', type: 'time', blank: 'keep', hint: '最後に施術を始められる時刻です。' },
+      { key: '定休曜日', type: 'weekdays' },
+      /* 受付期限は、この2行が唯一の置き場所です。画面もApps Scriptも
+         ここを読むので、片方だけ変わることが起きません。 */
+      { key: '変更・キャンセル期限（何日前）', type: 'number', blank: 'keep', min: 0, max: 30,
+        hint: 'お客様がネットで変更・キャンセルできる期限。1なら前日、2なら2日前です。' },
+      { key: '変更・キャンセル期限（何時）', type: 'number', blank: 'keep', min: 0, max: 23,
+        hint: 'その日の何時までかを 0〜23 で入れます（18なら18時まで）。' }
+    ]
+  },
+  {
+    title: 'お店の紹介',
+    fields: [
+      { key: 'キャッチコピー', type: 'textarea', blank: 'keep',
+        hint: 'トップの大見出しに出ます。' },
+      { key: '店の紹介文', type: 'textarea', blank: 'clear',
+        hint: 'キャッチコピーの下に出る、お店の紹介です。' },
+      { key: 'こだわり条件', type: 'textarea', blank: 'clear', rows: 8,
+        hint: '1行に1つずつ書いてください。店舗情報の表に「／」でつないで出ます。' }
+    ]
+  },
+  {
+    title: '場所・行き方',
+    note: '移転したときは、この5つを直せば、サイトも地図ボタンも確認メールも変わります。',
+    fields: [
+      { key: '住所', type: 'text', blank: 'clear' },
+      { key: '地図の検索文字列', type: 'text', blank: 'clear',
+        hint: '地図ボタンで検索させる文字。部屋番号まで入れると出ないことがあるので、建物名までがおすすめです。' },
+      { key: 'アクセス', type: 'textarea', blank: 'clear', hint: '最寄り駅・バス停からの行き方。' },
+      { key: '道案内', type: 'textarea', blank: 'clear', rows: 8,
+        hint: '改行するとそのまま改行して出ます。' },
+      { key: '駐車場', type: 'text', blank: 'clear' }
+    ]
+  },
+  {
+    title: '店内・お支払い',
+    fields: [
+      { key: '支払い方法', type: 'textarea', blank: 'clear',
+        hint: 'PayPay を入れたときなどは、ここに書き足してください。' },
+      { key: '席数', type: 'text', blank: 'clear',
+        hint: '店舗情報の表に出る文字です。同時にお受けできる人数は変わりません。' }
+    ]
+  },
+  {
+    title: 'スタッフ紹介',
+    fields: [
+      { key: 'スタッフの肩書き', type: 'text', blank: 'clear', hint: 'お名前の上に出ます。' },
+      { key: 'スタッフの経験年数', type: 'number', blank: 'clear', min: 0, max: 80,
+        hint: '「経験6年」と出ます。1年経ったら直してください。' },
+      { key: 'スタッフの得意分野', type: 'textarea', blank: 'clear', rows: 7,
+        hint: '1行に1つずつ書いてください。札になって並びます。' },
+      { key: 'スタッフの紹介文', type: 'textarea', blank: 'clear', rows: 8 },
+      { key: 'スタッフ写真', type: 'image', blank: 'keep', hint: 'スタッフ紹介に出る写真。' }
+    ]
+  },
+  {
+    title: '写真',
+    fields: [
+      { key: 'ロゴ画像', type: 'image', blank: 'keep',
+        hint: 'ヘッダーとトップに出るロゴ。写真を選ぶと自動で入ります。' },
+      { key: 'メイン写真', type: 'image', blank: 'keep',
+        hint: 'トップの一番上に大きく出る写真。店内や施術中の写真がおすすめです。' }
+    ]
+  },
+  {
+    title: '事業者の情報（プライバシーポリシー）',
+    note: 'お客様のお名前・電話番号・メールをお預かりしています。'
+      + '誰が預かっているのかを書かないまま公開することはできません。ここは必ず埋めてください。',
+    fields: [
+      { key: '事業者名', type: 'text', blank: 'clear', hint: '屋号または法人名。' },
+      { key: '代表者名', type: 'text', blank: 'clear' },
+      { key: '問い合わせ先メール', type: 'text', blank: 'clear',
+        hint: '開示・削除のご請求先として出ます。上の「通知先メール」と同じで構いません。' },
+      { key: 'プライバシーポリシー制定日', type: 'text', blank: 'clear', hint: '例）2026年8月15日' }
+    ]
+  }
 ];
+
+/* 上の全項目を、順番のまま平らにしたもの。
+   保存する中身と、設定シート側（gas/Code.gs の LISTED_SETTINGS）の
+   突き合わせに使います（test/settings.mjs）。 */
+const SETTING_KEYS = SETTING_SECTIONS.reduce((all, s) => all.concat(s.fields), []);
 const WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 /* キャンセルかどうか。台帳には「取消」「キャンセル済」などの書き方のゆれがありますが、
@@ -1269,6 +1383,9 @@ function updateDirty() {
     const tab = document.querySelector(`#admin-tabs .tab[data-pane="${t}"]`);
     if (tab) tab.classList.toggle('admin-tab-dirty', dirty);
   });
+  /* 店舗情報は見出しで畳んであるので、タブの点だけでは
+     どの見出しの中を直したのかが分かりません。 */
+  updateSettingSections();
 }
 
 /* 追加ボタンで作られる空の行 */
@@ -1287,39 +1404,130 @@ function redraw(target) {
   updateDirty();
 }
 
-function renderSettings() {
-  const closedRaw = String(edits.settings['定休曜日'] ?? '');
-  const closedSet = new Set(closedRaw.split(/[,、・\s]+/).map(t => t.replace(/曜日?$/, '')).filter(Boolean));
+/* 空欄にしたときどうなるかは、欄ごとに違います。
+   タブの先頭にまとめて書くと、いま見ている欄がどちらなのか分かりません。
+   欄の下に、その欄のことだけを書きます。 */
+const BLANK_NOTE = {
+  clear: '空欄にすると、サイトから消えます。',
+  keep: '空欄にすると、いま出ている内容のままです。'
+};
 
-  const weekBox = `
+const settingHint = f => [f.hint, BLANK_NOTE[f.blank]].filter(Boolean).join('　');
+
+function hintHtml(text, style = 'margin-top:5px;') {
+  return text
+    ? `<span style="display:block;font-size:11.5px;color:var(--muted);line-height:1.7;${style}">${esc(text)}</span>`
+    : '';
+}
+
+/** 定休曜日は、7つのボタンを押す形のままにします（文字で書かせない） */
+function weekdayFieldHtml() {
+  const raw = String(edits.settings['定休曜日'] ?? '');
+  const on = new Set(raw.split(/[,、・\s]+/).map(t => t.replace(/曜日?$/, '')).filter(Boolean));
+  return `
     <div class="form-field">
       <span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">定休曜日</span>
       <div class="weekday-picker">
         ${WEEK_LABELS.map(w => `
           <label class="radio-chip">
-            <input type="checkbox" data-weekday="${w}" ${closedSet.has(w) ? 'checked' : ''} />
+            <input type="checkbox" data-weekday="${w}" ${on.has(w) ? 'checked' : ''} />
             <span>${w}</span>
           </label>`).join('')}
       </div>
-      <span style="display:block;font-size:11.5px;color:var(--muted);margin-top:5px;">
-        選んだ曜日は毎週ずっと予約できなくなります。1日だけ休むときは「休業日」タブをお使いください。
-      </span>
+      ${hintHtml('選んだ曜日は毎週ずっと予約できなくなります。1日だけ休むときは「休業日」タブをお使いください。')}
     </div>`;
+}
 
-  $('#setting-rows').innerHTML = SETTING_KEYS.map(([key, type, hint]) => {
-    if (type === 'image') {
-      return imageField(key, edits.settings[key] ?? '', `data-setting="${esc(key)}"`, 'setting-' + key)
-        + (hint ? `<p style="font-size:11.5px;color:var(--muted);margin:-4px 0 12px;">${esc(hint)}</p>` : '');
-    }
+function settingFieldHtml(f) {
+  const v = edits.settings[f.key] ?? '';
+  const hint = settingHint(f);
+
+  if (f.type === 'weekdays') return weekdayFieldHtml();
+
+  if (f.type === 'image') {
+    return imageField(f.key, v, `data-setting="${esc(f.key)}"`, 'setting-' + f.key)
+      + hintHtml(hint, 'margin:-4px 0 12px;');
+  }
+
+  const label = `<span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">${esc(f.key)}</span>`;
+
+  /* 出す／出さないのように答えが2つしかないものは、打たせません。
+     「はい」「オン」「TRUE」と書かれるたびに読み方が増えます。 */
+  if (f.type === 'choice') {
+    /* シートがまだ空のとき（設置直後）は、いま掲載中の状態を選んでおきます。
+       先頭の選択肢を出しておくと、画面には「出す」と見えているのに
+       サイトでは帯が出ていない、という食い違いが起きます。 */
+    const cur = String(v).trim() || (f.current ? f.current() : f.choices[0]);
     return `
     <label class="form-field">
-      <span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">${esc(key)}</span>
-      <input class="input" type="${type === 'time' ? 'time' : type === 'url' ? 'url' : 'text'}"
-             ${type === 'url' ? 'inputmode="url" placeholder="https://" ' : ''}
-             value="${esc(edits.settings[key] ?? '')}" data-setting="${esc(key)}" />
-      ${hint ? `<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:5px;">${esc(hint)}</span>` : ''}
+      ${label}
+      <select class="select" data-setting="${esc(f.key)}">
+        ${f.choices.map(c => `<option value="${esc(c)}"${cur === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+      </select>
+      ${hintHtml(hint)}
     </label>`;
-  }).join('') + weekBox;
+  }
+
+  /* 長い文と、1行1件で書く欄。1行の入力欄に入れると、
+     打った先が見えないまま横に流れていきます。 */
+  if (f.type === 'textarea') {
+    return `
+    <label class="form-field">
+      ${label}
+      <textarea class="input" rows="${f.rows || 4}" data-setting="${esc(f.key)}"
+                style="min-height:${(f.rows || 4) * 26 + 20}px;">${esc(v)}</textarea>
+      ${hintHtml(hint)}
+    </label>`;
+  }
+
+  /* 数の欄。日本語入力のまま打った全角（「１８」）も受け取りたいので
+     type="number" にはしません（空欄になって黙って既定値に戻ります）。
+     読めない値は applySettings 側で捨てます。 */
+  const type = f.type === 'time' ? 'time' : f.type === 'url' ? 'url' : f.type === 'tel' ? 'tel' : 'text';
+  const extra = f.type === 'url' ? 'inputmode="url" placeholder="https://" '
+    : f.type === 'number' ? `inputmode="numeric" placeholder="${f.min}〜${f.max}" `
+      : f.type === 'tel' ? 'inputmode="tel" ' : '';
+  return `
+    <label class="form-field">
+      ${label}
+      <input class="input" type="${type}" ${extra}value="${esc(v)}" data-setting="${esc(f.key)}" />
+      ${hintHtml(hint)}
+    </label>`;
+}
+
+/* どの見出しの中に、まだ保存していない欄があるか。
+   畳んでいるあいだは中が見えないので、見出しに印を出します。
+   出さないと、直したことは覚えていても、どこを直したのか探せません。 */
+function settingSectionDirty(section) {
+  let base = {};
+  try { base = JSON.parse(settingsBase || '{}'); } catch (e) { /* 読み込み前 */ }
+  return section.fields.some(f =>
+    String(edits.settings[f.key] ?? '') !== String(base[f.key] ?? ''));
+}
+
+function updateSettingSections() {
+  SETTING_SECTIONS.forEach((s, i) => {
+    const mark = document.querySelector(`[data-setting-mark="${i}"]`);
+    if (mark) mark.textContent = settingSectionDirty(s) ? '●' : '';
+  });
+}
+
+function renderSettings() {
+  /* 折り畳みは、開いたときの1画面が目次になるように、全部畳んでおきます。
+     どれか1つを開いておくと、その中身が目次の下半分を押し出します。 */
+  $('#setting-rows').innerHTML = SETTING_SECTIONS.map((s, i) => `
+    <details class="setting-group" data-setting-group="${i}">
+      <summary style="padding:13px 4px;font-size:15px;font-weight:700;cursor:pointer;
+                      border-bottom:1px solid var(--line-2);list-style:revert;">
+        ${esc(s.title)}
+        <span data-setting-mark="${i}" style="color:var(--danger);font-size:10px;vertical-align:2px;"></span>
+      </summary>
+      <div style="padding:14px 2px 4px;">
+        ${s.note ? `<p class="note" style="margin:0 0 14px;">${esc(s.note)}</p>` : ''}
+        ${s.fields.map(settingFieldHtml).join('')}
+      </div>
+    </details>`).join('');
+  updateSettingSections();
 }
 
 /** 曜日のチェックから「日,水」の形にまとめて設定に入れる */
@@ -1520,6 +1728,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.addEventListener('change', e => {
     const el = e.target;
+    /* 「出す／出さない」の選択欄。端末によっては input が来ないので、
+       こちらでも受け取ります（来なかったら未保存の印も出ません）。 */
+    if (el.dataset.setting !== undefined) {
+      edits.settings[el.dataset.setting] = el.value;
+      updateDirty();
+      return;
+    }
     if (el.dataset.reviewState !== undefined && el.checked) {
       const row = edits.reviews[Number(el.dataset.reviewState)];
       if (row) row['状態'] = el.value;

@@ -132,12 +132,51 @@ function revokeAllAdminTokens() {
   console.log('記憶させた端末をすべて解除しました');
 }
 
-/* 変更・キャンセルの受付期限。「来店日の CANCEL_DEADLINE_DAYS_BEFORE 日前の
-   CANCEL_DEADLINE_HOUR 時」まで受け付けます（初期値＝前日18時）。
-   ★サイト側（assets/js/data.js の business.cancelDeadline）と同じ値にしてください。
-   Apps Script からは data.js を読めないため、2か所に書いてあります。 */
+/* 変更・キャンセルの受付期限。「来店日の◯日前の◯時」まで受け付けます。
+
+   ★正は「設定」シートの2行です（CANCEL_DEADLINE_KEYS）。画面側（common.js の
+     applySettings）も、この受け口（cancelDeadline_）も、同じ2行を読みます。
+
+   以前はここと data.js の2か所に書いてありました。同じ値でなければならないのに、
+   直せるのはコードを触れる人だけで、しかも片方だけ直せてしまいます。そうなると
+   画面は「まだ変更できます」と出すのに送ると断られる、お客様にはどうしようも
+   ない状態になり、店の人にも原因が分かりません。シートを正にすれば、
+   店主が管理ページで直した瞬間に両方が同じ値に変わります。
+
+   下の2つは、シートがまだ無い（設置直後）ときの控えです。data.js 側の控えとは
+   同じ値にしてください（test/settings.mjs が突き合わせています）。 */
 const CANCEL_DEADLINE_DAYS_BEFORE = 1;
 const CANCEL_DEADLINE_HOUR = 18;
+const CANCEL_DEADLINE_KEYS = ['変更・キャンセル期限（何日前）', '変更・キャンセル期限（何時）'];
+
+/** いまの受付期限。設定シートを見て、読めなければ上の控えを使う */
+function cancelDeadline_() {
+  const out = { daysBefore: CANCEL_DEADLINE_DAYS_BEFORE, hour: CANCEL_DEADLINE_HOUR };
+  let st;
+  try { st = readSettings_(SpreadsheetApp.getActiveSpreadsheet()) || {}; } catch (e) { return out; }
+  const d = settingInt_(st, CANCEL_DEADLINE_KEYS[0], 0, 30);
+  const h = settingInt_(st, CANCEL_DEADLINE_KEYS[1], 0, 23);
+  if (d !== null) out.daysBefore = d;
+  if (h !== null) out.hour = h;
+  return out;
+}
+
+/** 設定シートの数値。手で書く場所なので、範囲の外と読めない値は null を返す。
+
+    null を返した項目は控えの値のままになります。「35日前」「99時」を
+    そのまま通すと、お客様がいつまで経っても変更できない予約になり、
+    しかも画面には期限が過ぎたとしか出ません。 */
+function settingInt_(st, key, min, max) {
+  const raw = st[key];
+  if (raw === undefined || String(raw).trim() === '') return null;
+  /* 数字だけを抜き出すやり方だと、「あした」が 0 になります
+     （抜き出した結果が空文字で、Number('') は 0 のため）。
+     0 は「当日まで」「0時」として通ってしまうので、丸ごと見ます。 */
+  const t = halfWidth_(String(raw)).trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return (n < min || n > max) ? null : n;
+}
 
 /* 店舗の通知先メール。予約が入るたび、ここに届きます。
    ★ここが空だと通知が飛びません。設置したら必ず入れてください（selfCheck が警告します）。
@@ -649,15 +688,16 @@ function doReserve_(sheet, d) {
     '【ご予約の確認・キャンセル】',
     `${SITE_URL}mypage.html`,
     'ご予約番号と電話番号を入力すると、どの端末からでもご確認いただけます。',
-    '前日18時を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
+    /* 期限は設定シートから読みます。ここに「前日18時」と書いていたころは、
+       店が期限を変えても、このメールだけが古い締切を案内し続けていました。 */
+    deadlineLabel_() + 'を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
     '',
     lineUrl ? '【次回のご予約はLINEから】' : '',
     lineUrl || '',
     lineUrl ? '友だち追加していただくと、前日のリマインドが届き、次回のご予約もワンタップで開けます。' : '',
     lineUrl ? '' : '',
     `${SALON_NAME}`,
-    SALON_TEL ? `TEL ${SALON_TEL}` : '',
-    SALON_ADDRESS
+    salonSignature_()
   ].filter(Boolean).join('\n'));
 
   return { ok: true, code: d.code };
@@ -691,7 +731,7 @@ function addToCalendar_(d, c, menuText) {
           `ご要望：${or_(c.request, 'なし', LIMITS.request)}`,
           `金額：${Number(d.totalPrice).toLocaleString()}円`
         ].join('\n'),
-        location: SALON_ADDRESS
+        location: salonAddress_()
       }
     );
     return event.getId();
@@ -1221,7 +1261,7 @@ function doChange_(sheet, d) {
     `ご予約の確認： ${SITE_URL}mypage.html`,
     '',
     `${SALON_NAME}`,
-    SALON_TEL ? `TEL ${SALON_TEL}` : ''
+    salonSignature_({ address: false })
   ].filter(Boolean).join('\n'));
 
   notifyLine_([
@@ -1251,20 +1291,28 @@ function doChange_(sheet, d) {
 function withinDeadline_(dateKey) {
   const d = normalizeDate_(dateKey);
   if (!d) return true;   // 日付が読めないものは弾かない（店舗側で対応してもらう）
+  const rule = cancelDeadline_();
   const parts = d.split('-');
   const limit = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-  limit.setDate(limit.getDate() - CANCEL_DEADLINE_DAYS_BEFORE);
-  limit.setHours(CANCEL_DEADLINE_HOUR, 0, 0, 0);
+  limit.setDate(limit.getDate() - rule.daysBefore);
+  limit.setHours(rule.hour, 0, 0, 0);
   return Date.now() < limit.getTime();
 }
 
+/** 「前日18時」のような、受付期限の言い方（画面側 mypage.js の deadlineLabel と同じ形） */
+function deadlineLabel_() {
+  const rule = cancelDeadline_();
+  return rule.daysBefore === 1
+    ? '前日' + rule.hour + '時'
+    : rule.daysBefore + '日前の' + rule.hour + '時';
+}
+
 function deadlineMessage_() {
-  const when = CANCEL_DEADLINE_DAYS_BEFORE === 1
-    ? '前日' + CANCEL_DEADLINE_HOUR + '時'
-    : CANCEL_DEADLINE_DAYS_BEFORE + '日前の' + CANCEL_DEADLINE_HOUR + '時';
+  const tel = salonTel_();
+  const when = deadlineLabel_();
   return 'ネットでの変更・キャンセルは' + when + 'までとなっております。'
     + 'お手数ですが店舗までご連絡ください。'
-    + (SALON_TEL ? '（TEL ' + SALON_TEL + '）' : '');
+    + (tel ? '（TEL ' + tel + '）' : '');
 }
 
 /* その枠が既に埋まっているか（自分自身の予約は除く） */
@@ -1361,7 +1409,7 @@ function doCancel_(sheet, d) {
     `ご予約はこちら： ${SITE_URL}`,
     '',
     `${SALON_NAME}`,
-    SALON_TEL ? `TEL ${SALON_TEL}` : ''
+    salonSignature_({ address: false })
   ].filter(Boolean).join('\n'));
 
   notifyLine_([
@@ -1398,6 +1446,14 @@ function doAdminLogin_(d) {
 function doAdminData_(d) {
   requireAdmin_(d);
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  /* 設定シートに足りない項目があれば、ここで足しておきます。
+
+     管理ページは、画面に出ている項目をまとめて保存します。シートに無い項目が
+     あるまま開かせると、店主が電話番号だけ直して保存したときに、住所も
+     支払い方法も空欄として書き込まれ、サイトから消えます。
+     読み込む前に足りない行を掲載中の内容で埋めておけば、それが起きません。
+     足りているときは何も書きません（印も変わりません）。 */
+  ensureSettingRows_(ss);
   const sheet = getSheet_();
   const last = sheet.getLastRow();
   const col = colIndex_(sheet);
@@ -1651,6 +1707,35 @@ function lineAddUrl_() {
     if (/^https?:\/\//i.test(v)) return v;
   } catch (e) { /* シートが読めないときは下の定数で */ }
   return LINE_ADD_URL;
+}
+
+/* メールの署名に入れる電話番号と住所も、設定シートを先に見ます。
+
+   番号を変えた・移転した、というのは店では普通に起きます。ここをコード側だけに
+   しておくと、サイトの表示だけ新しくなって、確認メールとキャンセルメールの
+   末尾だけが古い番号と古い住所を案内し続けます。しかもメールは店の人の目に
+   触れないので、誰も気づけません。 */
+function salonTel_() {
+  try {
+    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['電話番号'] || '').trim();
+    if (v) return v;
+  } catch (e) { /* シートが読めないときは下の定数で */ }
+  return SALON_TEL;
+}
+function salonAddress_() {
+  try {
+    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['住所'] || '').trim();
+    if (v) return v;
+  } catch (e) { /* シートが読めないときは下の定数で */ }
+  return SALON_ADDRESS;
+}
+/** メールの末尾に付ける「TEL ◯◯」と住所。番号が空なら住所だけになります。
+    { address: false } を渡すと番号だけ（変更・キャンセルのお知らせで使います）。 */
+function salonSignature_(opt) {
+  const tel = salonTel_();
+  const withAddress = !opt || opt.address !== false;
+  return [tel ? 'TEL ' + tel : '', withAddress ? salonAddress_() : '']
+    .filter(Boolean).join('\n');
 }
 
 /** 設定シート（項目 / 内容 の2列） */
@@ -1958,6 +2043,16 @@ function はじめの準備() {
     log.push('・予約の通知先： ' + notifyList_().join(' / ')
       + '（管理ページの「店舗情報」タブ →「通知先メール」から変えられます）');
   }
+  /* お客様の氏名・電話番号・メールをお預かりする以上、誰が預かっているのかを
+     書かないまま公開することはできません。ここは埋まるまで言い続けます。 */
+  let owner = '';
+  try { owner = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['事業者名'] || '').trim(); }
+  catch (e) { /* シートが読めないときは警告だけ出します */ }
+  if (!owner) {
+    log.push('⚠️ 事業者名が空です。管理ページの「店舗情報」タブ →「事業者の情報」から'
+      + '入れてください。お客様の個人情報をお預かりするのに、誰が預かっているのかが'
+      + 'プライバシーポリシーに出ていない状態です。');
+  }
   log.push('');
   log.push('--- このあとの手順 ---');
   log.push('1. 「デプロイ → 新しいデプロイ → ウェブアプリ」を開く');
@@ -2010,21 +2105,10 @@ function setupMenuSheets() {
       + '空欄のままなら、その日は終日お休みになります。');
   }
 
-  const setting = ss.getSheetByName(SETTING_SHEET) || ss.insertSheet(SETTING_SHEET);
-  if (setting.getLastRow() === 0) {
-    setting.appendRow(['項目', '内容']);
-    setting.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#f3efea');
-    setting.setFrozenRows(1);
-    setting.setColumnWidth(1, 150);
-    setting.setColumnWidth(2, 420);
-    [['電話番号', ''], ['営業開始', '09:00'], ['営業終了', '22:00'], ['最終受付', '21:00'],
-     ['キャッチコピー', ''], ['お知らせ', ''], ['定休曜日', ''],
-     ['通知先メール', NOTIFY_EMAIL],
-     ['LINE友だち追加URL', ''], ['Google口コミURL', ''],
-     ['ロゴ画像', ''], ['スタッフ写真', ''], ['メイン写真', '']].forEach(r => setting.appendRow(r));
-    setting.getRange('B8').setNote('休みにする曜日を「日,水」のように書きます。毎週その曜日が予約できなくなります。');
-    setting.getRange('B9').setNote('LINE公式アカウントの友だち追加URL（https://lin.ee/… ）。入れると予約完了画面に案内が出ます。');
-  }
+  /* 設定シートは、作るのも足すのも ensureSettingRows_ に任せます。
+     ここで「シートが空のときだけ」書いていたころは、あとから項目を増やしても
+     すでにシートを作ってある店には出てきませんでした。 */
+  ensureSettingRows_(ss);
 
   const style = ss.getSheetByName(STYLE_SHEET) || ss.insertSheet(STYLE_SHEET);
   if (style.getLastRow() === 0) {
@@ -2186,6 +2270,127 @@ const LISTED_STYLES = [
     '暑い夏に向けて刈り上げ高めのスペインカール']
 ];
 
+/* 「設定」シートの項目と、その初期値。
+   assets/js/data.js に書いてある掲載内容と同じものです（test/settings.mjs が
+   突き合わせています）。3つ目はシートのセルに付ける覚え書きです。
+
+   ★空の初期値にしてよいのは、空でも画面が成り立つ項目だけです。
+     住所や支払い方法を空で足すと、店主が電話番号だけ直して保存した瞬間に、
+     触っていない項目まで空欄として保存され、サイトから消えます。
+     店の人には、勝手に消えたようにしか見えません。 */
+const LISTED_SETTINGS = [
+  ['準備中の帯', '出す',
+    '「出さない」にすると、画面上の「準備中」の帯が消えます。ここがサイトの公開スイッチです。'],
+  ['準備中の文言', '準備中：ご予約はまだお受けしていません。掲載内容も仮のものです。',
+    '「準備中の帯」を出しているあいだ、画面のいちばん上に出る文です。'],
+  ['電話番号', SALON_TEL, '空欄にすると電話ボタンが消えます。'],
+  ['営業開始', '09:00', ''],
+  ['営業終了', '22:00', ''],
+  ['最終受付', '21:00', '最後に施術を始められる時刻です。'],
+  ['定休曜日', '',
+    '休みにする曜日を「日,水」のように書きます。毎週その曜日が予約できなくなります。'],
+  [CANCEL_DEADLINE_KEYS[0], CANCEL_DEADLINE_DAYS_BEFORE,
+    'お客様がネットで変更・キャンセルできる期限。1なら前日、2なら2日前です。'],
+  [CANCEL_DEADLINE_KEYS[1], CANCEL_DEADLINE_HOUR,
+    '上の日の何時までかを、0〜23の数字で書きます（18なら18時まで）。'],
+  ['キャッチコピー',
+    'イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に',
+    'トップの大見出しに出ます。'],
+  ['お知らせ', '', 'トップの上部に帯で出ます。空欄なら出ません。'],
+  ['通知先メール', NOTIFY_EMAIL,
+    'ご予約が入ったときに届く先。複数入れるときはカンマで区切ります。'
+    + '★空欄にすると、ご予約が入っても誰にも届きません。'],
+  ['LINE友だち追加URL', '',
+    'LINE公式アカウントの友だち追加URL（https://lin.ee/… ）。入れると予約完了画面に案内が出ます。'],
+  ['Google口コミURL', '', 'Googleビジネスプロフィールの「クチコミを書く」URL。'],
+  ['店の紹介文',
+    'ZER01 は毎日を簡単にカッコよくを基盤にフェードや白髪ぼかし、メンズ縮毛矯正、'
+    + 'パーマまで幅広く対応するmen\'s専門サロンです。マンツーマン施術でお客様と丁寧に'
+    + '向き合い、年齢やライフスタイルに合わせた"長く似合うスタイル"をご提案。'
+    + '落ち着いた空間で、髪も気持ちも整う時間を提供します。',
+    'トップのキャッチコピーの下に出る、お店の紹介です。'],
+  ['こだわり条件',
+    ['4席以下の小型サロン', '駐車場あり', '夜19時以降も受付OK',
+     '1人のスタイリストが仕上げまで担当', '朝10時前でも受付OK',
+     '店頭でのカード支払いOK', 'お子さま同伴OK', 'ドリンクサービスあり',
+     '個室あり', '半個室あり', '完全予約制'].join('\n'),
+    '1行に1つずつ書いてください。店舗情報の表に「／」でつないで出ます。'],
+  ['住所', SALON_ADDRESS, '店舗情報の表と、フッターと、確認メールの末尾に出ます。'],
+  ['地図の検索文字列', '茨城県龍ケ崎市中根台1-1-1 ロイヤルヤエ',
+    '地図ボタンを押したときに検索させる文字です。部屋番号まで入れると出ないことがあります。'],
+  ['アクセス', '龍ケ崎市駅より車5分・バス10分。「中根台二丁目」バス停から徒歩1分。', ''],
+  ['道案内',
+    '◯お車でお越しの方龍ケ崎市中根台の「ロイヤルヤエ」建物内 002号室が当店です。'
+    + 'カーナビ・Googleマップには「龍ケ崎市中根台1-1-1 ロイヤルヤエ」と入力してください。'
+    + '※建物の目の前に自社駐車場がございます。'
+    + '◯ 公共機関ご利用の方龍ケ崎市駅から久保台方面行きのバスにご乗車ください。'
+    + '約10分で「中根台二丁目」バス停に到着します。バス停からは徒歩1分で当店です。',
+    '改行するとそのまま改行して出ます。'],
+  ['駐車場', '自社駐車場が目の前に2台あります', ''],
+  ['支払い方法',
+    'Visa／JCB／American Express／Diners Club／現金、カードはタッチ決済のみ',
+    'PayPay を入れたときなどは、ここに書き足してください。'],
+  ['席数', 'セット面2席',
+    '店舗情報の表に出る文字です。同時に受けられる人数は変わりません（コード側の SEATS）。'],
+  ['スタッフの肩書き', 'owner', 'スタッフ紹介のお名前の上に出ます。'],
+  ['スタッフの経験年数', 6, '「経験6年」と出ます。空欄にすると出ません。'],
+  ['スタッフの得意分野',
+    ['メンズカット', '白髪ぼかし', 'ホワイトメッシュ', 'フェード', 'バーバーヘア',
+     '海外ヘア', '曲がる縮毛矯正', 'ダウンパーマ', '韓国ヘア'].join('\n'),
+    '1行に1つずつ書いてください。スタッフ紹介の札になります。'],
+  ['スタッフの紹介文',
+    '【men\'sヘア全て得意です】イタリア・ミラノでのバーバー技術習得後、'
+    + '東京で経験実績を積んできました！上質な技術でお客様のお悩み改善や理想を'
+    + '一緒に叶えます！似合う髪がわからない、チャレンジしたいけど不安、'
+    + '普段のスタイリングを楽にしたいなどお悩みがある方ぜひ一度お任せください！'
+    + '一緒に見つけていきましょう！', ''],
+  ['ロゴ画像', '', 'ヘッダーとトップに出るロゴ。管理ページから写真を選べます。'],
+  ['スタッフ写真', '', 'スタッフ紹介に出る写真。'],
+  ['メイン写真', '', 'トップの一番上に大きく出る写真。'],
+  ['事業者名', '',
+    'プライバシーポリシーに出ます。お客様の氏名・電話番号をお預かりする以上、'
+    + '誰が預かっているのかを書く必要があります。'],
+  ['代表者名', '', 'プライバシーポリシーに出ます。'],
+  ['問い合わせ先メール', '', '個人情報の開示・削除のご請求先として出ます。'],
+  ['プライバシーポリシー制定日', '', '例）2026年8月15日']
+];
+
+/* 「設定」シートに、こちらが知っている項目の行が無ければ、いちばん下に足します。
+
+   列を足す ensureHeaders_ の、行版です。設定シートは項目が縦に並ぶので、
+   足す先は右端ではなく下端になります。店の人が自分で足した行は動かしません。
+
+   足りない行があるまま管理ページを開かせてはいけません。管理ページは
+   画面にある項目をまとめて保存するので、シートに無い項目まで空欄として
+   書き込まれ、触っていない住所や支払い方法がサイトから消えます。 */
+function ensureSettingRows_(ss) {
+  const sheet = ss.getSheetByName(SETTING_SHEET) || ss.insertSheet(SETTING_SHEET);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['項目', '内容']);
+    sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#f3efea');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 200);
+    sheet.setColumnWidth(2, 420);
+  }
+  const have = {};
+  if (sheet.getLastRow() >= 2) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      have[String(r[0] == null ? '' : r[0]).trim()] = true;
+    });
+  }
+  const add = LISTED_SETTINGS.filter(function (r) { return !have[r[0]]; });
+  if (!add.length) return 0;
+
+  const from = sheet.getLastRow() + 1;
+  sheet.getRange(from, 1, add.length, 2)
+    .setValues(add.map(function (r) { return [r[0], r[1]]; }));
+  // セルの覚え書き。シートを直接開いた人にも、何を書く欄なのかが分かるように
+  add.forEach(function (r, i) {
+    if (r[2]) sheet.getRange(from + i, 2).setNote(r[2]);
+  });
+  return add.length;
+}
+
 function メニューを掲載内容に入れ替える() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const warn = 'メニュー・おすすめメニュー・スタイルの3枚を、掲載内容で書き直します。\n\n'
@@ -2325,8 +2530,7 @@ function sendReminders() {
       'ご都合が変わられた場合は、お手数ですがご連絡ください。',
       '',
       `${SALON_NAME}`,
-      SALON_TEL ? `TEL ${SALON_TEL}` : '',
-      SALON_ADDRESS
+      salonSignature_()
     ].filter(Boolean).join('\n'));
     sent++;
   });

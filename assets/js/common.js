@@ -647,9 +647,20 @@ const Catalog = {
       // ヘッダー・フッターはこれより先に描かれているため、描き直す。
       if (data.settings) {
         applySettings(data.settings);
+        /* 設定シートには、紹介文・住所・こだわり条件・スタッフ紹介まで入っています。
+           これらを描いているのは各ページ側で、描き直すかどうかは、この
+           load() が返す値で決めています。メニューの行が1件も無い店（全部
+           非表示にした、まだ入れていない）では 'local' のままになり、
+           店主が書き換えた住所が画面に出ないままになります。
+           設定が届いた時点で、シートから来たものがあるとみなします。 */
+        this.source = 'sheet';
         renderHeader();
         renderFooter();
         wireImageFallbacks();
+        /* 自分では取りに行かないページにも知らせます。
+           プライバシーポリシーは、事業者名・代表者名・問い合わせ先を
+           ここから受け取って描き直します（privacy.js）。 */
+        document.dispatchEvent(new CustomEvent('salon:settings'));
       }
     } catch (e) {
       console.warn('メニューを取得できませんでした。掲載中の内容で表示します。', e);
@@ -666,12 +677,91 @@ const SALON_DEFAULT_HOURS = {
   lastOrder: SALON.business.lastOrder
 };
 
+/* ---- 手で書かれた値を、画面に出せる形にする ----
+
+   設定シートは店主が直接打つ場所です。全角、改行、記号、貼り付けそこねた
+   長い文字列が来ます。ここを素通しにすると、1つの入力で画面が崩れます。
+   制御文字を落とし、長さで頭打ちにします。
+
+   長さで切るのは、終わりの無い1語（URLの貼り間違いなど）が来たときに、
+   390pxの画面から横へ突き抜けてしまうためです。改行はそのまま残します
+   （道案内や紹介文は、改行したとおりに出る場所です）。 */
+function cleanSetting(v, max) {
+  return String(v == null ? '' : v)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, max);
+}
+
+/* 1行に1件で書いてもらう欄（こだわり条件・得意分野）。
+   続けて書かれることもあるので、読点と全角の「／」でも切ります
+   （画面には「／」でつないで出しているので、それを写して戻されます）。
+   半角の「/」では切りません。URLや「and/or」まで切れてしまうためです。
+
+   件数と1件の長さに上限を置くのは、11件のタグを並べたスタイルで
+   写真より説明のほうが背高になった、という実例があるためです。 */
+function cleanSettingList(v, maxItems, maxLen) {
+  return cleanSetting(v, maxItems * (maxLen + 1))
+    .split(/[\n、,，／]+/)
+    .map(s => cleanSetting(s, maxLen))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
 /** 管理ページ（設定シート）の内容をサイトに反映する。
- *  空欄の項目は data.js の値をそのまま使います。 */
+ *
+ *  ---- 空欄をどう読むか ----
+ *  2通りあります。どちらなのかは、管理ページの欄ごとに書いてあります
+ *  （admin.js の SETTING_SECTIONS。keep が付いているものが下の2つ目）。
+ *
+ *    ・空欄＝サイトから消える（紹介文・住所・支払い方法・こだわり条件など）
+ *      いちど入れた案内を、管理ページから消せるようにするためです。
+ *      「空欄＝据え置き」だけにすると、店主は消す手段を持ちません。
+ *
+ *    ・空欄＝掲載中の内容のまま（営業時間・最終受付・受付期限・電話番号・写真）
+ *      空になると予約の枠が1つも作れなくなるか、お客様の連絡先が
+ *      画面から消えてしまう項目です。ここは消せないほうが安全です。
+ *
+ *  設定シートにその行そのものが無いときは、どちらも掲載中の内容のままです
+ *  （設置直後のシートや、古いシートで足りない項目があるとき）。
+ */
 function applySettings(st) {
   const set = (key, apply) => {
     const v = st[key];
     if (v !== undefined && String(v).trim() !== '') apply(String(v).trim());
+  };
+  /* 空欄にすれば消せる欄。行が無いときだけ掲載中の内容を使います。 */
+  const setText = (key, max, apply) => {
+    if (st[key] === undefined) return;
+    apply(cleanSetting(st[key], max));
+  };
+  /* 空欄では消せない欄。整え方は同じで、空のときだけ掲載中の内容を残します。 */
+  const setTextKeep = (key, max, apply) => {
+    if (st[key] === undefined) return;
+    const v = cleanSetting(st[key], max);
+    if (v) apply(v);
+  };
+  const setList = (key, maxItems, maxLen, apply) => {
+    if (st[key] === undefined) return;
+    apply(cleanSettingList(st[key], maxItems, maxLen));
+  };
+  /* 数として読む欄。範囲の外は捨てて、掲載中の値のままにします。
+     「経験200年」「99時まで」を通すと、直せるのは店主ではなくなります。 */
+  const setInt = (key, min, max, apply) => {
+    const raw = st[key];
+    if (raw === undefined) return;
+    const t = toHalfWidth(String(raw)).trim();
+    if (t === '') { apply(null); return; }        // 空欄にすれば出さない
+    /* 数字だけを抜き出すやり方にすると、「あした」が 0 になります
+       （抜き出した結果が空文字で、Number('') は 0 のため）。
+       0 は「当日まで」「0時」として通ってしまうので、丸ごと見ます。 */
+    const n = /^\d+$/.test(t) ? Number(t) : NaN;
+    if (!Number.isInteger(n) || n < min || n > max) {
+      console.warn(`設定シートの「${key}」は ${min}〜${max} の数字で入力してください（${raw}）。`);
+      return;
+    }
+    apply(n);
   };
   set('電話番号', v => { SALON.tel = v; });
 
@@ -747,6 +837,67 @@ function applySettings(st) {
       ? [...new Set(raw.split(/[,、・\s]+/).map(t => WEEKDAY_JA.indexOf(t.replace(/曜日?$/, ''))).filter(i => i >= 0))]
       : [];
   }
+
+  /* ---- 変更・キャンセルの受付期限 ----
+     受け口（gas/Code.gs の cancelDeadline_）も、同じ2行を読みます。
+     ここを画面側だけの設定にすると、画面は「まだ変更できます」と出すのに
+     送ると断られる、お客様にはどうしようもない状態になります。
+     空欄と範囲外は掲載中の値のまま（消せる期限ではないため）。 */
+  const rule = { daysBefore: 1, hour: 18, ...(SALON.business.cancelDeadline || {}) };
+  setInt('変更・キャンセル期限（何日前）', 0, 30, v => { if (v !== null) rule.daysBefore = v; });
+  setInt('変更・キャンセル期限（何時）', 0, 23, v => { if (v !== null) rule.hour = v; });
+  SALON.business.cancelDeadline = rule;
+
+  /* ---- 「準備中」の帯 ----
+     これがサイトの公開スイッチです。以前は data.js の draft にあり、
+     店主は自分の店のサイトを自分で公開できませんでした。
+     読めない書き方はそのまま（勝手に公開も、勝手に非公開もしない）。 */
+  if (st['準備中の帯'] !== undefined) {
+    const v = toHalfWidth(String(st['準備中の帯'])).trim().toLowerCase();
+    // 「表示しない」は「表示」で始まるので、出さない側から先に見ます
+    if (/^(出さない|表示しない|しない|いいえ|false|off|no|×|x)/.test(v)) SALON.draft = false;
+    else if (/^(出す|表示|する|はい|true|on|yes|○|o)/.test(v)) SALON.draft = true;
+    else if (v) console.warn(`設定シートの「準備中の帯」は「出す」か「出さない」で入力してください（${v}）。`);
+  }
+  /* 文言だけを空にしても帯は消えません（消すのは上の「準備中の帯」です）。
+     空で上書きすると、店が書いていない当たり障りのない一文が出てしまうので、
+     掲載中の文言を残します。 */
+  setTextKeep('準備中の文言', 200, v => { SALON.draftNote = v; });
+
+  /* ---- 店の紹介・場所・設備 ----
+     移転、PayPay導入、席を増やした。どれも普通に起きることです。
+     ここがコード側にあると、起きた日に直せる人がいません。 */
+  setText('店の紹介文', 800, v => { SALON.description = v; });
+  setText('住所', 200, v => { SALON.address = v; });
+  setText('地図の検索文字列', 200, v => { SALON.mapQuery = v; });
+  setText('アクセス', 300, v => { SALON.access = v; });
+  setText('道案内', 1000, v => { SALON.directions = v; });
+  setText('駐車場', 200, v => { SALON.parking = v; });
+  setText('支払い方法', 300, v => { SALON.payment = v; });
+  setText('席数', 100, v => { SALON.seats = v; });
+  setList('こだわり条件', 20, 40, v => { SALON.features = v; });
+
+  /* ---- スタッフ紹介 ----
+     1年経てば「経験6年」は嘘になります。 */
+  const staff = SALON.staff[0];
+  if (staff) {
+    setText('スタッフの肩書き', 40, v => { staff.role = v; });
+    setText('スタッフの紹介文', 800, v => { staff.message = v; });
+    setList('スタッフの得意分野', 15, 30, v => { staff.tags = v; });
+    /* 経験年数だけは空欄で消せます（staffCard は 0 なら出しません）。
+       80年で頭打ちにしているのは、打ち間違いの「600」を
+       「経験600年」と出さないためです。 */
+    setInt('スタッフの経験年数', 0, 80, v => { staff.years = v === null ? 0 : v; });
+  }
+
+  /* ---- 事業者の情報（プライバシーポリシー） ----
+     お客様の氏名・電話番号・メールをお預かりする以上、
+     誰が預かっているのかを書かないわけにいきません。
+     ここを店主が埋められないと、永久に空のままになります。 */
+  setText('事業者名', 100, v => { SALON.operator = v; });
+  setText('代表者名', 60, v => { SALON.operatorName = v; });
+  setText('問い合わせ先メール', 120, v => { SALON.contactEmail = v; });
+  setText('プライバシーポリシー制定日', 40, v => { SALON.privacyUpdated = v; });
 }
 
 /* 「店舗までご連絡ください」と書くときの連絡先。

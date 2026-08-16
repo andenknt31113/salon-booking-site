@@ -66,6 +66,30 @@ async function login(p) {
 
 const tab = (p, name) => p.locator('#admin-tabs .tab', { hasText: name }).first().click();
 
+/* 店舗情報タブは、34項目を見出しで畳んであります。
+   店主も試験も、まず見出しを押して開くところから始めます。 */
+async function openSettingGroup(p, title) {
+  await tab(p, '店舗情報'); await p.waitForTimeout(300);
+  const head = p.locator('#setting-rows summary', { hasText: title }).first();
+  // 押すたびに開閉するので、すでに開いていれば触りません（押すと畳んでしまいます）
+  if (!await head.evaluate(el => el.parentElement.open)) {
+    await head.click();
+    await p.waitForTimeout(300);
+  }
+}
+/** 店舗情報を保存して、受け口に入った内容を返す */
+async function saveSettings(p) {
+  await p.locator('[data-save="settings"]').click();
+  await p.waitForTimeout(1500);
+  return (await post({ type: 'adminData', password: PW })).settings || {};
+}
+/** お客様の画面を開いて、出ている文字をぜんぶ読む（見た目の作りに引きずられないように） */
+async function visitorText(page, file) {
+  await page.goto(B + '/' + file);
+  await page.waitForTimeout(1200);
+  return page.locator('body').innerText();
+}
+
 /* 台帳に1件入れる。電話で受けた予約と同じ入口を使います。
    画面から入れると時間がかかるうえ、予約ページの作りに引きずられるためです。 */
 const add = o => post({ type: 'adminAdd', password: PW, force: true, minutes: 60, price: 4000, ...o });
@@ -881,7 +905,7 @@ await group('管18 休業日の「終日」と「時間帯だけ」', async () =
 await group('管19 予約の通知先を店の人が変えられる', async () => {
   const p = await newPhone('管19');
   await login(p);
-  await tab(p, '店舗情報'); await p.waitForTimeout(600);
+  await openSettingGroup(p, 'お知らせ・ご連絡先');
 
   const field = p.locator('[data-setting="通知先メール"]');
   check('管19', '通知先の欄が管理ページにある', await field.count(), 1);
@@ -899,6 +923,284 @@ await group('管19 予約の通知先を店の人が変えられる', async () =
   const saved = (await post({ type: 'adminData', password: PW })).settings || {};
   check('管19', '複数の宛先を保存できる',
     String(saved['通知先メール']), 'tenshu@example.com, staff@example.com');
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管20 店舗情報タブから、目的の欄にたどり着けるか
+
+   触れる項目を11から34に増やしました。そのまま縦に並べると、
+   電話番号を直すのに住所も紹介文も通り過ぎることになり、
+   片手のスマホ（390px）では目的の欄が見つかりません。
+   見出しで畳んで、開いた最初の画面が目次になるようにしてあります。
+   ============================================================ */
+await group('管20 店舗情報タブから、目的の欄にたどり着けるか', async () => {
+  const p = await newPhone('管20');
+  await login(p);
+  await tab(p, '店舗情報'); await p.waitForTimeout(500);
+
+  const heads = p.locator('#setting-rows > details > summary');
+  const n = await heads.count();
+  console.log('   見出しの数:', n);
+  check('管20', '見出しで区切ってある', n >= 6, true);
+
+  /* 開いた直後に全部畳まれていること。1つでも開いていると、
+     その中身が目次の下半分を押し出します。 */
+  check('管20', '開いた直後は、どの見出しも畳まれている',
+    await p.locator('#setting-rows > details[open]').count(), 0);
+  /* 中の欄は、畳まれているあいだ触れない（＝見えていない）こと */
+  check('管20', '畳んでいるあいだ、中の入力欄は出ていない',
+    await p.locator('[data-setting="住所"]').isVisible(), false);
+
+  const paneH = await p.evaluate(() => Math.round(
+    document.querySelector('.admin-pane[data-pane="settings"]').getBoundingClientRect().height));
+  console.log('   目次だけのときのタブの高さ:', paneH + 'px（画面は844px）');
+  check('管20', '目次だけなら画面1つぶん（844px）に収まる', paneH <= 844, true);
+
+  // 指で押せる大きさか
+  const box = await heads.first().boundingBox();
+  check('管20', '見出しは指の幅（44px）以上', box.height >= 44, true);
+
+  // 押せば開き、もう一度押せば畳める
+  await heads.nth(0).click(); await p.waitForTimeout(300);
+  check('管20', '押すと開く', await p.locator('#setting-rows > details[open]').count(), 1);
+  await heads.nth(0).click(); await p.waitForTimeout(300);
+  check('管20', 'もう一度押すと畳める', await p.locator('#setting-rows > details[open]').count(), 0);
+
+  /* 空欄にしたときどうなるかは欄ごとに違うので、欄ごとに書いてあること。
+     タブの先頭にまとめて書くと、いま見ている欄がどちらか分かりません。 */
+  await openSettingGroup(p, '場所・行き方');
+  const addr = p.locator('.form-field', { has: p.locator('[data-setting="住所"]') }).first();
+  check('管20', '消せる欄には「空欄にすると消えます」と書いてある',
+    /空欄にすると、サイトから消えます/.test(await addr.innerText()), true);
+  await openSettingGroup(p, '営業時間・ご予約の受付');
+  const open = p.locator('.form-field', { has: p.locator('[data-setting="営業開始"]') }).first();
+  check('管20', '消せない欄には「いまの内容のまま」と書いてある',
+    /いま出ている内容のまま/.test(await open.innerText()), true);
+
+  // 片手のスマホ。開いても畳んでも横に漏れない
+  check('管20', '見出しを開いても横にはみ出さない',
+    await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+
+  /* 畳んだままだと、どの見出しの中を直したのか分かりません。 */
+  await openSettingGroup(p, '場所・行き方');
+  await p.locator('[data-setting="住所"]').fill('茨城県テスト市1-2-3');
+  await p.waitForTimeout(400);
+  const marks = await p.locator('#setting-rows [data-setting-mark]').allInnerTexts();
+  check('管20', '直した見出しに印が付く', marks.filter(t => t.trim()).length, 1);
+  check('管20', 'タブそのものにも印が付く',
+    await p.locator('#admin-tabs .tab[data-pane="settings"].admin-tab-dirty').count(), 1);
+  await saveSettings(p);
+  check('管20', '保存すると見出しの印が消える',
+    (await p.locator('#setting-rows [data-setting-mark]').allInnerTexts()).filter(t => t.trim()).length, 0);
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管21 事業者名・代表者名・問い合わせ先を、店主が埋められるか
+
+   ここはいま全部空です。お客様の氏名・電話番号・メールをお預かりするのに、
+   誰が預かっているのかを書いていない状態です。コードの中にあるままだと、
+   店主には埋められず、永久に空のままになります。
+   ============================================================ */
+await group('管21 事業者の情報を店主が埋められる', async () => {
+  const p = await newPhone('管21');
+  await login(p);
+  await openSettingGroup(p, '事業者の情報');
+
+  for (const key of ['事業者名', '代表者名', '問い合わせ先メール', 'プライバシーポリシー制定日']) {
+    check('管21', `${key}の欄がある`, await p.locator(`[data-setting="${key}"]`).count(), 1);
+  }
+  await p.locator('[data-setting="事業者名"]').fill('ゼロウーノ理容室');
+  await p.locator('[data-setting="代表者名"]').fill('山田 太郎');
+  await p.locator('[data-setting="問い合わせ先メール"]').fill('info@example.com');
+  await p.locator('[data-setting="プライバシーポリシー制定日"]').fill('2026年9月1日');
+  const saved = await saveSettings(p);
+  check('管21', '事業者名がシートに入る', saved['事業者名'], 'ゼロウーノ理容室');
+  check('管21', '制定日がシートに入る', saved['プライバシーポリシー制定日'], '2026年9月1日');
+
+  // お客様が見るページに、実際に出ること
+  const v = await newPhone('管21-お客様');
+  const text = await visitorText(v, 'privacy.html');
+  check('管21', 'プライバシーポリシーに事業者名が出る', /ゼロウーノ理容室/.test(text), true);
+  check('管21', '代表者名も出る', /山田 太郎/.test(text), true);
+  check('管21', '問い合わせ先も出る', /info@example\.com/.test(text), true);
+  check('管21', '制定日が「準備中」から変わる', /制定日：2026年9月1日/.test(text), true);
+  await v.context().close();
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管22 「準備中」の帯を、店主が自分で下ろせるか
+
+   公開スイッチがコードの中にありました。つまり店主は、自分の店のサイトを
+   自分で公開できませんでした。オン／オフと文言を管理ページから。
+   ============================================================ */
+await group('管22 「準備中」の帯を店主が下ろせる', async () => {
+  const p = await newPhone('管22');
+  await login(p);
+  await openSettingGroup(p, 'サイトの公開');
+
+  const sw = p.locator('[data-setting="準備中の帯"]');
+  check('管22', '公開スイッチが管理ページにある', await sw.count(), 1);
+  /* 「はい」「オン」「TRUE」と書かれるたびに読み方が増えるので、打たせない */
+  check('管22', '打たせずに選ばせている',
+    await sw.evaluate(el => el.tagName.toLowerCase()), 'select');
+
+  const v = await newPhone('管22-お客様');
+  check('管22', 'はじめは帯が出ている',
+    /準備中/.test(await visitorText(v, 'mypage.html')), true);
+
+  await sw.selectOption('出さない');
+  await p.waitForTimeout(300);
+  const saved = await saveSettings(p);
+  check('管22', '「出さない」がシートに入る', saved['準備中の帯'], '出さない');
+  check('管22', '帯が消える', /準備中/.test(await visitorText(v, 'mypage.html')), false);
+
+  // 戻せること。文言も変えられること
+  await sw.selectOption('出す');
+  await p.locator('[data-setting="準備中の文言"]').fill('9月1日まで改装のためお休みします');
+  await saveSettings(p);
+  const back = await visitorText(v, 'mypage.html');
+  check('管22', '「出す」に戻すと帯も戻る', /改装のためお休み/.test(back), true);
+
+  await v.context().close();
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管23 住所・支払い方法・こだわり条件・スタッフ紹介
+   移転、PayPay導入、席を増やした、1年経って経験年数が変わった。
+   どれも普通に起きることです。
+   ============================================================ */
+await group('管23 店舗情報とスタッフ紹介を書き換えられる', async () => {
+  const p = await newPhone('管23');
+  await login(p);
+
+  await openSettingGroup(p, '場所・行き方');
+  await p.locator('[data-setting="住所"]').fill('茨城県龍ケ崎市引越しました2-2-2');
+  await p.locator('[data-setting="アクセス"]').fill('新しい最寄りはテスト駅から徒歩3分');
+  await openSettingGroup(p, '店内・お支払い');
+  await p.locator('[data-setting="支払い方法"]').fill('現金／PayPay／各種カード');
+  await p.locator('[data-setting="席数"]').fill('セット面3席');
+  await openSettingGroup(p, 'お店の紹介');
+  /* こだわり条件に「PayPay」を入れないのは、下で支払い方法を空にしたとき、
+     消えたかどうかを別の欄の文字で確かめてしまわないためです。 */
+  await p.locator('[data-setting="こだわり条件"]').fill('駐車場あり\n完全予約制\nテスト条件です');
+  await openSettingGroup(p, 'スタッフ紹介');
+  await p.locator('[data-setting="スタッフの経験年数"]').fill('7');
+  await p.locator('[data-setting="スタッフの得意分野"]').fill('メンズカット\nテスト技術');
+  await p.locator('[data-setting="スタッフの紹介文"]').fill('入れ替えた紹介文です。');
+  const saved = await saveSettings(p);
+  check('管23', '住所がシートに入る', saved['住所'], '茨城県龍ケ崎市引越しました2-2-2');
+  check('管23', 'こだわり条件がシートに入る（1行1件）',
+    /テスト条件です/.test(String(saved['こだわり条件'])), true);
+
+  const v = await newPhone('管23-お客様');
+  const text = await visitorText(v, 'index.html');
+  check('管23', '新しい住所がサイトに出る', /引越しました2-2-2/.test(text), true);
+  check('管23', '新しいアクセスが出る', /テスト駅から徒歩3分/.test(text), true);
+  check('管23', 'PayPay が支払い方法に出る', /PayPay/.test(text), true);
+  check('管23', '席数が出る', /セット面3席/.test(text), true);
+  check('管23', 'こだわり条件が出る（1行1件で並ぶ）', /テスト条件です/.test(text), true);
+  check('管23', '経験年数が出る', /経験7年/.test(text), true);
+  check('管23', 'スタッフの紹介文が出る', /入れ替えた紹介文です/.test(text), true);
+  check('管23', '得意分野の札が出る', /テスト技術/.test(text), true);
+  /* 消したいときは空欄。空欄にできないと、いちど入れた案内を消せません。 */
+  await openSettingGroup(p, '店内・お支払い');
+  await p.locator('[data-setting="支払い方法"]').fill('');
+  await saveSettings(p);
+  check('管23', '空欄にすれば、その項目はサイトから消える',
+    /PayPay/.test(await visitorText(v, 'index.html')), false);
+
+  await v.context().close();
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管24 変更・キャンセルの受付期限
+
+   ここは gas/Code.gs と画面の2か所に書いてあり、片方だけ変えられる
+   状態でした。いまは設定シートが正で、画面も受け口も同じ行を読みます。
+   （受け口側と同じ値になるかは test/settings.mjs で突き合わせています）
+   ============================================================ */
+await group('管24 受付期限を店主が変えられる', async () => {
+  const p = await newPhone('管24');
+  await login(p);
+  await openSettingGroup(p, '営業時間・ご予約の受付');
+
+  const v = await newPhone('管24-お客様');
+  check('管24', 'はじめは前日18時と案内している',
+    /前日18時まで/.test(await visitorText(v, 'mypage.html')), true);
+
+  await p.locator('[data-setting="変更・キャンセル期限（何日前）"]').fill('2');
+  await p.locator('[data-setting="変更・キャンセル期限（何時）"]').fill('12');
+  const saved = await saveSettings(p);
+  check('管24', '期限がシートに入る', String(saved['変更・キャンセル期限（何日前）']), '2');
+  check('管24', 'お客様への案内も変わる',
+    /2日前の12時まで/.test(await visitorText(v, 'mypage.html')), true);
+
+  /* 打ち間違いで画面が壊れないこと。読めない値は掲載中の値に戻します。 */
+  await p.locator('[data-setting="変更・キャンセル期限（何時）"]').fill('９９');
+  await saveSettings(p);
+  const bad = await visitorText(v, 'mypage.html');
+  check('管24', 'ありえない値（99時）でも案内は壊れない', /99時/.test(bad), false);
+  /* 読めなかったのは「何時」だけなので、そこだけ掲載中の18時に戻ります
+     （「何日前」は店主が入れた2日前のまま） */
+  check('管24', '読めない側だけ掲載中の値に戻る', /2日前の18時まで/.test(bad), true);
+
+  await v.context().close();
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管25 手で書く場所なので、壊れた値が来ます
+
+   設定シートは店主が直接打つ場所です。全角、改行、記号、
+   貼り付けそこねた長い文字列。1つ入っただけで画面が崩れてはいけません。
+   ============================================================ */
+await group('管25 壊れた値でも画面が壊れない', async () => {
+  const p = await newPhone('管25');
+  await login(p);
+
+  const long = 'あ'.repeat(3000);
+  const noBreak = 'https://example.com/' + 'x'.repeat(500);
+  await openSettingGroup(p, 'お店の紹介');
+  await p.locator('[data-setting="店の紹介文"]').fill(long);
+  await p.locator('[data-setting="こだわり条件"]').fill(
+    ['<script>alert(1)</script>', '＆＜＞"\'', '　', '', '★'.repeat(200)].join('\n'));
+  await openSettingGroup(p, '場所・行き方');
+  await p.locator('[data-setting="住所"]').fill(noBreak);
+  await p.locator('[data-setting="道案内"]').fill('1行目\n2行目\n\n\n4行目');
+  await openSettingGroup(p, 'スタッフ紹介');
+  await p.locator('[data-setting="スタッフの経験年数"]').fill('６');   // 全角
+  await saveSettings(p);
+
+  check('管25', '壊れた値でも保存できる',
+    /保存しました/.test(await textOf(p.locator('[data-note="settings"]'))), true);
+  check('管25', '管理ページが横にはみ出さない',
+    await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+
+  const v = await newPhone('管25-お客様');
+  const text = await visitorText(v, 'index.html');
+  check('管25', 'お客様の画面が出る', text.length > 200, true);
+  check('管25', '全角で打った経験年数も読める', /経験6年/.test(text), true);
+  /* 書いた文字がそのまま「動く」ことがないこと */
+  check('管25', '書き込まれた印が文字として出る', /<script>alert\(1\)<\/script>/.test(text), true);
+  check('管25', 'お客様の画面が横にはみ出さない',
+    await v.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+  check('管25', '長すぎる文でも横にはみ出さない',
+    await v.evaluate(() => document.body.scrollWidth) <= 390, true);
+  await v.context().close();
 
   await p.context().close();
   await post({ type: 'reset' });
