@@ -2582,7 +2582,14 @@ function ensureHeaders_(ss, name, headers) {
   const head = sheetHeader_(sheet, headers);
   const missing = headers.filter(function (h) { return head.indexOf(h) < 0; });
   if (!missing.length) return;
-  sheet.getRange(1, head.length + 1, 1, missing.length)
+  /* 足す先は「いま中身がある最後の列の次」です。
+
+     sheetHeader_ が返す並びの長さではありません。あちらは足りない分を
+     こちらの並びの長さまで水増しして返すので、それを足し先にすると
+     水増しした分だけ右へずれ、**間に見出しの無い空の列ができます**。
+     店主が台帳を横に送って読むとき、意味の分からない空列が挟まります。 */
+  const at = Math.max(sheet.getLastColumn(), 1);
+  sheet.getRange(1, at + 1, 1, missing.length)
     .setValues([missing]).setFontWeight('bold').setBackground('#f3efea');
 }
 
