@@ -13,6 +13,16 @@ import vm from 'node:vm';
 
 const R = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = readFileSync(join(R, 'gas', 'Code.gs'), 'utf8');
+
+/* この試験は**すでに公開している店**を相手にします。
+
+   本物は「準備中の帯」が出ているあいだ、ネットからの新規予約を断ります
+   （gas/Code.gs の draftMode_）。ここで使う偽のシートには設定が無いので、
+   既定（＝準備中）に落ちて、予約が1件も通らなくなります。それでは
+   予約の中身を試せません。帯を下ろした状態にしてから読み込みます。
+
+   準備中そのものの振る舞いは、この下の【準備中】の節で確かめます。 */
+const srcLive = src.replace('const DRAFT_DEFAULT = true;', 'const DRAFT_DEFAULT = false;');
 const MENU_H   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_H = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 const STYLE_H  = ['タイトル', '分類', 'タグ', '説明', '画像', '表示'];
@@ -85,7 +95,7 @@ function run(fnName, sheet, payload, store = {}) {
     }
   };
   vm.createContext(ctx);
-  vm.runInContext(src + `;globalThis.__r = ${fnName};`, ctx);
+  vm.runInContext(srcLive + `;globalThis.__r = ${fnName};`, ctx);
   return { out: ctx.__r(sheet, payload), mails };
 }
 
@@ -585,7 +595,7 @@ function readSheets(sheets, fnName) {
   });
   ctx.__ss = { getSheetByName: n => built[n] || null, insertSheet: () => null };
   ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ctx.__ss, getUi: () => { throw new Error('no ui'); } };
-  vm.runInContext(src + `;globalThis.__s = ${fnName};`, ctx);
+  vm.runInContext(srcLive + `;globalThis.__s = ${fnName};`, ctx);
   try { return ctx.__s(ctx.__ss); } catch (e) { return { threw: String(e && e.message) }; }
 }
 /* 日付型のセルを表す印。上の readSheets が本物の Date に変えます。 */
@@ -711,7 +721,7 @@ console.log('\n【設定】早く閉める日を設定したら、受け口も�
     ledger.getParent = () => ss;
     ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } };
     vm.createContext(ctx);
-    vm.runInContext(src + ';globalThis.__h = doReserve_;', ctx);
+    vm.runInContext(srcLive + ';globalThis.__h = doReserve_;', ctx);
     try { return ctx.__h(ledger, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
   };
   const at = day(11);
@@ -757,7 +767,7 @@ console.log('\n【設定】最終受付と定休曜日を、受け口も見て�
     ledger.getParent = () => ss;
     ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } };
     vm.createContext(ctx);
-    vm.runInContext(src + `;globalThis.__g = ${fn};`, ctx);
+    vm.runInContext(srcLive + `;globalThis.__g = ${fn};`, ctx);
     try { return ctx.__g(ledger, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
   };
 
@@ -858,7 +868,7 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
       base64Decode: s => ({ length: Math.floor(String(s).length * 3 / 4) }), base64Encode: () => '' }
   };
   vm.createContext(ctx);
-  vm.runInContext(src + `;globalThis.__a = ${fnName};`, ctx);
+  vm.runInContext(srcLive + `;globalThis.__a = ${fnName};`, ctx);
   let out;
   try { out = ctx.__a(payload); } catch (e) { out = { ok: false, threw: String(e && e.message) }; }
   return { out, store };
@@ -1045,7 +1055,7 @@ function shop(sheetsInit = {}) {
       newBlob: () => ({}), base64Decode: () => [], base64Encode: () => '' }
   };
   vm.createContext(ctx);
-  vm.runInContext(src, ctx);
+  vm.runInContext(srcLive, ctx);
   return {
     call: (fn, payload) => {
       vm.runInContext(`globalThis.__w = ${fn};`, ctx);
@@ -1264,6 +1274,78 @@ console.log('\n【店側の入口】施術メモ');
    だからこそ、ここに人の名前や電話番号が1つでも混ざってはいけません。
    ここは毎回、必ず確かめます。
    ============================================================ */
+/* ============================================================
+   メニューの応答も、合言葉なしで誰でも受け取れます。
+   以前は設定シートを丸ごと返していて、店の通知先メールと
+   ホットペッパーの契約条件（手数料率・掲載料）まで配っていました。
+   ============================================================ */
+/* ============================================================
+   準備中のあいだは、本当に受けないか
+
+   ここから上の試験は「すでに公開している店」を相手にしています
+   （そうしないと予約が1件も通らず、中身を試せません）。
+   準備中そのものは、素の Code.gs でここだけ確かめます。
+   ============================================================ */
+console.log('\n【準備中】帯を出しているあいだは受けない');
+{
+  /* 既定を差し替えていない、本物そのままの Code.gs で動かします */
+  const raw = (fnName, sheet, payload) => {
+    const ctx = {
+      console: { log(){}, warn(){}, error(){} },
+      MailApp: { sendEmail: () => {} }, UrlFetchApp: { fetch: () => {} },
+      CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+      PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty(){},
+        deleteProperty(){}, getKeys: () => [] }) },
+      LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
+      SpreadsheetApp: { getActiveSpreadsheet: () => sheet.getParent(),
+        getUi: () => { throw new Error('no ui'); } },
+      DriveApp: {}, ContentService: { createTextOutput: t => ({ setMimeType: () => t }),
+        MimeType: { JSON: 'json' } },
+      Utilities: { formatDate: (d, tz, f) => String(d), getUuid: () => 'uuid',
+        computeDigest: () => [1,2,3], DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
+        newBlob: () => ({}), base64Decode: () => [], base64Encode: () => '' }
+    };
+    vm.createContext(ctx);
+    vm.runInContext(src + `;globalThis.__d = ${fnName};`, ctx);
+    try { return ctx.__d(sheet, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
+  };
+
+  const sheet = makeSheet();
+  const out = raw('doReserve_', sheet, base({ date: day(15) }));
+  out.ok ? note('準備中の帯が出ているのに', '予約が通る（帯には「まだお受けしていません」と書いてあります）')
+    : ok('準備中のあいだは予約を受けない');
+  /^ただいま準備中/.test(String(out.error || ''))
+    ? ok('断る理由を書いている') : note('断り文', `が理由になっていない（${out.error}）`);
+  sheet._data.length === 0 ? ok('断った予約は台帳に書かない')
+    : note('断ったのに', '台帳に行が入っている');
+}
+
+console.log('\n【メニュー】誰でも受け取れる応答に、店だけのものが混ざっていないか');
+{
+  /* 設定シートに、店だけの項目を実際に入れた状態で呼びます。
+     空のまま試すと、漏れていても気づけません。 */
+  const secret = {
+    '通知先メール': 'tenshu@example.com, staff@example.com',
+    'ホットペッパー手数料率（％）': '12',
+    'ホットペッパー掲載料（月額・円）': '70000'
+  };
+  const rows = Object.keys(secret).map(k => [k, secret[k], ''])
+    .concat([['電話番号', '080-0000-0000', ''], ['キャッチコピー', '公開してよい文', '']]);
+  const out = readSheets({ '設定': rows }, 'doMenu_');
+  const text = JSON.stringify(out || {});
+
+  Object.keys(secret).forEach(k => {
+    text.indexOf(secret[k]) >= 0
+      ? note(`「${k}」`, 'が合言葉なしの応答に入っている（全訪問者の端末に届きます）')
+      : ok(`「${k}」は外に出さない`);
+  });
+  /* 出すべきものまで消していないこと。消すと店主が直しても画面に出ません。 */
+  text.indexOf('080-0000-0000') >= 0 ? ok('電話番号は今までどおり出す')
+    : note('電話番号', 'まで消えている（店主が直しても画面に出ません）');
+  text.indexOf('公開してよい文') >= 0 ? ok('キャッチコピーも出す')
+    : note('キャッチコピー', 'まで消えている');
+}
+
 console.log('\n【空き状況】誰でも受け取れる応答の中身');
 {
   const sheet = makeSheet([row({

@@ -1322,6 +1322,76 @@ const ledgerOf = async code => {
 }
 
 /* ============================================================
+   UC33 「準備中」と書いてあるあいだは、本当に受けない
+
+   画面のいちばん上には「準備中：ご予約はまだお受けしていません」と
+   出しています。ところが送れば実際に通っていました。台帳に行が入り、
+   確認メールも飛びます。帯を読み飛ばした方が当日いらして、席がありません。
+
+   画面で止めるだけでは足りません。この受け口は公開されていて、
+   画面を通さない送信も届きます（DECISIONS.md）。ここで断ります。
+
+   逆に、止めすぎてもいけません。すでに入っている予約を動かせなくすると、
+   お客様が自分では取り消せなくなります。
+   ============================================================ */
+console.log('\n【UC33】準備中と書いてあるあいだは、本当に受けない');
+{
+  /* この節の中だけで使う日付。key は Date を受け取るので、日数から作ります */
+  const day = n => { const d = new Date(); d.setDate(d.getDate() + n); return key(d); };
+  await post({ type: 'reset' });
+
+  /* 先に1件だけ、受付中のうちに取っておきます。
+     準備中にしたあとで、この予約を動かせるかを見るためです。 */
+  const p0 = await newPhone('UC33-先に予約');
+  const made = await book(p0, { name: '準備前 太郎', tel: '09044443333' });
+  await p0.context().close();
+
+  /* 帯を出す（＝準備中に戻す）。店主が管理ページからひと押しでできる操作です。 */
+  /* 設定の保存には「印」が要ります（別端末との上書きを防ぐため）。
+     渡し忘れると黙って断られ、帯が出ないまま先へ進みます。 */
+  const cur = await post({ type: 'adminData', password: PW });
+  const on = await post({ type: 'adminSave', password: PW, target: 'settings',
+    stamp: cur.stamps.settings, rows: { ...cur.settings, '準備中の帯': '出す' } });
+  check('UC33', '帯を出す設定が保存できる', on.ok, true);
+
+  // ---- 画面を通さない送信 ----
+  const direct = await post({ type: 'reserve', code: 'UC33-A', createdAt: new Date().toISOString(),
+    date: day(3), time: '10:00', endTime: '11:00', totalMinutes: 60,
+    menus: [{ name: 'カット' }], staffId: 'st01', staffName: 'MATTEO',
+    nominationFee: 0, totalPrice: 4000,
+    customer: { name: '直送 次郎', kana: 'チョクソウ', tel: '09055551111', email: 'a@b.co' } });
+  check('UC33', '画面を通さない送信も受けない', direct.ok, false);
+  check('UC33', '断る理由を書いている', /準備中/.test(String(direct.error || '')), true);
+  check('UC33', 'どうすればよいかを書いている', /お電話|お問い合わせ/.test(String(direct.error || '')), true);
+
+  const ledger = (await post({ type: 'adminData', password: PW })).reservations || [];
+  check('UC33', '断った予約は台帳に入っていない',
+    ledger.some(r => String(r.name).indexOf('直送') >= 0), false);
+
+  // ---- すでに入っている予約は、お客様が自分で取り消せる ----
+  const cancelled = await post({ type: 'cancel', code: made.code, tel: '09044443333' });
+  check('UC33', '準備中でも、入っている予約はキャンセルできる', cancelled.ok, true);
+
+  // ---- 店から入れる電話予約は止めない ----
+  const byShop = await post({ type: 'adminAdd', password: PW, force: true, minutes: 60, price: 4000,
+    date: day(4), time: '10:00', name: '電話 三郎', tel: '09066667777', menu: 'カット' });
+  check('UC33', '準備中でも、店は電話予約を入れられる', byShop.ok, true);
+
+  // ---- 帯を下ろすと、その場で受け付ける ----
+  const now = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'settings',
+    stamp: now.stamps.settings, rows: { ...now.settings, '準備中の帯': '出さない' } });
+  const after = await post({ type: 'reserve', code: 'UC33-B', createdAt: new Date().toISOString(),
+    date: day(5), time: '10:00', endTime: '11:00', totalMinutes: 60,
+    menus: [{ name: 'カット' }], staffId: 'st01', staffName: 'MATTEO',
+    nominationFee: 0, totalPrice: 4000,
+    customer: { name: '公開後 四郎', kana: 'コウカイゴ', tel: '09088889999', email: 'c@d.co' } });
+  check('UC33', '帯を下ろせば、その場で受け付ける', after.ok, true);
+
+  await post({ type: 'reset' });
+}
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

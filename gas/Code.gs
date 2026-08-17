@@ -622,6 +622,10 @@ function doGet() {
 function doReserve_(sheet, d) {
   const c = d.customer || {};
 
+  /* 準備中のあいだは受けません。帯に「ご予約はまだお受けしていません」と
+     書いてあるので、そのとおりに振る舞います。詳しくは draftMode_。 */
+  if (draftMode_()) return { ok: false, draft: true, error: draftMessage_() };
+
   /* 予約番号は端末側で作っています。端末は自分が取った予約しか知らないため、
      別のお客様と同じ番号になる可能性が残ります。ここで台帳と突き合わせます。
 
@@ -1839,6 +1843,42 @@ function lineAddUrl_() {
    しておくと、サイトの表示だけ新しくなって、確認メールとキャンセルメールの
    末尾だけが古い番号と古い住所を案内し続けます。しかもメールは店の人の目に
    触れないので、誰も気づけません。 */
+/* 「準備中の帯」が出ているあいだは、ネットからの新規予約を受けません。
+
+   帯には「ご予約はまだお受けしていません」と書いてあります。ところが
+   これまでは文字を出すだけで、**送れば実際に通っていました。** 台帳に行が入り、
+   確認メールも飛びます。帯を読み飛ばした方が当日いらして、席がありません。
+
+   画面で止めるだけでは足りません。この受け口は公開されていて、
+   画面を通さない送信も届きます（DECISIONS.md）。ここで断ります。
+
+   変更とキャンセルは止めません。すでに入っている予約を動かせなくすると、
+   お客様が自分では取り消せなくなります。店から入れる電話予約（doAdminAdd_）も
+   止めません。合言葉が要るうえ、店が承知のうえで入れるものだからです。
+
+   帯を下ろすのは管理ページの「店舗情報 → サイトの公開」からで、
+   ひと押しで受付が始まります。 */
+function draftMode_() {
+  try {
+    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['準備中の帯'] || '').trim();
+    /* 空欄は「シートに項目が無い」なので、こちらの既定（出す）に従います。
+       画面側（common.js の applySettings）と同じ読み方にしてあります。 */
+    if (/^(出さない|表示しない|しない|いいえ|false|off|no|×|x)/i.test(v)) return false;
+    if (/^(出す|表示|する|はい|true|on|yes|○|o)/i.test(v)) return true;
+  } catch (e) { /* シートが読めないときは下の既定で */ }
+  return DRAFT_DEFAULT;
+}
+
+/* シートに設定が無いときの既定。assets/js/data.js の draft と同じにしてください
+   （test/settings.mjs が突き合わせています）。 */
+const DRAFT_DEFAULT = true;
+
+function draftMessage_() {
+  const tel = salonTel_();
+  return 'ただいま準備中のため、ネットでのご予約はお受けしておりません。'
+    + (tel ? 'お手数ですが、お電話（' + tel + '）でお問い合わせください。' : '');
+}
+
 function salonTel_() {
   try {
     const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['電話番号'] || '').trim();

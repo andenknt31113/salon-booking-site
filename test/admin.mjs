@@ -1048,6 +1048,13 @@ await group('管21 事業者の情報を店主が埋められる', async () => {
    自分で公開できませんでした。オン／オフと文言を管理ページから。
    ============================================================ */
 await group('管22 「準備中」の帯を店主が下ろせる', async () => {
+  /* 模擬サーバーは「すでに公開している店」として動きます（帯は出ていません）。
+     この試験は下ろせることを見るものなので、まず出した状態を作ります。
+     ここを前提任せにすると、模擬サーバーの初期値を変えた日に落ちます。 */
+  const before = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'settings',
+    stamp: before.stamps.settings, rows: { ...before.settings, '準備中の帯': '出す' } });
+
   const p = await newPhone('管22');
   await login(p);
   await openSettingGroup(p, 'サイトの公開');

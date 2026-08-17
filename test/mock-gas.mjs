@@ -77,10 +77,20 @@ function withinDeadline(dateKey) {
 const deadlineMsg = () => 'ネットでの変更・キャンセルは前日' + DEADLINE_HOUR
   + '時までとなっております。お手数ですが店舗までご連絡ください。';
 const UPLOADS = [];
-let SHEET_SETTINGS = { '電話番号': '', '営業開始': '09:00', '営業終了': '22:00', '最終受付': '21:00',
+/* 「準備中の帯」を出していると、本物は新規予約を断ります（gas/Code.gs の draftMode_）。
+   この模擬サーバーは**すでに公開している店**として動かします。出したままだと
+   予約の試験が全部断られて、何を試しているのか分からなくなるためです。
+   準備中そのものの振る舞いは、UC32 が値を「出す」に変えて確かめます。 */
+let SHEET_SETTINGS = { '準備中の帯': '出さない',
+  '電話番号': '', '営業開始': '09:00', '営業終了': '22:00', '最終受付': '21:00',
   'LINE友だち追加URL': '', 'Google口コミURL': '',
   'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', '通知先メール': 'shop@example.com', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '',
   'ホットペッパー手数料率（％）': '', 'ホットペッパー掲載料（月額・円）': '' };
+
+const INITIAL = JSON.parse(JSON.stringify({
+  menu: SHEET_MENU, closed: SHEET_CLOSED, style: SHEET_STYLE, coupon: SHEET_COUPON,
+  settings: SHEET_SETTINGS
+}));
 /* 本物の GAS と同じ価格の読み方 */
 function parsePrice(v) {
   const t = String(v ?? '').trim();
@@ -210,10 +220,10 @@ http.createServer((req, res) => {
         restore(SHEET_CLOSED, INITIAL.closed);
         restore(SHEET_STYLE, INITIAL.style);
         restore(SHEET_COUPON, INITIAL.coupon);
-        SHEET_SETTINGS = { '電話番号': '', '営業開始': '09:00', '営業終了': '22:00', '最終受付': '21:00',
-          'LINE友だち追加URL': '', 'Google口コミURL': '',
-          'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', '通知先メール': 'shop@example.com', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '',
-  'ホットペッパー手数料率（％）': '', 'ホットペッパー掲載料（月額・円）': '' };
+        /* 設定も戻します。初期値は1か所（INITIAL.settings）にしてあります。
+           2か所に書いていたころは、片方に項目を足すともう片方が古いままになり、
+           reset のあとだけ設定が欠ける、という追いにくい壊れ方をしました。 */
+        SHEET_SETTINGS = JSON.parse(JSON.stringify(INITIAL.settings));
         return reply(res, { ok: true });
       }
 
@@ -230,6 +240,18 @@ http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type':'text/html; charset=utf-8', 'Access-Control-Allow-Origin':'*' });
         res.end('<!doctype html><html><body>Googleアカウントでログインしてください</body></html>');
         return;
+      }
+      /* 準備中のあいだは新規予約を受けない（本物の draftMode_ と同じ読み方）。
+         変更・キャンセルと、店から入れる電話予約は止めない。 */
+      if (d.type === 'reserve' || !d.type) {
+        /* 「出さない」と読めるとき以外は準備中。空欄も、知らない文字も準備中です。
+           本物（gas/Code.gs の draftMode_）は既定を定数で持っているぶん
+           「出す」側の判定も要りますが、こちらは既定が固定なので1行で足ります。 */
+        const v = String(SHEET_SETTINGS['準備中の帯'] ?? '').trim();
+        const on = !/^(出さない|表示しない|しない|いいえ|false|off|no|×|x)/i.test(v);
+        if (on) return reply(res, { ok:false, draft:true,
+          error:'ただいま準備中のため、ネットでのご予約はお受けしておりません。'
+            + 'お手数ですが、お電話でお問い合わせください。' });
       }
       if (FAIL.on && (d.type === 'reserve' || !d.type || d.type === 'change' || d.type === 'cancel')) {
         return reply(res, { ok:false, error:'台帳が混み合っています。しばらくしてお試しください。' });

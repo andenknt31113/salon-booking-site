@@ -7,6 +7,16 @@ import vm from 'node:vm';
 
 const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'gas', 'Code.gs'), 'utf8');
 
+/* この試験は**すでに公開している店**を相手にします。
+
+   本物は「準備中の帯」が出ているあいだ、ネットからの新規予約を断ります
+   （gas/Code.gs の draftMode_）。ここで使う偽のシートには設定が無いので、
+   既定（＝準備中）に落ちて、予約が1件も通らなくなります。それでは
+   予約の中身を試せません。帯を下ろした状態にしてから読み込みます。
+
+   準備中そのものの振る舞いは、この下の【準備中】の節で確かめます。 */
+const srcLive = src.replace('const DRAFT_DEFAULT = true;', 'const DRAFT_DEFAULT = false;');
+
 /* 日付は実行日からの相対で作ります。
    固定の日付を書くと、その日を過ぎた時点で
    「受付範囲外」として断られ、試験が勝手に落ちます。 */
@@ -48,7 +58,7 @@ function makeSheet(rows) {
    （LINEのURLを入れたときの文面を確かめるのに使っています） */
 function run(fnName, sheet, payload, patch) {
   sent.length = 0;
-  const code = patch ? patch(src) : src;
+  const code = patch ? patch(srcLive) : src;
   const ctx = {
     console: { log() {}, warn() {}, error() {} },
     MailApp: { sendEmail: (to, subject, body) => sent.push({ 宛先: to, 件名: subject, 本文: body }) },
