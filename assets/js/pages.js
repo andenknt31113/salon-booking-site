@@ -451,10 +451,10 @@ function initHome() {
       || String(SALON.business.closedNote || '').split(/[\s　]/)[0] || 'なし'}`
   ].filter(Boolean).map(t => `<li>◍ ${esc(t)}</li>`).join('');
 
-  $('#home-coupons').innerHTML = SALON.coupons.slice(0, 3).map(couponCard).join('');
-  $('#home-styles').innerHTML = homeStyles().map(styleCard).join('');
+  setHtml($('#home-coupons'), SALON.coupons.slice(0, 3).map(couponCard).join(''));
+  setHtml($('#home-styles'), homeStyles().map(styleCard).join(''));
   bindStyleBooking();
-  $('#home-staff').innerHTML = SALON.staff.map(staffCard).join('');
+  setHtml($('#home-staff'), SALON.staff.map(staffCard).join(''));
   $('#home-reviews').innerHTML = SALON.reviews.length
     ? SALON.reviews.slice(0, 2).map(reviewCard).join('')
     : reviewEmptyHtml();
@@ -482,8 +482,7 @@ function initMenuPage() {
   const draw = catId => {
     const cats = SALON.menuCategories;
     const target = catId === 'all' ? cats : cats.filter(c => c.id === catId);
-    listHost.innerHTML = target.map(menuGroupHtml).join('');
-    wireImageFallbacks(listHost);
+    if (setHtml(listHost, target.map(menuGroupHtml).join(''))) wireImageFallbacks(listHost);
   };
   draw('all');
 
@@ -515,8 +514,7 @@ function initCouponFilter() {
     const list = tag === 'すべて'
       ? SALON.coupons
       : SALON.coupons.filter(c => (c.tags || []).includes(tag));
-    host.innerHTML = list.map(couponCard).join('');
-    wireImageFallbacks(host);
+    if (setHtml(host, list.map(couponCard).join(''))) wireImageFallbacks(host);
   };
 
   const tags = [...new Set(SALON.coupons
@@ -542,7 +540,7 @@ function initCouponFilter() {
 }
 
 function initStaffPage() {
-  $('#staff-list').innerHTML = SALON.staff.map(staffCard).join('');
+  setHtml($('#staff-list'), SALON.staff.map(staffCard).join(''));
   const note = $('#staff-note');
   if (note) note.innerHTML = staffNoteHtml();
   wireImageFallbacks();
@@ -558,8 +556,7 @@ function initGalleryPage() {
 
   const draw = len => {
     const list = len === 'すべて' ? SALON.styles : SALON.styles.filter(s => s.length === len);
-    host.innerHTML = list.map(styleCard).join('');
-    wireImageFallbacks(host);
+    if (setHtml(host, list.map(styleCard).join(''))) wireImageFallbacks(host);
   };
   draw('すべて');
   bindStyleBooking();

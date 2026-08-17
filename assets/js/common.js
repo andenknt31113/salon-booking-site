@@ -87,6 +87,26 @@ function esc(str) {
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 }
+
+/** 同じ中身なら書き込まない。書き込んだら true を返す。
+
+    この画面は2回描かれます。まず data.js の控えで描き、シートの返事が
+    届いたらもう一度描きます（応答に数秒かかることがあるので、待たずに
+    まず出す作りです。pages.js の末尾に理由が書いてあります）。
+
+    ところが innerHTML への代入は、**中身が1文字も違わなくても**
+    その中の <img> を作り直します。作り直された画像は読み込みが
+    終わるまで一瞬消えるので、シートの返事が来るたびに、ロゴも
+    メニューの写真も目の前でちらつきます。店主から見ると
+    「写真が出たり出なかったりする」状態になります。
+
+    中身が本当に変わったときだけ書けば、これは起きません。 */
+function setHtml(host, html) {
+  if (!host || host.__html === html) return false;
+  host.__html = html;
+  host.innerHTML = html;
+  return true;
+}
 /** 星表示 */
 /* 星の数。
 
@@ -1148,7 +1168,7 @@ function renderHeader() {
     ? `<div class="draft-banner">${esc(SALON.draftNote || '準備中：内容は仮のものです')}</div>`
     : '';
 
-  host.innerHTML = `
+  setHtml(host, `
     ${draft}
     <header class="site-header">
       <div class="container header-top">
@@ -1168,7 +1188,7 @@ function renderHeader() {
       <nav class="site-nav" aria-label="メインメニュー">
         <div class="container"><ul>${nav}</ul></div>
       </nav>
-    </header>`;
+    </header>`);
 }
 
 function renderFooter() {
@@ -1180,7 +1200,7 @@ function renderFooter() {
   const year = new Date().getFullYear();
   // 固定ボタンの下にコピーライトが隠れないよう、出すページだけ余白を足す
   document.body.classList.toggle('has-sp-cta', !!stickyCta());
-  host.innerHTML = `
+  setHtml(host, `
     <footer class="site-footer">
       <div class="container">
         <div class="footer-grid">
@@ -1223,7 +1243,7 @@ function renderFooter() {
         <p class="copyright">&copy; ${year} ${esc(SALON.name)}. All rights reserved.</p>
       </div>
     </footer>
-    ${stickyCta()}`;
+    ${stickyCta()}`);
 }
 
 /* 画面下に貼りつく予約ボタン。
