@@ -426,6 +426,50 @@ console.log('\n【受付期限】同じ設定シートから、画面側と受�
   });
 }
 
+/* ============================================================
+   合言葉なしで返している設定に、店だけのものが混ざっていないか
+
+   この受け口は誰でも叩けます（お客様の画面にメニューと空き枠を出すため）。
+   以前は設定シートを丸ごと返していて、通知先メール・ホットペッパーの
+   手数料率・掲載料まで全訪問者の端末に配っていました。
+
+   見るのは3つです。
+     ・出す一覧（Code.gs と mock-gas.mjs）が同じか
+     ・画面（applySettings）が読む項目が、全部その一覧にあるか
+       ← 足し忘れると、店主が直しても画面に出ません
+     ・店だけの項目が、その一覧に入っていないか
+   ============================================================ */
+console.log('\n【外に出す設定】合言葉なしの応答に、店だけのものが混ざっていないか');
+{
+  const gasKeys = gasArray('PUBLIC_SETTING_KEYS');
+  const mockSrc = readFileSync(new URL('./mock-gas.mjs', import.meta.url), 'utf8');
+  /* 配列そのものを読み取ります。文字列を置換で JSON に直す形は、
+     並びを1つ変えただけで壊れます。 */
+  const mockKeys = vm.runInNewContext(
+    (mockSrc.match(/const PUBLIC_SETTING_KEYS = (\[[\s\S]*?\]);/) || [])[1]);
+
+  const same = JSON.stringify(gasKeys) === JSON.stringify(mockKeys);
+  console.log(`  ${same ? '✅' : '❌'} 受け口と模擬サーバーで、出す一覧が同じ`);
+  if (!same) problems.push('PUBLIC_SETTING_KEYS が gas/Code.gs と test/mock-gas.mjs で食い違う'
+    + '（本番では漏れるのに、試験では気づけません）');
+
+  /* 画面が読む項目を、common.js の applySettings から拾います。
+     ここに無いものを画面が読んでいると、店主が直しても出ません。 */
+  const common = readFileSync(new URL('../assets/js/common.js', import.meta.url), 'utf8');
+  const body = (common.match(/function applySettings[\s\S]*?\n}\n/) || [''])[0];
+  const used = [...new Set([...body.matchAll(/\bset[A-Za-z]*\(\s*'([^']+)'/g)].map(m => m[1]))];
+  const missing = used.filter(k => gasKeys.indexOf(k) < 0);
+  console.log(`  ${missing.length ? '❌' : '✅'} 画面が読む ${used.length}項目が、全部出す一覧にある`);
+  if (missing.length) problems.push('画面が読んでいるのに外へ出していない設定：' + missing.join('、')
+    + '（店主が管理ページで直しても、サイトに出ません）');
+
+  /* 店だけのもの。ここに1つでも入っていたら、全訪問者に配ることになります。 */
+  const secret = ['通知先メール', 'ホットペッパー手数料率（％）', 'ホットペッパー掲載料（月額・円）'];
+  const leaked = secret.filter(k => gasKeys.indexOf(k) >= 0 || mockKeys.indexOf(k) >= 0);
+  console.log(`  ${leaked.length ? '❌' : '✅'} 店だけの項目が混ざっていない`);
+  if (leaked.length) problems.push('合言葉なしで外に出ている店だけの設定：' + leaked.join('、'));
+}
+
 console.log('\n' + '='.repeat(52));
 if (problems.length) {
   console.log(`食い違い ${problems.length}件`);

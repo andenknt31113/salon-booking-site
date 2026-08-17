@@ -43,9 +43,6 @@ const SHEET_COUPON = [
    休業日やメニューを書き換えたまま次の試験に入ります。すると
    「今日は休業日です」と断られるなど、サイトのせいではない失敗が出ます。
    台帳（LEDGER）だけ空にしても足りません。 */
-const INITIAL = JSON.parse(JSON.stringify({
-  menu: SHEET_MENU, closed: SHEET_CLOSED, style: SHEET_STYLE, coupon: SHEET_COUPON
-}));
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -110,6 +107,23 @@ const sourceLabel = v => {
   const t = String(v ?? '').trim();
   return SOURCE_LABELS.includes(t) ? t : '';
 };
+
+/* 合言葉なしの応答に入れてよい設定。本物（gas/Code.gs の PUBLIC_SETTING_KEYS）と
+   同じ並びにしてください（test/settings.mjs が突き合わせています）。
+   ここを素通しにすると、本番では店の契約条件が漏れるのに、試験は通ります。 */
+const PUBLIC_SETTING_KEYS = [
+  '準備中の帯', '準備中の文言',
+  '電話番号', '営業開始', '営業終了', '最終受付', '定休曜日',
+  '変更・キャンセル期限（何日前）', '変更・キャンセル期限（何時）',
+  'キャッチコピー', 'お知らせ', '店の紹介文', 'こだわり条件',
+  '住所', '地図の検索文字列', 'アクセス', '道案内', '駐車場', '支払い方法', '席数',
+  'スタッフの肩書き', 'スタッフの経験年数', 'スタッフの得意分野', 'スタッフの紹介文',
+  'ロゴ画像', 'スタッフ写真', 'メイン写真',
+  'LINE友だち追加URL', 'Google口コミURL',
+  '事業者名', '代表者名', '問い合わせ先メール', 'プライバシーポリシー制定日'
+];
+const publicSettings = st => Object.fromEntries(
+  PUBLIC_SETTING_KEYS.filter(k => k in st).map(k => [k, st[k]]));
 
 /* シート行を GAS と同じ形に変換する */
 function buildMenu() {
@@ -319,7 +333,7 @@ http.createServer((req, res) => {
       if (d.type === 'uploads') return reply(res, { ok:true, uploads: UPLOADS });
 
       if (d.type === 'menu') {
-        return reply(res, { ok: true, categories: buildMenu(), coupons: buildCoupons(), styles: buildStyles(), reviews: buildReviews(), closedDates: SHEET_CLOSED, settings: SHEET_SETTINGS });
+        return reply(res, { ok: true, categories: buildMenu(), coupons: buildCoupons(), styles: buildStyles(), reviews: buildReviews(), closedDates: SHEET_CLOSED, settings: publicSettings(SHEET_SETTINGS) });
       }
 
       if (d.type === 'availability') {

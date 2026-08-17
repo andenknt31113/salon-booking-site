@@ -862,6 +862,42 @@ function doAvailability_(sheet) {
    「メニュー」「おすすめメニュー」シートの内容をサイトに反映します。
    シートが無い場合は空を返し、サイトは data.js の内容で動きます。
    ============================================================ */
+/* この応答に入れてよい設定。**書いてあるものだけ**を返します。
+
+   この受け口は合言葉なしで誰でも叩けます（そうしないとお客様の画面に
+   メニューも空き枠も出せません）。ところが設定シートを丸ごと返していたので、
+   店だけが見るはずの項目まで全訪問者の端末に配っていました。
+
+     ・通知先メール … 店とスタッフのアドレス
+     ・ホットペッパー手数料率／掲載料 … 店の契約条件そのもの
+
+   いまは空なので実害は出ていませんが、店主が数字タブに入れた瞬間に配られます。
+   「入れてください」と案内している項目なので、入る前提です。
+
+   ★除くものを並べる形にはしません。あとから項目が増えたときに、
+     並べ忘れたものが黙って出ていくためです。**出すものだけを並べます。**
+     ここに足し忘れた設定は画面に出ないので、消えたことに気づけます
+     （test/settings.mjs が applySettings の読む項目と突き合わせています）。 */
+const PUBLIC_SETTING_KEYS = [
+  '準備中の帯', '準備中の文言',
+  '電話番号', '営業開始', '営業終了', '最終受付', '定休曜日',
+  '変更・キャンセル期限（何日前）', '変更・キャンセル期限（何時）',
+  'キャッチコピー', 'お知らせ', '店の紹介文', 'こだわり条件',
+  '住所', '地図の検索文字列', 'アクセス', '道案内', '駐車場', '支払い方法', '席数',
+  'スタッフの肩書き', 'スタッフの経験年数', 'スタッフの得意分野', 'スタッフの紹介文',
+  'ロゴ画像', 'スタッフ写真', 'メイン写真',
+  'LINE友だち追加URL', 'Google口コミURL',
+  '事業者名', '代表者名', '問い合わせ先メール', 'プライバシーポリシー制定日'
+];
+
+function publicSettings_(st) {
+  const out = {};
+  PUBLIC_SETTING_KEYS.forEach(function (k) {
+    if (Object.prototype.hasOwnProperty.call(st, k)) out[k] = st[k];
+  });
+  return out;
+}
+
 function doMenu_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   return {
@@ -871,7 +907,7 @@ function doMenu_() {
     styles: readStyleSheet_(ss),
     reviews: readReviewSheet_(ss),
     closedDates: readClosedSheet_(ss),
-    settings: readSettings_(ss)
+    settings: publicSettings_(readSettings_(ss))
   };
 }
 
