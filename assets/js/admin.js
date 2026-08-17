@@ -176,6 +176,23 @@ const SETTING_SECTIONS = [
         hint: '開示・削除のご請求先として出ます。上の「通知先メール」と同じで構いません。' },
       { key: 'プライバシーポリシー制定日', type: 'text', blank: 'clear', hint: '例）2026年8月15日' }
     ]
+  },
+  {
+    /* この2つはお客様の画面には出ません。「数字」タブの計算にだけ使います。
+       率も掲載料も契約プランごとに違うので、こちらでは何も置きません。
+       入るまで、数字タブは金額を1円も出しません。 */
+    title: 'ホットペッパーとの比較',
+    note: '掲載を続けるかどうかを、勘ではなく数字で決めるための欄です。'
+      + '2つともホットペッパーからの請求明細に書いてあります。'
+      + '入れると「数字」タブに、今月いくら手数料を払わずに済んだかが出ます。'
+      + '入れるまでは金額を出しません（こちらで数字を作らないためです）。',
+    fields: [
+      { key: 'ホットペッパー手数料率（％）', type: 'number', blank: 'clear', min: 0, max: 100,
+        hint: '予約1件の売上のうち、手数料として引かれる割合。'
+          + '請求明細の送客手数料を、その月の該当売上で割った値でかまいません。' },
+      { key: 'ホットペッパー掲載料（月額・円）', type: 'number', blank: 'clear', min: 0, max: 10000000,
+        hint: '毎月かかる掲載料。予約が0件でもかかる分です。手数料とは別に請求されています。' }
+    ]
   }
 ];
 
@@ -295,6 +312,7 @@ async function openDashboard() {
   try { view = localStorage.getItem(VIEW_KEY) || 'list'; } catch (e) { /* noop */ }
   setReserveView(view);
   renderCustomers();
+  renderNumbers();
   renderClosed();
   renderList('menus');
   renderList('coupons');
@@ -945,6 +963,385 @@ function renderCustomers() {
         </details>
       </article>`;
   }).join('');
+}
+
+/* ============================================================
+   数字 — 掲載を続けるかどうかを決めるための画面
+
+   店主が月に1回だけ開きます。そのとき決めたいことは1つです。
+   「ホットペッパーの掲載を、下げてよいか。止めてよいか」
+
+   決め手は4つです。
+     ・自社サイトで何件取れているか（先月より増えているか）
+     ・その入口はどこか（店が配ったリンクが効いているか）
+     ・2回目以降のお客様が自社に移っているか
+     ・席がどれだけ埋まっているか（新規を入れる余地が残っているか）
+   そのうえで、手数料をいくら払わずに済んだかを出します。
+
+   ★ここで数字を作らないこと。
+     手数料率も掲載料も店ごとに違います。入っていないものは
+     「分かりません」と出します。それらしい数字を置くと、店主は
+     それを実績だと思って掲載を止めます。取り返しがつきません。
+
+   ★煽らないこと。
+     出すのは事実と、その読み方だけです。「止めましょう」は書きません。
+     決めるのは店主で、こちらには見えていない事情（新規の入り方、
+     この先の季節）があります。
+   ============================================================ */
+
+/* 見ている月。0 が今月、-1 が先月。月に1回開く画面なので、
+   月初に開いた店主が先月ぶんを見られるように2つ持ちます。 */
+let numbersMonth = 0;
+
+/* 電話・来店で受けた分。
+   「予約の入口」の列が無かったころの行は入口が空ですが、
+   来店回数のほうには前から「電話・来店」と入っています。両方を見ます。 */
+const isWalkIn = r => r.source === '電話・来店' || r.visit === '電話・来店';
+
+/** その1件の入口。分からないものは「記録なし」。「直接」に混ぜません */
+function sourceOf(r) {
+  if (isWalkIn(r)) return '電話・来店';
+  return SOURCE_LABELS.indexOf(r.source) >= 0 ? r.source : '記録なし';
+}
+
+/** 見ている月 */
+function monthOf(offset) {
+  const n = new Date();
+  const d = new Date(n.getFullYear(), n.getMonth() + offset, 1);
+  return {
+    key: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`,
+    label: `${d.getFullYear()}年${d.getMonth() + 1}月`,
+    year: d.getFullYear(), month: d.getMonth() + 1
+  };
+}
+
+/* その月のご予約。数えるのは来店日です。
+   受付日で数えると、先月のうちに取った今月ぶんが先月に乗り、
+   手数料の話（施術1件ごとにかかる）と合わなくなります。 */
+function monthBookings(key) {
+  return (adminData.reservations || [])
+    .filter(r => !isCancelled(r) && String(r.date || '').slice(0, 7) === key);
+}
+
+/* 設定シートの数。手で書く場所なので、読めない値は未入力として扱います。
+
+   0 と未入力は別ものです。「0%」と書いてあれば0円と出しますが、
+   空欄のときは金額そのものを出しません。 */
+function settingNumber(key, min, max) {
+  const t = toHalfWidth((edits.settings || {})[key]).replace(/[,¥￥円%％\s]/g, '').trim();
+  if (t === '' || !/^\d+(\.\d+)?$/.test(t)) return null;
+  const n = Number(t);
+  return (n < min || n > max) ? null : n;
+}
+
+/** 稼働率を出すための営業時間（分）。読めなければ掲載中の値 */
+function numbersHours() {
+  const b = SALON.business;
+  const open = toMinutes(settingTime('営業開始', b.openTime));
+  const close = toMinutes(settingTime('営業終了', b.closeTime));
+  return close > open
+    ? { open, close }
+    : { open: toMinutes(b.openTime), close: toMinutes(b.closeTime) };
+}
+
+/** その日に受けられた時間（分）。定休・終日休みは0 */
+function openMinutesOn(dateKey, hours, holidays) {
+  if (holidays.includes(fromKey(dateKey).getDay())) return 0;
+  if (closedAllDay(dateKey)) return 0;
+  /* 受けないことにした時間帯は、営業時間から引きます。引かないと、
+     店が自分で閉めた時間まで「空いていた」ことになり、稼働率が低く出ます。 */
+  const stop = closedBlocksOn(dateKey).reduce((sum, c) => sum
+    + Math.max(0, Math.min(hours.close, toMinutes(c.endTime))
+                 - Math.max(hours.open, toMinutes(c.time))), 0);
+  return Math.max(0, hours.close - hours.open - stop);
+}
+
+/* 稼働率。営業時間のうち、どれだけ予約で埋まっているか。
+
+   これから先の日は数えません。まだ来ていない日は空いていて当たり前で、
+   混ぜるとどの月も月初は「がらがら」に見えます。 */
+function occupancy(m) {
+  const hours = numbersHours();
+  const holidays = acalHolidays();
+  const today = toKey(new Date());
+  const lastDay = new Date(m.year, m.month, 0).getDate();
+  const list = monthBookings(m.key);
+  let open = 0, used = 0, days = 0, until = '';
+
+  for (let d = 1; d <= lastDay; d++) {
+    const k = `${m.key}-${pad2(d)}`;
+    if (k > today) break;
+    until = k;
+    const o = openMinutesOn(k, hours, holidays);
+    if (!o) continue;
+    days++;
+    open += o;
+    used += list.filter(r => r.date === k).reduce((s, r) => {
+      const t = toMinutes(String(r.time || ''));
+      // 時刻の読めない行は数えません（分からないものを埋めない）
+      if (!Number.isFinite(t)) return s;
+      const from = Math.max(hours.open, t);
+      const to = Math.min(hours.close, endMinutesOf(r));
+      return s + Math.max(0, to - from);
+    }, 0);
+  }
+  return { open, used, days, until, rate: open ? used / open : null };
+}
+
+/** 分を「◯時間」に。桁を落としすぎると、稼働率と合わなく見えます */
+const hoursText = min => `${Math.round(min / 6) / 10}時間`;
+
+/* ---- 画面の部品 ----
+   数字のとなりに、その読み方を必ず1行添えます。数字だけ出しても
+   店主は決められません。ただし「止めましょう」とは書きません。 */
+function numCard(title, value, unit, sub, read, cls = '') {
+  return `
+    <section class="num-card ${cls}">
+      <h3 class="num-title">${esc(title)}</h3>
+      <p class="num-value">${esc(value)}${unit ? `<small>${esc(unit)}</small>` : ''}</p>
+      ${sub ? `<p class="num-sub">${esc(sub)}</p>` : ''}
+      ${read ? `<p class="num-read">${esc(read)}</p>` : ''}
+    </section>`;
+}
+
+function numBars(rows, total) {
+  if (!rows.length) return '<p class="empty-state">数えられるご予約がありません。</p>';
+  return `<ul class="num-bars">${rows.map(([label, n]) => {
+    const pct = total ? Math.round(n / total * 100) : 0;
+    return `<li>
+        <span class="num-bar-label">${esc(label)}</span>
+        <span class="num-bar"><span style="width:${pct}%"></span></span>
+        <span class="num-bar-num">${n}件<small>${pct}%</small></span>
+      </li>`;
+  }).join('')}</ul>`;
+}
+
+/* 1. その月に自社サイトから何件入ったか */
+function numbersCount(m, prev, site, siteBefore) {
+  const diff = site.length - siteBefore.length;
+  const sub = `${prev.label}は ${siteBefore.length}件`
+    + (diff === 0 ? '（同じ）' : `（${diff > 0 ? '＋' : '−'}${Math.abs(diff)}件）`);
+  return numCard(
+    `${m.label}の自社サイト経由のご予約`, String(site.length), '件', sub,
+    'ホットペッパーを通さずに入ったご予約です。電話・来店で受けた分は含みません。'
+    + 'この数が増えているあいだは、掲載を下げても受け皿が育っています。');
+}
+
+/* 2. どの入口から来ているか */
+function numbersSources(m, all) {
+  const count = {};
+  all.forEach(r => { const k = sourceOf(r); count[k] = (count[k] || 0) + 1; });
+  /* 店が配った入口（LINE・地図・QR・Instagram）と電話は、0件でも出します。
+     0件だと分かることに意味があるためです（配ったのに来ていない）。
+     それ以外は、あるときだけ出します。 */
+  const always = VISIT_SOURCES.map(s => s.label).concat(['電話・来店']);
+  const rows = SOURCE_LABELS.concat(['記録なし'])
+    .filter(k => always.includes(k) || count[k])
+    .map(k => [k, count[k] || 0]);
+  const marked = VISIT_SOURCES.reduce((n, s) => n + (count[s.label] || 0), 0);
+
+  return `
+    <section class="num-card">
+      <h3 class="num-title">${esc(m.label)}の入口の内訳</h3>
+      ${numBars(rows, all.length)}
+      <p class="num-read">${esc(
+        `店が配ったリンクから来たのは ${marked}件です。「直接」「検索」は、その印が付いていない分です。`
+        + 'Googleマップから来ても、参照元は検索と同じに見えます。地図の分を分けて数えたいときは、'
+        + '下のURLをビジネスプロフィールの予約リンクに入れてください。')}</p>
+    </section>`;
+}
+
+/* 3. リピーターが自社に移っているか */
+function numbersRepeat(m, site) {
+  const n = k => site.filter(r => r.visit === k).length;
+  const first = n('初めて');
+  const again = n('2回目以降');
+  const unknown = site.length - first - again;
+  const rows = [['初めて', first], ['2回目以降', again]]
+    .concat(unknown ? [['分かりません', unknown]] : []);
+
+  return `
+    <section class="num-card">
+      <h3 class="num-title">${esc(m.label)}の 初めて／2回目以降</h3>
+      ${numBars(rows, site.length)}
+      <p class="num-read">${esc(
+        'この「2回目以降」が、ホットペッパーを通さずに戻ってきてくださった方です。'
+        + 'ここが増えているほど、掲載に払っている送客手数料は減っています。'
+        + '会計のときにLINEをお伝えすると、いちばん動く数字です。')}</p>
+    </section>`;
+}
+
+/* 4. 席がどれだけ埋まっているか */
+function numbersOccupancy(m) {
+  const o = occupancy(m);
+  if (o.rate === null) {
+    return numCard(`${m.label}の稼働率`, '分かりません', '', '',
+      o.days === 0 && !o.until
+        ? 'この月はまだ始まっていないため、数えられる日がありません。'
+        : '営業時間が読み取れないか、この月に営業日がありませんでした。'
+          + '「店舗情報」タブの営業開始・営業終了をご確認ください。', 'is-quiet');
+  }
+  return numCard(
+    `${m.label}の稼働率`, `${Math.round(o.rate * 100)}%`, '',
+    `${m.label}1日〜${Number(o.until.slice(8))}日／営業${o.days}日`
+    + `／受けられた ${hoursText(o.open)} のうち ${hoursText(o.used)} が予約`,
+    '席は1つです。ここが高いほど、掲載が新しいお客様を連れてきても'
+    + '入れる場所が残っていません。逆にここが低いうちは、掲載を止めると'
+    + '空いたままの時間が増えます。');
+}
+
+/* 5. ★本題：ホットペッパーに払わずに済んだ金額 */
+function numbersSavings(m, site) {
+  const rate = settingNumber('ホットペッパー手数料率（％）', 0, 100);
+  const monthly = settingNumber('ホットペッパー掲載料（月額・円）', 0, 10000000);
+  const priced = site.filter(r => Number(r.price) > 0);
+  const total = priced.reduce((s, r) => s + Number(r.price), 0);
+  const noPrice = site.length - priced.length;
+
+  /* 率が入っていないときは、金額をひとつも出しません。
+     こちらで率を決めて計算すると、それは実績ではなく作り話になります。 */
+  if (rate === null) {
+    return `
+      <section class="num-card is-empty" id="numbers-savings">
+        <h3 class="num-title">ホットペッパーに払わずに済んだ金額</h3>
+        <p class="num-value">—</p>
+        <p class="num-read">${esc(
+          '手数料率が入っていないので、金額は出しません。'
+          + '率も掲載料も契約プランごとに違うため、こちらで決めた数字を出すと作り話になります。'
+          + 'ホットペッパーからの請求明細を見て入れてください。'
+          + '「掲載料」と「予約1件あたりの手数料」を分けて見るのがこつです。')}</p>
+        <button class="btn btn-outline btn-sm" type="button" id="numbers-to-settings">
+          入力欄を開く（店舗情報タブ）
+        </button>
+      </section>`;
+  }
+
+  // 多めに言わないよう切り捨てます
+  const saved = Math.floor(total * rate / 100);
+  const avg = priced.length ? total / priced.length : 0;
+  const perBooking = avg * rate / 100;
+
+  const breakEven = monthly === null
+    ? '掲載料が入っていないので、何件から掲載料を上回るかは出せません。'
+      + '同じ欄に月額を入れてください。'
+    : perBooking > 0
+      ? `掲載料 ${yen(monthly)}/月 を上回るのは、自社サイト経由が月 ${Math.ceil(monthly / perBooking)}件 からです`
+        + `（1件あたりの平均 ${yen(Math.round(avg))} で計算）。${m.label}は ${site.length}件でした。`
+      : '金額の入ったご予約がこの月に無いため、何件から掲載料を上回るかは出せません。';
+
+  return `
+    <section class="num-card" id="numbers-savings">
+      <h3 class="num-title">${esc(m.label)}にホットペッパーへ払わずに済んだ金額</h3>
+      <p class="num-value">${esc(yen(saved))}</p>
+      <p class="num-sub">${esc(`自社サイト経由 ${site.length}件 ／ 合計 ${yen(total)} × 手数料 ${rate}%`
+        + (noPrice ? `（金額の決まっていない ${noPrice}件は合計に入っていません）` : ''))}</p>
+      <p class="num-read">${esc(
+        '同じご予約をホットペッパー経由で受けていたら、これだけ手数料で引かれていた計算です。'
+        + '実際にその分が手元に残ったのではなく、引かれずに済んだ額です。')}</p>
+      <p class="num-read">${esc(breakEven)}</p>
+    </section>`;
+}
+
+/* 入口ごとのURL。ここからコピーして配ります */
+function numbersLinks() {
+  // admin.html を落とした場所が、このサイトの入口です
+  const base = location.href.split('?')[0].replace(/[^/]*$/, '');
+  return `
+    <section class="num-card">
+      <h3 class="num-title">入口ごとのURL（配る用）</h3>
+      <p class="num-read">${esc(
+        '上の「入口の内訳」は、配る先ごとに違うURLを使うことで分かれます。'
+        + '同じURLを両方に貼ると、まとめて数えられます。'
+        + 'お客様の画面は何も変わりません。URLの末尾が違うだけです。')}</p>
+      ${VISIT_SOURCES.map(s => {
+        const url = base + s.page + '?from=' + s.key;
+        return `
+        <div class="num-link">
+          <p class="num-link-head">${esc(s.label)}</p>
+          <p class="num-link-note">${esc(s.note)}</p>
+          <div class="num-link-row">
+            <input class="input" type="text" readonly value="${esc(url)}"
+                   aria-label="${esc(s.label + '用のURL')}" />
+            <button class="btn btn-outline btn-sm" type="button"
+                    data-copy-url="${esc(url)}">コピー</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </section>`;
+}
+
+/* この画面で分からないこと。
+   出していない数字を店主が「無い」と読み違えると、判断がまるごと狂います。 */
+function numbersUnknown() {
+  return `
+    <section class="num-card is-quiet">
+      <h3 class="num-title">この画面で分からないこと</h3>
+      <ul class="num-list">
+        <li>ホットペッパー経由のご予約の件数と売上。あちらの管理画面にしかありません。
+            「自社が何件になったか」は出せますが、「掲載を止めたら何件失うか」は出せません。</li>
+        <li>ご来店になったかどうか。数えているのはご予約であって、来店ではありません。</li>
+        <li>金額の決まっていないご予約（お見積り）の金額。合計には入れていません。</li>
+        <li>電話でお受けした方が、どこを見てお電話くださったか。台帳では「電話・来店」までです。</li>
+        <li>「予約の入口」の列を足す前のご予約。「記録なし」になり、さかのぼって埋まりません。</li>
+      </ul>
+    </section>`;
+}
+
+function renderNumbers() {
+  const host = $('#numbers-body');
+  if (!host || !adminData) return;
+  const m = monthOf(numbersMonth);
+  const prev = monthOf(numbersMonth - 1);
+  const all = monthBookings(m.key);
+  const site = all.filter(r => !isWalkIn(r));
+  const siteBefore = monthBookings(prev.key).filter(r => !isWalkIn(r));
+
+  /* 1件も無い月でも、画面は成り立たせます。0件は失敗ではなく、
+     0件だと分かること自体が判断の材料です。 */
+  host.innerHTML = [
+    numbersCount(m, prev, site, siteBefore),
+    numbersSources(m, all),
+    numbersRepeat(m, site),
+    numbersOccupancy(m),
+    numbersSavings(m, site),
+    numbersLinks(),
+    numbersUnknown()
+  ].join('');
+}
+
+function setNumbersMonth(offset) {
+  numbersMonth = offset === -1 ? -1 : 0;
+  $$('#numbers-month .tab').forEach(b =>
+    b.setAttribute('aria-selected', String(Number(b.dataset.month) === numbersMonth)));
+  renderNumbers();
+}
+
+/* 数字タブから、その数字を出すための入力欄まで連れていきます。
+   「店舗情報タブの下のほうにあります」と書くだけでは、34項目の中から
+   探すことになり、たいてい途中でやめます。 */
+function openSettingSection(title) {
+  const tab = document.querySelector('#admin-tabs .tab[data-pane="settings"]');
+  if (tab) tab.click();
+  const i = SETTING_SECTIONS.findIndex(s => s.title === title);
+  const box = document.querySelector(`[data-setting-group="${i}"]`);
+  if (!box) return;
+  box.open = true;
+  box.scrollIntoView({ block: 'start' });
+}
+
+/* コピーできない端末（許可されない・対応していない）でも行き止まりにしません。
+   すぐ左に同じURLが出ているので、選んだ状態にして手で写せるようにします。 */
+async function copyUrl(btn) {
+  const row = btn.closest('.num-link-row');
+  try {
+    await navigator.clipboard.writeText(btn.dataset.copyUrl);
+    btn.textContent = 'コピーしました';
+  } catch (e) {
+    const field = row && row.querySelector('input');
+    if (field) field.select();
+    btn.textContent = '長押しでコピー';
+  }
+  setTimeout(() => { btn.textContent = 'コピー'; }, 4000);
 }
 
 /* ---------- 写真 ----------
@@ -1698,6 +2095,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!tab) return;
     $$('.tab', $('#admin-tabs')).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     $$('.admin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab.dataset.pane; });
+    /* 数字は、店舗情報タブで入れた手数料率をそのまま使います。
+       開いたときに描き直さないと、入れた直後に見に来た店主の画面に
+       「手数料率が入っていません」が残ります。 */
+    if (tab.dataset.pane === 'numbers') renderNumbers();
   });
 
   // 入力の反映
@@ -1777,6 +2178,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // カレンダーのマス。その1件の詳細（一覧のカード）まで送ります
     const cal = e.target.closest('[data-cal-code]');
     if (cal) { focusBooking(cal.dataset.calCode); return; }
+
+    const cp = e.target.closest('[data-copy-url]');
+    if (cp) { await copyUrl(cp); return; }
+
+    if (e.target.closest('#numbers-to-settings')) {
+      openSettingSection('ホットペッパーとの比較');
+      return;
+    }
 
     /* 一覧の行を押した。押した1件だけを開き、ほかは閉じたままにする。
        もう一度同じ行を押せば閉じて、一覧だけに戻る。 */
@@ -1881,6 +2290,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#reserve-view').addEventListener('click', e => {
     const b = e.target.closest('[data-view]');
     if (b) setReserveView(b.dataset.view);
+  });
+  $('#numbers-month').addEventListener('click', e => {
+    const b = e.target.closest('[data-month]');
+    if (b) setNumbersMonth(Number(b.dataset.month));
   });
   $('#acal-prev').addEventListener('click', () => { acalOffset -= ACAL_DAYS; renderAdminCalendar(); });
   $('#acal-next').addEventListener('click', () => { acalOffset += ACAL_DAYS; renderAdminCalendar(); });

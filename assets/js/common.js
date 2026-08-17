@@ -204,6 +204,101 @@ function takeStyleRequest() {
   return t.trim();
 }
 
+/* ============================================================
+ *  どこから来ていただいたか（予約の入口）
+ *
+ *  掲載を止めるかどうかは、自社サイトに実際どれだけ来ているかで決まります。
+ *  ところが台帳には「初めて／2回目以降」しかなく、LINEから来た方も
+ *  名刺のQRから来た方も、同じ1件として並びます。どの入口が効いているのか
+ *  分からないまま、店主は掲載料を払い続けることになります。
+ *
+ *  お客様に尋ねることはしません。予約の手を1つ増やせば、その分だけ
+ *  予約が減ります。減らしてまで取る値打ちのある数字ではありません。
+ *
+ *  ★個人は追跡しません。
+ *    残すのは下の一覧にある短い言葉ひとつだけです。参照元のURLも、
+ *    端末を見分ける印も、来訪の時刻も持ちません。置き場所はそのタブの中だけ
+ *    （sessionStorage）で、タブを閉じれば消えます。予約が完了したときに、
+ *    その1件の台帳の欄へ写るだけです。
+ * ============================================================ */
+
+/* 店が配る入口。URLの末尾に ?from=◯◯ を付けたものを配ります。
+   印付きのURLは、管理ページの「数字」タブからコピーできます。
+
+   ここに無い印は受け取りません。受け口は公開されているので、
+   自由に書ける欄にすると、台帳に何でも書き込める場所になります。 */
+const VISIT_SOURCES = [
+  { key: 'line', label: 'LINE', page: 'reserve.html',
+    note: 'LINE公式アカウントのあいさつ文・メッセージに貼ります。' },
+  { key: 'map', label: 'Googleマップ', page: 'reserve.html',
+    note: 'Googleビジネスプロフィールの「予約」リンクに入れます。' },
+  { key: 'qr', label: '名刺・店内QR', page: 'index.html',
+    note: '名刺やレジ横のQRコードにします。会計のときにお見せする分です。' },
+  { key: 'insta', label: 'Instagram', page: 'index.html',
+    note: 'Instagramのプロフィール欄のリンクに入れます。' }
+];
+
+/* 印が無いときに、参照元から分かる範囲だけを言い当てます。
+   ここでも残すのは右側の短い言葉ひとつで、URLそのものは持ちません。
+
+   Googleマップから来ても、参照元は検索と同じ www.google.com です。
+   区別できないので「検索」と記録します。地図からの分を数えたいなら、
+   上の印付きURLをビジネスプロフィールに入れてください。 */
+const REFERRER_SOURCES = [
+  [/(^|\.)line\.me$/, 'LINE'],
+  [/(^|\.)instagram\.com$/, 'Instagram'],
+  [/(^|\.)hotpepper\.jp$/, 'ホットペッパー'],
+  [/(^|\.)(google|yahoo|bing|duckduckgo)\./, '検索']
+];
+
+/* 台帳の「予約の入口」に入りうる言葉。数字タブもこの順で並べます。
+   ★受け口（gas/Code.gs の SOURCE_LABELS）と同じにしてください。
+     食い違うと、記録したはずの入口が受け口で捨てられ、欄が空のままになります
+     （test/settings.mjs が突き合わせています）。 */
+const SOURCE_LABELS = VISIT_SOURCES.map(s => s.label)
+  .concat(['ホットペッパー', '検索', 'ほかのサイト', '直接', '電話・来店']);
+
+const SOURCE_KEY = 'salon.visitSource.v1';
+
+/** 参照元から入口を言い当てる。自分のサイトの中の移動なら空文字 */
+function sourceFromReferrer() {
+  let host = '';
+  try { host = new URL(document.referrer).hostname.toLowerCase(); } catch (e) { return '直接'; }
+  if (!host) return '直接';
+  // サイトの中の移動。入口はもう控えてあるので、言い当て直しません
+  if (host === location.hostname) return '';
+  const hit = REFERRER_SOURCES.find(r => r[0].test(host));
+  return hit ? hit[1] : 'ほかのサイト';
+}
+
+/** ページを開いたときに1回。どこから来ていただいたかを、このタブに控えます */
+function noteVisitSource() {
+  let mark = '';
+  try { mark = new URLSearchParams(location.search).get('from') || ''; } catch (e) { mark = ''; }
+  const known = VISIT_SOURCES.find(s => s.key === mark.trim().toLowerCase());
+  try {
+    /* 印が付いていれば、そちらを採ります。直接開いたあとで
+       LINEのリンクを押された、という順番が実際にあるためです。 */
+    if (known) { sessionStorage.setItem(SOURCE_KEY, known.label); return; }
+    /* 印が無いときは、最初に開いたページのぶんだけ控えます。
+       ページを移るたびに書き換えると、LINEから来た方がメニューを
+       1ページ見て戻っただけで「直接」に変わってしまいます。 */
+    if (sessionStorage.getItem(SOURCE_KEY)) return;
+    const guess = sourceFromReferrer();
+    if (guess) sessionStorage.setItem(SOURCE_KEY, guess);
+  } catch (e) { /* 使えない端末では控えません。予約はそのまま通ります */ }
+}
+
+/** いま控えている入口。取れなければ空文字（台帳の欄も空のままにします） */
+function visitSource() {
+  try { return sessionStorage.getItem(SOURCE_KEY) || ''; } catch (e) { return ''; }
+}
+
+/* DOMContentLoaded を待ちません。印はURLに載っているので、
+   このファイルが読まれた時点で分かります。待つと、その前に予約が
+   送られる場面（下書きからの復帰など）で取りこぼします。 */
+noteVisitSource();
+
 let memory = null; // localStorage が使えない環境（プライベートモード等）での代替
 
 const Store = {

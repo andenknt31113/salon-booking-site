@@ -1207,6 +1207,201 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
 });
 
 /* ============================================================
+   管26 数字タブ — 掲載を続けるかどうかを、月に1回ここで決める
+
+   店主が開くのは施術の合間ではなく、月末か月初の1回です。
+   そのとき決めたいことは1つ「ホットペッパーを止めてよいか」で、
+   1画面で決まらないなら、この画面を作った意味がありません。
+   ============================================================ */
+
+/* 今月・先月の◯日を、日本時間で作ります */
+const monthDay = (offMonth, dayNo) => {
+  const t = jstToday();
+  const d = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + offMonth, dayNo));
+  return d.toISOString().slice(0, 10);
+};
+/* 台帳に1件そのまま置きます（過ぎた日ぶんを作るための、試験用の入口です） */
+let seedNo = 0;
+const seed = o => post({ type: 'seed', code: 'LM-S' + String(seedNo++).padStart(4, '0'),
+  time: '10:00', endTime: '11:00', totalMinutes: 60, price: 7000, ...o });
+
+await group('管26 数字タブで、掲載を続けるか決められるか', async () => {
+  await post({ type: 'reset' });
+
+  /* 今月：LINEから3件（うち2件はリピーター）、地図から1件、印の無いのが1件、電話が1件。
+     金額の決まっていない予約（お見積り）も1件混ぜます。 */
+  await seed({ date: monthDay(0, 1), source: 'LINE', visit: '2回目以降', price: 7000 });
+  await seed({ date: monthDay(0, 2), source: 'LINE', visit: '2回目以降', price: 7000 });
+  await seed({ date: monthDay(0, 3), source: 'LINE', visit: '初めて', price: 7000 });
+  await seed({ date: monthDay(0, 4), source: 'Googleマップ', visit: '初めて', price: 14000 });
+  await seed({ date: monthDay(0, 5), source: '直接', visit: '初めて', price: 0 });
+  await seed({ date: monthDay(0, 6), source: '電話・来店', visit: '電話・来店', price: 5000 });
+  // 先月：LINEから2件だけ
+  await seed({ date: monthDay(-1, 10), source: 'LINE', visit: '2回目以降', price: 7000 });
+  await seed({ date: monthDay(-1, 11), source: 'LINE', visit: '初めて', price: 7000 });
+
+  const q = await newPhone('管26');
+  await login(q);
+  await tab(q, '数字'); await q.waitForTimeout(600);
+  const body = () => q.locator('#numbers-body').innerText();
+  const savings = () => q.locator('#numbers-savings').innerText();
+
+  check('管26', '数字タブが開く',
+    await q.locator('.admin-pane[data-pane="numbers"]').isVisible(), true);
+
+  const text = await body();
+  check('管26', '自社サイト経由の件数が出る（電話の分は入れない）', /5件/.test(text), true);
+  check('管26', '先月と比べられる', /2件/.test(text) && /＋3件/.test(text), true);
+
+  /* 入口の内訳。どの入口が効いているかが、次に何を配るかの材料になります */
+  check('管26', 'LINEからの件数が出る', /LINE[\s\S]{0,12}3件/.test(text), true);
+  check('管26', '地図からの件数が出る', /Googleマップ[\s\S]{0,12}1件/.test(text), true);
+  check('管26', '電話で受けた分が別に出る', /電話・来店[\s\S]{0,12}1件/.test(text), true);
+  check('管26', '印の付いていない分も出る', /直接[\s\S]{0,12}1件/.test(text), true);
+  /* 配ったのに0件、が分かるように、0件の入口も並べます */
+  check('管26', '配ったのに0件の入口も出る', /名刺・店内QR[\s\S]{0,12}0件/.test(text), true);
+
+  // 初めて／2回目以降。リピーターが自社に移っているかどうかの数字
+  check('管26', '初めての件数が出る', /初めて[\s\S]{0,12}3件/.test(text), true);
+  check('管26', '2回目以降の件数が出る', /2回目以降[\s\S]{0,12}2件/.test(text), true);
+
+  // 稼働率
+  check('管26', '稼働率が割合で出る', /稼働率[\s\S]{0,60}\d+%/.test(text), true);
+  check('管26', '何を数えた割合なのか書いてある', /営業\d+日/.test(text), true);
+
+  /* ★手数料率が未入力のあいだは、金額をひとつも出さないこと。
+     こちらで率を決めて計算した金額は、実績ではなく作り話です。 */
+  const before = await savings();
+  check('管26', '手数料率が未入力なら金額を出さない', /¥[\d,]/.test(before), false);
+  check('管26', '請求明細を見るよう促す', /請求明細/.test(before), true);
+  check('管26', '入力欄まで連れていくボタンがある',
+    await q.locator('#numbers-to-settings').count(), 1);
+
+  await q.locator('#numbers-to-settings').click(); await q.waitForTimeout(600);
+  check('管26', '押すと店舗情報タブが開く',
+    await q.locator('.admin-pane[data-pane="settings"]').isVisible(), true);
+  check('管26', 'ホットペッパーの欄がその場で開く',
+    await q.locator('[data-setting="ホットペッパー手数料率（％）"]').isVisible(), true);
+
+  // 請求明細を見て入れる
+  await q.locator('[data-setting="ホットペッパー手数料率（％）"]').fill('10');
+  await q.locator('[data-setting="ホットペッパー掲載料（月額・円）"]').fill('30000');
+  const stored = await saveSettings(q);
+  check('管26', '手数料率がシートに入る', String(stored['ホットペッパー手数料率（％）']), '10');
+
+  await tab(q, '数字'); await q.waitForTimeout(500);
+  const after = await savings();
+  /* 金額の決まっている4件（7,000×3 ＋ 14,000 ＝ 35,000円）の10% */
+  check('管26', '入れたら浮いた金額が出る', /¥3,500/.test(after), true);
+  check('管26', 'もとにした件数と合計も出る', /5件/.test(after) && /¥35,000/.test(after), true);
+  check('管26', '金額の決まっていない予約は合計に入れないと書いてある',
+    /1件は合計に入っていません/.test(after), true);
+  /* 掲載料30,000円 ÷（平均8,750円 × 10%＝875円）＝ 34.2… → 35件 */
+  check('管26', '掲載料を上回る件数が出る', /35件/.test(after), true);
+
+  /* 店主は日本語入力のまま打ちます */
+  await openSettingGroup(q, 'ホットペッパーとの比較');
+  await q.locator('[data-setting="ホットペッパー手数料率（％）"]').fill('１０');
+  await saveSettings(q);
+  await tab(q, '数字'); await q.waitForTimeout(500);
+  check('管26', '全角で打った手数料率も読める', /¥3,500/.test(await savings()), true);
+
+  /* 読めない値のときも、勝手な数字を置かずに促し直します */
+  await openSettingGroup(q, 'ホットペッパーとの比較');
+  await q.locator('[data-setting="ホットペッパー手数料率（％）"]').fill('あとで');
+  await saveSettings(q);
+  await tab(q, '数字'); await q.waitForTimeout(500);
+  const broken = await savings();
+  check('管26', '読めない手数料率では金額を出さない', /¥[\d,]/.test(broken), false);
+  check('管26', 'そのときも入れ方を促す', /請求明細/.test(broken), true);
+
+  await q.context().close();
+});
+
+/* ============================================================
+   管27 数字タブは、片手のスマホで読めるか（390px）
+   ============================================================ */
+await group('管27 数字タブが片手のスマホで読めるか', async () => {
+  const q = await newPhone('管27');
+  await login(q);
+  await tab(q, '数字'); await q.waitForTimeout(600);
+
+  check('管27', '数字タブが画面からはみ出さない',
+    await q.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+  check('管27', '帯も欄も横にはみ出さない',
+    await q.evaluate(() => {
+      const pane = document.querySelector('[data-pane="numbers"]');
+      return [...pane.querySelectorAll('*')].every(el => el.getBoundingClientRect().right <= 391);
+    }), true);
+
+  const small = await q.evaluate(() => [...document.querySelectorAll(
+    '[data-pane="numbers"] button, [data-pane="numbers"] input')]
+    .filter(el => { const r = el.getBoundingClientRect(); return r.height > 0 && r.height < 44; })
+    .map(el => el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0]
+      + '(' + Math.round(el.getBoundingClientRect().height) + 'px)'));
+  check('管27', '押すところが44px以上ある', [...new Set(small)].join(',') || 'なし', 'なし');
+
+  /* 印付きURLを、店主はここからコピーして配ります */
+  const urls = q.locator('.num-link-row input');
+  check('管27', '配る用のURLが入口のぶんだけ出る', await urls.count(), 4);
+  const line = await urls.first().inputValue();
+  check('管27', 'LINE用のURLに印が付いている', /\?from=line$/.test(line), true);
+  check('管27', 'URLがこのサイトのものになっている', line.startsWith(B + '/'), true);
+  check('管27', 'コピーボタンがある', await q.locator('[data-copy-url]').count(), 4);
+  await q.locator('[data-copy-url]').first().click(); await q.waitForTimeout(500);
+  check('管27', 'コピーを押しても行き止まりにならない',
+    /コピー/.test(await q.locator('[data-copy-url]').first().innerText()), true);
+
+  /* 出していない数字を「無い」と読み違えられると、判断ごと狂います */
+  const text = await q.locator('#numbers-body').innerText();
+  check('管27', 'ホットペッパー経由は見えないと書いてある',
+    /ホットペッパー経由[\s\S]{0,60}管理画面/.test(text), true);
+  check('管27', '来店したかどうかは分からないと書いてある', /来店ではありません/.test(text), true);
+
+  // 先月に切り替えて見られる（月初に開いて、先月ぶんを判断するため）
+  await q.locator('#numbers-month [data-month="-1"]').click(); await q.waitForTimeout(500);
+  check('管27', '先月に切り替えると先月の件数になる',
+    /2件/.test(await q.locator('#numbers-body').innerText()), true);
+
+  await q.context().close();
+});
+
+/* ============================================================
+   管28 予約が1件も無い月
+
+   開店直後と、掲載を止めた直後に必ず通る画面です。
+   0件は失敗ではありません。0件だと分かること自体が判断の材料です。
+   ============================================================ */
+await group('管28 予約が1件も無い月でも壊れない', async () => {
+  await post({ type: 'reset' });
+  const q = await newPhone('管28');
+  await login(q);
+  await tab(q, '数字'); await q.waitForTimeout(600);
+
+  const text = await q.locator('#numbers-body').innerText();
+  check('管28', '0件でも画面が出る', text.length > 200, true);
+  check('管28', '自社サイト経由が0件と出る', /0件/.test(text), true);
+  check('管28', '先月も0件として比べられる', /同じ/.test(text), true);
+  check('管28', '稼働率が0%と出る', /0%/.test(text), true);
+  check('管28', '0件の月でも横にはみ出さない',
+    await q.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+
+  /* 0件の月に手数料率を入れても、割り算で壊れないこと */
+  await openSettingGroup(q, 'ホットペッパーとの比較');
+  await q.locator('[data-setting="ホットペッパー手数料率（％）"]').fill('10');
+  await q.locator('[data-setting="ホットペッパー掲載料（月額・円）"]').fill('30000');
+  await saveSettings(q);
+  await tab(q, '数字'); await q.waitForTimeout(500);
+  const money = await q.locator('#numbers-savings').innerText();
+  check('管28', '0件の月は浮いた金額が¥0', /¥0/.test(money), true);
+  check('管28', '0件では「何件から」を出さずに、出せないと書く', /出せません/.test(money), true);
+  check('管28', '0円のときも数字を作らない', /NaN|Infinity|undefined/.test(money), false);
+
+  await q.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

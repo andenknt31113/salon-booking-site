@@ -1431,3 +1431,65 @@ body[data-page="reviews"] .empty-state { color: var(--text-2); }
   padding-inline: 8px; text-align: center;
 }
 .style-book span { display: inline-block; }
+
+/* ============================================================
+   管理ページ：数字タブ（掲載を続けるかどうかを決める画面）
+
+   店主が月に1回、片手のスマホ（390px）で開きます。指を何度も送ると、
+   途中でお客様に呼ばれて終わります。1つの数字は1枚のカードに収め、
+   数字のすぐ下にその読み方を置きます。
+   グラフは外の道具を使わず、幅を割合にした帯だけで出します。
+   ============================================================ */
+.num-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+  padding: 17px 16px; margin-bottom: 14px;
+}
+/* 「分からない」ことを伝えるカードは、実績のカードと見分けが付くようにします。
+   同じ顔で並ぶと、出していない数字まで実績として読まれます。 */
+.num-card.is-quiet, .num-card.is-empty { border-left-color: var(--line); }
+.num-title { font-size: 13.5px; font-weight: 700; line-height: 1.6; margin: 0 0 8px; }
+.num-value {
+  font-family: var(--font-en); font-size: 34px; line-height: 1.15; color: var(--accent);
+  margin: 0; overflow-wrap: anywhere;
+}
+.num-card.is-empty .num-value { color: var(--muted); }
+.num-value small { font-family: var(--font); font-size: 14px; margin-left: 4px; }
+.num-sub { font-size: 12px; color: var(--muted); line-height: 1.75; margin: 7px 0 0; }
+/* 数字の読み方。事実と、その読み方だけを書く場所です */
+.num-read { font-size: 12.5px; color: var(--text-2); line-height: 1.85; margin: 10px 0 0; }
+.num-card .btn { margin-top: 13px; }
+
+.num-list { margin: 4px 0 0; padding: 0; list-style: none; }
+.num-list li {
+  font-size: 12.5px; color: var(--text-2); line-height: 1.85;
+  padding: 8px 0 8px 15px; border-top: 1px solid var(--line-2); position: relative;
+}
+.num-list li::before { content: "・"; position: absolute; left: 0; color: var(--muted); }
+
+/* 内訳の帯。ラベルと件数の幅を決め打ちにして、帯だけを伸び縮みさせます。
+   3つとも伸ばせる作りにすると、件数が2桁になった行だけ帯が短くなり、
+   割合の見え方が長さで比べられなくなります。 */
+.num-bars { list-style: none; margin: 4px 0 0; padding: 0; }
+.num-bars li {
+  display: grid; grid-template-columns: 6.6em 1fr 4.6em; align-items: center;
+  gap: 8px; padding: 5px 0;
+}
+.num-bar-label { font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.num-bar { display: block; height: 10px; background: var(--panel-2); border-radius: 5px; overflow: hidden; }
+.num-bar > span { display: block; height: 100%; background: var(--accent); }
+.num-bar-num { font-size: 12px; font-weight: 700; text-align: right; white-space: nowrap; }
+.num-bar-num small { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); }
+
+/* 配る用のURL。長いので、狭い画面では欄とボタンを縦に積みます */
+.num-link { border-top: 1px solid var(--line-2); padding-top: 13px; margin-top: 13px; }
+.num-link-head { font-size: 13px; font-weight: 700; margin: 0; }
+.num-link-note { font-size: 11.5px; color: var(--muted); line-height: 1.7; margin: 3px 0 8px; }
+.num-link-row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 欄は読むだけです。中身は選べるようにしておきます
+   （コピーが許可されない端末では、ここを長押しで写していただきます） */
+.num-link-row .input { flex: 1 1 100%; font-size: 12px; min-height: 44px; }
+.num-link-row .btn { flex: 1 1 100%; }
+/* 押すところは指1本ぶんを必ず確保します。マウスのある画面でも同じにします。
+   この画面を開くのは店主のスマホだけなので、小さくする理由がありません。 */
+.num-card .btn { min-height: 44px; }
