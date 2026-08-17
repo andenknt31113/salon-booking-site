@@ -18,7 +18,10 @@ const COUPON_H = ['メニュー名', '価格', '通常価格', '所要(分)', '�
 const STYLE_H  = ['タイトル', '分類', 'タグ', '説明', '画像', '表示'];
 
 const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
-              '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','ご要望','状態','カレンダーID'];
+              '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','予約の入口','ご要望',
+              '状態','カレンダーID'];
+/* 「予約の入口」を足す前の台帳。すでに使っている店のシートはこの並びです */
+const OLD_HEAD = HEAD.filter(h => h !== '予約の入口');
 
 /* 本物の台帳と同じで、1行目は見出しです。
    店の人が列を足すこともあるので、見出しの並びを差し替えられるようにしてあります。 */
@@ -960,13 +963,24 @@ function shop(sheetsInit = {}) {
   const store = { ADMIN_PASSWORD: 'himitsu' };
   const sheets = {};
   const mk = (name, init = []) => {
-    const head = Array.isArray(init) ? null : (init.head || null);
+    let head = Array.isArray(init) ? null : (init.head || null);
     const rows = Array.isArray(init) ? init : (init.rows || []);
     const data = rows.map(r => r.slice());
     return {
-      getName: () => name, getLastRow: () => data.length + 1,
-      getLastColumn: () => (head || data[0] || []).length, appendRow: r => data.push(r),
-      getRange: (rw, c, nr, nc) => ({
+      getName: () => name,
+      /* 作りたてのシート（見出しも中身も無い）は 0 を返します。
+         本物もそうで、受け口はこの 0 を見て見出しを書きます。
+         1 を返していたころは、見出しを書く道が試験から消えていました。 */
+      getLastRow: () => ((head || data.length) ? data.length + 1 : 0),
+      getLastColumn: () => (head || data[0] || []).length,
+      /* 空のシートへの1行目は見出しです（本物もそうです）。
+         中身の行として積むと、以降が1行ずつずれます。 */
+      appendRow: r => { if (!head && !data.length) head = r.slice(); else data.push(r); },
+      /* 本物の setValues は、そのまま .setFontWeight(…) と続けて書ける
+         Range を返します。undefined を返していると、書式まで指定している
+         本番の書き方（ensureHeaders_）が、ここでだけ落ちます。 */
+      getRange: (rw, c, nr, nc) => {
+        const range = {
         /* 本物のシートは、1行目が空でも「空の行」を返します。
            ここで [] を返すと、本番では起きない失敗になります。 */
         getValues: () => (rw === 1
@@ -976,10 +990,20 @@ function shop(sheetsInit = {}) {
            行まるごと差し替える作りにしていると、列ごとの書き込みで
            他の列が消え、本番では起きない失敗になります。 */
         setValues: v => {
+          /* 1行目は見出しです。本物のシートと同じで、右端に足せるようにします
+             （ensureHeaders_ が、あとから増えた列をここに書きます）。
+             ここを行の書き込みと同じ扱いにしていると、見出しを足す動きが
+             試験に出ず、本番だけ「記録したはずの欄が無い」になります。 */
+          if (rw === 1) {
+            if (!head) head = [];
+            (v[0] || []).forEach((val, j) => { head[c - 1 + j] = val; });
+            return range;
+          }
           v.forEach((r, i) => {
             const target = data[rw - 2 + i] || (data[rw - 2 + i] = []);
             r.forEach((val, j) => { target[c - 1 + j] = val; });
           });
+          return range;
         },
         setValue() {},
         clearContent: () => {
@@ -990,9 +1014,13 @@ function shop(sheetsInit = {}) {
         },
         setFontWeight: () => ({ setBackground: () => {} }), setNote() {},
         setFontLine: () => ({ setFontColor: () => {} })
-      }),
+        };
+        return range;
+      },
       getDataRange: () => ({ getValues: () => (head ? [head.slice()] : []).concat(data.map(r => r.slice())) }),
-      setFrozenRows() {}, setColumnWidth() {}, clear() {}, deleteRows() {}, _data: data
+      setFrozenRows() {}, setColumnWidth() {}, clear() {}, deleteRows() {}, _data: data,
+      // 見出しがどう変わったかを、試験から見るため
+      _head: () => (head ? head.slice() : [])
     };
   };
   Object.keys(sheetsInit).forEach(n => { sheets[n] = mk(n, sheetsInit[n]); });
@@ -1168,19 +1196,140 @@ console.log('\n【空き状況】誰でも受け取れる応答の中身');
   const sheet = makeSheet([row({
     お名前: '安田 健汰', フリガナ: 'ヤスダ ケンタ', 電話番号: "'08044987036",
     メール: 'kenta@example.com', ご要望: 'いつもの感じで', メニュー: 'メンズカット',
-    来店日: day(10), 予約番号: 'LM-PRIV1'
+    来店日: day(10), 予約番号: 'LM-PRIV1', '予約の入口': 'LINE'
   })]);
   const { out } = run('doAvailability_', sheet, undefined);
   const text = JSON.stringify(out);
   console.log('  返ってくる中身:', text);
   for (const [label, needle] of [['お名前', '安田'], ['フリガナ', 'ヤスダ'], ['電話番号', '08044987036'],
                                  ['メール', 'kenta@example.com'], ['ご要望', 'いつもの'],
-                                 ['メニュー', 'メンズカット'], ['予約番号', 'LM-PRIV1']]) {
+                                 ['メニュー', 'メンズカット'], ['予約番号', 'LM-PRIV1'],
+                                 /* 入口は店の判断のための記録です。誰でも受け取れる応答に
+                                    載せる理由がありません（載せると、どのお客様がどこから
+                                    来たかが外から並べられます）。 */
+                                 ['予約の入口', 'LINE']]) {
     text.includes(needle) ? note('空き状況に' + label, 'が入っている') : ok(label + 'は出ていない');
   }
   const b = (out.booked || [])[0] || {};
   (b.date && b.time && b.minutes) ? ok('埋まっている時間帯は分かる')
                                   : note('空き状況', '埋まっている時間が分からない');
+}
+
+/* ============================================================
+   予約の入口
+
+   台帳に「どこから来ていただいたか」の列を1つ足しました。
+   掲載を止めてよいかは、この列が無いと決められません。
+
+   ここで見るのは3つです。
+     ・印の付いた予約が、その列に入るか
+     ・知らない言葉を送られたときに、台帳へ書かずに済むか
+     ・印が無くても、予約そのものは今までどおり通るか
+   3つめがいちばん大事です。入口を取るために予約が1件でも
+   通らなくなるなら、この仕組み自体をやめたほうがましです。
+   ============================================================ */
+console.log('\n【予約の入口】台帳に記録されるか');
+{
+  const at = (label, payload, want) => {
+    const sheet = makeSheet();
+    const { out } = run('doReserve_', sheet, payload);
+    if (!out.ok) { note(label, '予約が断られた：' + out.error); return; }
+    const got = String(sheet.at(0, '予約の入口') || '');
+    const show = w => (w === '' ? '（空欄）' : w);
+    got === want ? ok(`${label} → 台帳に ${show(want)}`)
+                 : note(label, `台帳が「${got}」（期待 ${show(want)}）`);
+  };
+  at('LINEの印を付けた予約', base({ source: 'LINE' }), 'LINE');
+  at('地図の印を付けた予約', base({ source: 'Googleマップ' }), 'Googleマップ');
+  at('名刺のQRから来た予約', base({ source: '名刺・店内QR' }), '名刺・店内QR');
+  at('参照元から言い当てた予約', base({ source: '検索' }), '検索');
+  /* 印が無い予約が通らなくなるのが、いちばんまずい壊れ方です */
+  at('印が無い予約', base({}), '');
+  at('印が空の予約', base({ source: '' }), '');
+  /* この受け口は公開されています。一覧に無い言葉を素通しにすると、
+     台帳に好きな文字を書き込める欄になります。 */
+  at('一覧に無い言葉', base({ source: 'すきな文字' }), '');
+  at('数式に見える文字', base({ source: '=IMPORTXML(1,2)' }), '');
+  at('長すぎる文字', base({ source: 'あ'.repeat(500) }), '');
+  at('文字ですらないもの', base({ source: { a: 1 } }), '');
+}
+
+console.log('\n【予約の入口】電話・来店で受けた分と区別できるか');
+{
+  const w = shop({ '予約一覧': { head: HEAD.slice(), rows: [] },
+                   '設定': { head: ['項目', '内容'], rows: [] } });
+  const res = w.callOnLedger('doAdminAdd_', { password: 'himitsu', force: true,
+    date: day(9), time: '10:00', minutes: 60, price: 4000,
+    name: '電話 太郎', tel: '09000000000', menu: 'カット' });
+  res.ok ? ok('電話で受けた予約を台帳に入れられる')
+         : note('電話予約', 'が入らない：' + (res.error || res.threw));
+
+  const rowOne = w.sheets['予約一覧']._data[0] || [];
+  String(rowOne[HEAD.indexOf('予約の入口')] || '') === '電話・来店'
+    ? ok('電話で受けた分は「電話・来店」として残る')
+    : note('電話予約の入口', `が「${rowOne[HEAD.indexOf('予約の入口')]}」`);
+
+  const seen = (w.call('doAdminData_', { password: 'himitsu' }).reservations || [])[0] || {};
+  seen.source === '電話・来店'
+    ? ok('管理ページにも「電話・来店」として渡る')
+    : note('管理ページに渡る入口', `が「${seen.source}」（サイト経由と混ざります）`);
+}
+
+/* ============================================================
+   すでに使っている台帳に、あとから列を足す
+
+   この列は、店が使い始めたあとで増えたものです。つまり本番の台帳には
+   見出しがありません。見出しの無い列には書けないので、そのままでは
+   「記録したつもりで、どこにも残らない」状態になります。
+
+   足すときに壊してよいものは1つもありません。店の人が自分で足した列も、
+   すでに入っている予約の値も、位置ごと動かさずに済ませます。
+   ============================================================ */
+console.log('\n【予約の入口】列が無い台帳に、あとから足す');
+{
+  // 店の人が自分で「メモ」の列を足して使っている台帳です
+  const OLD = OLD_HEAD.concat(['メモ']);
+  const before = ['LM-OLD01', '2026/08/01 10:00', day(20), '10:00', '11:00', 60,
+    'カット', 'MATTEO', 'st01', 0, 4000, '常連 一郎', 'ジョウレン', "'09011112222",
+    'a@b.co', '2回目以降', 'いつもの長さで', '予約確定', 'ev1', '駐車場のうしろ'];
+  const w = shop({ '予約一覧': { head: OLD.slice(), rows: [before.slice()] },
+                   '設定': { head: ['項目', '内容'], rows: [] } });
+
+  const sent = w.callOnLedger('doReserve_', base({ source: 'LINE', date: day(21) }));
+  sent.ok ? ok('列が無い台帳でも、予約はそのまま通る')
+          : note('列が無い台帳', 'で予約が断られる：' + (sent.error || sent.threw));
+
+  const head = w.sheets['予約一覧']._head();
+  head[OLD.length] === '予約の入口'
+    ? ok('見出しは右端に足される（空の列を挟まない）')
+    : note('足した見出し', `の場所が違う（${JSON.stringify(head.slice(OLD.length - 1))}）`);
+  head.slice(0, OLD.length).join('|') === OLD.join('|')
+    ? ok('もとの見出しは動かない（店の人が足した「メモ」も残る）')
+    : note('もとの見出し', 'が動いた：' + head.slice(0, OLD.length).join('|'));
+
+  const kept = w.sheets['予約一覧']._data[0] || [];
+  kept.slice(0, OLD.length).join('|') === before.join('|')
+    ? ok('足す前からあった予約の値は、1つも変わらない')
+    : note('もとの行', 'が壊れた：' + JSON.stringify(kept));
+
+  const added = w.sheets['予約一覧']._data[1] || [];
+  String(added[head.indexOf('予約の入口')] || '') === 'LINE'
+    ? ok('足したあとの予約は、その列に入る')
+    : note('足した列', `に入らない（${JSON.stringify(added)}）`);
+  String(added[head.indexOf('ご要望')] || '') === ''
+    && String(added[head.indexOf('お名前')] || '') === 'テスト'
+    ? ok('ほかの欄も、ずれずにそれぞれの列へ入る')
+    : note('ほかの欄', `がずれた（${JSON.stringify(added)}）`);
+
+  w.callOnLedger('doReserve_', base({ source: 'LINE', date: day(22) }));
+  w.sheets['予約一覧']._head().filter(h => h === '予約の入口').length === 1
+    ? ok('予約が入るたびに、同じ列が増えることはない')
+    : note('見出し', '予約のたびに増えていく');
+
+  const read = (w.call('doAdminData_', { password: 'himitsu' }).reservations || []);
+  (read.find(r => r.code === 'LM-OLD01') || {}).source === ''
+    ? ok('列を足す前の予約は、空のまま（あとから作らない）')
+    : note('列を足す前の予約', 'に入口が入っている（実績ではありません）');
 }
 
 /* ============================================================
@@ -1251,7 +1400,7 @@ console.log('\n【設定シート】受付期限を店主が変えたら、受�
   const at = day(3);
   const guest = { code: 'LM-DDL01', tel: '09011112222' };
   const ledger = [['LM-DDL01', '', at, '10:00', '11:00', 60, 'カット', 'MATTEO', 'st01', 0, 4000,
-    'テスト', 'テスト', "'09011112222", 'a@b.co', '初めて', '', '', '']];
+    'テスト', 'テスト', "'09011112222", 'a@b.co', '初めて', '', '', '', '']];
 
   /* 前日18時まで（初期値）なら、3日後のご予約はまだ変更できます */
   const near = shop({ '予約一覧': { head: HEAD, rows: ledger.map(r => r.slice()) },
@@ -1324,6 +1473,23 @@ console.log('\n【入れ替え】掲載内容に戻すとき、写真が消え�
   imgOf('メニュー', MENU_H, 'カットコース', 'メニュー名') === UP
     ? ok('単品メニューでも店主の写真が残る')
     : note('単品メニューの店主の写真', 'が消えた');
+
+  /* ★前にこちらが入れた既定（assets/…）は引き継がない。
+     引き継ぐと、割り当てを直しても入れ替えのたびに古いものが生き残ります。
+     実際、眉カットの欄に店のロゴが入ったまま残りました。 */
+  const w2 = shop({
+    'おすすめメニュー': { head: COUPON_H, rows: [
+      ["【清潔感と品が続く】men's骨格補正カット＋眉カット", 6900, '', 70, '', '', '全員', '', 'assets/skill5.jpg', '○']] },
+    'メニュー': { head: MENU_H, rows: [] },
+    'スタイル': { head: STYLE_H, rows: [] },
+    '設定': { head: ['項目', '内容'], rows: [] }
+  });
+  w2.call('メニューを掲載内容に入れ替える', {});
+  const after = w2.sheets['おすすめメニュー']._data
+    .find(x => String(x[0]).indexOf('骨格補正') >= 0);
+  String(after && after[COUPON_H.indexOf('画像')] || '') === 'assets/style11.jpg'
+    ? ok('前に入れた既定は、直した割り当てで置き換わる')
+    : note('古い既定', `が生き残った（${after && after[COUPON_H.indexOf('画像')]}）`);
 
   // 前任が書いた説明文は消える（掲載に無い文なので）
   const cp = w.sheets['おすすめメニュー']._data

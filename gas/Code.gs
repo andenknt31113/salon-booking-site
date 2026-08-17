@@ -2569,16 +2569,24 @@ function replaceKeepingImages_(ss, name, headers, keyHeader, rows) {
     if (key && img) images[key] = img;
   });
 
-  /* 店主が入れた写真を優先します。
+  /* 店主が入れた写真だけを引き継ぎます。
 
-     こちらが既定で用意している写真（掲載から取り込んだもの）より、
      店主が管理ページから選んだ写真のほうが新しく、意図があります。
-     既定で上書きすると、入れ替えるたびに店主の写真が消え、
-     そのたびに1枚ずつ選び直すことになります。 */
+     既定で上書きすると、入れ替えるたびに消えて、そのたびに1枚ずつ
+     選び直すことになります。
+
+     ★ただし「前にこちらが入れた既定」まで守ってはいけません。
+       それをやると、割り当てを直しても入れ替えのたびに古いものが
+       生き残ります。実際、眉カットの欄に店のロゴが入ったまま
+       引き継がれました。
+
+     見分け方：店主が上げた写真は Googleドライブ（http…）になります。
+     こちらの既定は assets/… で、リポジトリの中のファイルです。 */
   let kept = 0;
   rows.forEach(function (r) {
     const key = String(r[keyHeader] || '').trim();
-    if (images[key]) { r['画像'] = images[key]; kept++; }
+    const before = images[key] || '';
+    if (before && /^https?:\/\//.test(before)) { r['画像'] = before; kept++; }
   });
 
   writeSheetRows_(ss, name, headers, rows);
