@@ -1642,7 +1642,111 @@ function closedSummary(row) {
     + 'この日の他の時間は、お客様から予約できます。';
 }
 
+/* ---------- 休業日：月のマス目 ----------
+   出張で1週間まとめて塞ぐとき、下の一覧に7行足すのは時間がかかります。
+   日を押すだけで終日休みを入り切りできるようにします。
+
+   一覧は消しません。「14:00〜16:00だけ休み」とメモは、日を押すだけでは
+   表せないためです。どちらも同じ edits.closed を触るので、
+   片方で変えるともう片方にも出ます。 */
+let ccalOffset = 0;   // 何か月ずらして見ているか
+
+/** その日の休み方。'all' = 終日 / 'range' = 時間帯だけ / '' = 休みでない */
+function closedStateOf(key) {
+  const hit = edits.closed.filter(r => String(r['休業日'] || '').trim() === key);
+  if (!hit.length) return '';
+  return hit.some(r => !String(r['開始'] || '').trim() || !String(r['終了'] || '').trim())
+    ? 'all' : 'range';
+}
+
+/** その日に入っている、キャンセルでない予約の数 */
+function liveCountOn(key) {
+  return (adminData.reservations || []).filter(r => r.date === key && !isCancelled(r)).length;
+}
+
+function renderClosedCalendar() {
+  const host = $('#closed-cal');
+  if (!host) return;
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + ccalOffset);
+  const year = base.getFullYear(), month = base.getMonth();
+  const title = $('#ccal-title');
+  if (title) title.textContent = `${year}年${month + 1}月`;
+
+  const today = toKey(new Date());
+  const first = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < first; i++) cells.push('<td class="ccal-empty"></td>');
+  for (let d = 1; d <= days; d++) {
+    const key = toKey(new Date(year, month, d));
+    const state = closedStateOf(key);
+    const past = key < today;
+    const live = liveCountOn(key);
+    /* 過ぎた日は押せません。押しても意味が無いうえ、
+       間違って過去の日を休みにすると、一覧に理由の分からない行が増えます。 */
+    const cls = ['ccal-day', state === 'all' ? 'is-off' : '', state === 'range' ? 'is-part' : '',
+      past ? 'is-past' : '', key === today ? 'is-today' : ''].filter(Boolean).join(' ');
+    cells.push(`<td>
+      <button type="button" class="${cls}" ${past ? 'disabled' : ''}
+              data-ccal="${key}" aria-pressed="${state === 'all'}"
+              aria-label="${month + 1}月${d}日${state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}">
+        <span class="ccal-n">${d}</span>
+        ${state === 'all' ? '<span class="ccal-mark">休</span>'
+          : state === 'range' ? '<span class="ccal-mark is-part">一部</span>'
+          : live ? `<span class="ccal-live">${live}件</span>` : '<span class="ccal-mark is-open">○</span>'}
+      </button></td>`);
+  }
+  while (cells.length % 7) cells.push('<td class="ccal-empty"></td>');
+
+  const rows = [];
+  for (let i = 0; i < cells.length; i += 7) rows.push(`<tr>${cells.slice(i, i + 7).join('')}</tr>`);
+
+  host.innerHTML = `
+    <table class="ccal">
+      <thead><tr>${['日', '月', '火', '水', '木', '金', '土']
+        .map((w, i) => `<th class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</th>`).join('')}</tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+/** 日を押したとき。終日休みの入り切り */
+function toggleClosedDay(key) {
+  const state = closedStateOf(key);
+
+  /* 時間帯だけの休みが入っている日は、押しても切り替えません。
+     「14:00〜16:00だけ休み」を終日に変えるのか、消すのかが決められないためです。
+     下の一覧まで送って、そこで直してもらいます。 */
+  if (state === 'range') {
+    alert(`${formatDateJa(key)} は「時間帯だけ休み」で登録されています。\n`
+      + '下の一覧から直してください。');
+    const i = edits.closed.findIndex(r => String(r['休業日'] || '').trim() === key);
+    const el = $$('#closed-rows .booking-card')[i];
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  if (state === 'all') {
+    edits.closed = edits.closed.filter(r => String(r['休業日'] || '').trim() !== key);
+  } else {
+    /* 予約が入っている日を休みにすると、そのお客様は台帳に残ったまま、
+       画面上はお休みの日になります。店が気づかないまま当日を迎えるので、
+       件数を見せてから聞きます。 */
+    const live = liveCountOn(key);
+    if (live && !confirm(`${formatDateJa(key)} には、すでに ${live}件 のご予約が入っています。\n`
+      + 'お休みにしても、そのご予約は消えません。\n\n'
+      + 'それでもこの日をお休みにしますか？')) return;
+    edits.closed.push({ '休業日': key, '開始': '', '終了': '', 'メモ': '' });
+    edits.closed.sort((a, b) => String(a['休業日']).localeCompare(String(b['休業日'])));
+  }
+  renderClosed();
+  updateDirty();
+}
+
 function renderClosed() {
+  renderClosedCalendar();
   const rows = edits.closed;
   $('#closed-rows').innerHTML = rows.length
     ? rows.map((row, i) => {
@@ -2419,6 +2523,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#acal-prev').addEventListener('click', () => { acalOffset -= ACAL_DAYS; renderAdminCalendar(); });
   $('#acal-next').addEventListener('click', () => { acalOffset += ACAL_DAYS; renderAdminCalendar(); });
+
+  $('#ccal-prev').addEventListener('click', () => { ccalOffset -= 1; renderClosedCalendar(); });
+  $('#ccal-next').addEventListener('click', () => { ccalOffset += 1; renderClosedCalendar(); });
+  $('#closed-cal').addEventListener('click', e => {
+    const b = e.target.closest('[data-ccal]');
+    if (b && !b.disabled) toggleClosedDay(b.dataset.ccal);
+  });
 
   $('#filter-date').addEventListener('change', onFilterChange);
   $('#filter-status').addEventListener('change', onFilterChange);

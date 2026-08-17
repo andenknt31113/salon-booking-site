@@ -1549,6 +1549,88 @@ await group('管30 小さすぎる写真を黙って受け取らない', async (
 });
 
 /* ============================================================
+   管31 休業日を、日を押すだけで入り切りする
+
+   この店は不定休で、都内出張の週は出勤日数が減ります。つまり
+   「来週まるごと休み」を入れる場面が、ふつうにあります。
+   一覧に7行足すのは、施術の合間にやる作業ではありません。
+
+   守るのは2つです。
+     ・押した結果が一覧と食い違わないこと（同じものを2か所で見せている）
+     ・**予約が入っている日を、黙って休みにしないこと**
+   ============================================================ */
+await group('管31 休業日を日を押すだけで入り切りする', async () => {
+  await post({ type: 'reset' });
+  /* 予約の入っている日を1つ作ります。押したときに止まるかを見ます */
+  const busy = key(4);
+  await add({ date: busy, time: '10:00', name: '予約 太郎', tel: '09033332222', menu: 'カット' });
+
+  const p = await newPhone('管31');
+  await login(p);
+  await tab(p, '休業日'); await p.waitForTimeout(600);
+
+  check('管31', '月のマス目が出る', await p.locator('#closed-cal .ccal').count(), 1);
+  const days = await p.locator('#closed-cal [data-ccal]').count();
+  check('管31', 'その月の日が全部ある（月末が欠けない）', days >= 28 && days <= 31, true);
+
+  /* 過ぎた日は押せません。押しても意味が無く、
+     間違えると一覧に理由の分からない行が増えます。 */
+  const past = p.locator('#closed-cal [data-ccal].is-past').first();
+  if (await past.count()) {
+    check('管31', '過ぎた日は押せない', await past.isDisabled(), true);
+  }
+
+  /* 予約が入っている日は、件数が見えていること */
+  check('管31', '予約が入っている日は件数が出る',
+    /1件/.test(await textOf(p.locator(`[data-ccal="${busy}"]`))), true);
+
+  // ---- 空いている日を押す ----
+  const free = key(6);
+  const before = await p.locator('#closed-rows .booking-card').count();
+  await p.locator(`[data-ccal="${free}"]`).click(); await p.waitForTimeout(500);
+  check('管31', '押すと終日休みになる',
+    await p.locator(`[data-ccal="${free}"].is-off`).count(), 1);
+  check('管31', '同じものが下の一覧にも増える',
+    await p.locator('#closed-rows .booking-card').count(), before + 1);
+  check('管31', '保存していないことを知らせる',
+    /保存/.test(await textOf(p.locator('[data-note="closed"]'))), true);
+
+  // ---- もう一度押すと戻る ----
+  await p.locator(`[data-ccal="${free}"]`).click(); await p.waitForTimeout(500);
+  check('管31', 'もう一度押すと休みが取り消される',
+    await p.locator(`[data-ccal="${free}"].is-off`).count(), 0);
+  check('管31', '一覧からも消える',
+    await p.locator('#closed-rows .booking-card').count(), before);
+
+  // ---- 予約の入っている日を押す ----
+  p.__dialogs.length = 0;
+  p.__answer = 'dismiss';
+  await p.locator(`[data-ccal="${busy}"]`).click(); await p.waitForTimeout(600);
+  check('管31', '予約のある日は、いきなり休みにしない', /ご予約/.test(lastDialog(p)), true);
+  check('管31', '何件入っているかを見せる', /1件/.test(lastDialog(p)), true);
+  check('管31', '予約が消えないことを伝える', /消えません/.test(lastDialog(p)), true);
+  check('管31', 'やめれば休みにならない',
+    await p.locator(`[data-ccal="${busy}"].is-off`).count(), 0);
+
+  p.__answer = 'accept';
+  await p.locator(`[data-ccal="${busy}"]`).click(); await p.waitForTimeout(600);
+  check('管31', '承知のうえなら休みにできる',
+    await p.locator(`[data-ccal="${busy}"].is-off`).count(), 1);
+
+  // ---- 保存して、受け口に届くか ----
+  await p.locator('[data-save="closed"]').click(); await p.waitForTimeout(1800);
+  const saved = (await post({ type: 'adminData', password: PW })).closedDates || [];
+  check('管31', '押した日が受け口まで届く',
+    saved.some(r => String(r['休業日']) === busy), true);
+
+  check('管31', 'スマホで横にはみ出さない',
+    await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);

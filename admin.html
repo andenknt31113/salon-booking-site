@@ -208,6 +208,19 @@
             開始と終了も入れると、<b>その時間帯だけ</b>予約を止められます
             （例：8月20日 14:00〜16:00）。外部のお仕事や仕入れのときにお使いください。
           </p>
+          <!-- 日を押すだけで終日休みを入り切りできる月表示。
+               出張で1週間まとめて塞ぐとき、下の一覧に7行足すのは時間がかかります。
+               時間帯だけの休みとメモは日を押すだけでは表せないので、一覧も残します。 -->
+          <div class="closed-cal-head">
+            <button class="btn btn-ghost btn-sm" type="button" id="ccal-prev">＜ 前の月</button>
+            <strong id="ccal-title"></strong>
+            <button class="btn btn-ghost btn-sm" type="button" id="ccal-next">次の月 ＞</button>
+          </div>
+          <div id="closed-cal"></div>
+          <p class="note" style="margin:10px 0 18px;">
+            日を押すと<b>終日お休みの入り切り</b>ができます。
+            時間帯だけ止めたいときと、メモを書きたいときは下の一覧をお使いください。
+          </p>
           <div id="closed-rows"></div>
           <button class="btn btn-ghost btn-sm" type="button" data-add="closed">＋ 休業日を追加</button>
           <!-- 保存ボタンは画面の下に貼り付けます。ページのいちばん下に置くと、

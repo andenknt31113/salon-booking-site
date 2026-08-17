@@ -807,6 +807,50 @@ table { border-collapse: collapse; width: 100%; }
 .note-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 .note-status { font-size: 12px; color: var(--muted); }
 
+/* 休業日の月表示。
+   日を押すだけで終日休みを入り切りできます。
+   お客様向けの空席カレンダーと同じ地・同じ罫線にして、
+   「予約が入る／入らない」を見ている表だと分かるようにしています。 */
+.closed-cal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.closed-cal-head strong { font-size: 15px; }
+
+.ccal { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ccal th {
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  padding: 6px 0; text-align: center;
+}
+.ccal th.is-sun { color: var(--accent); }
+.ccal th.is-sat { color: #3E5C86; }
+.ccal td { padding: 2px; }
+.ccal td.ccal-empty { background: none; }
+
+.ccal-day {
+  width: 100%; min-height: 52px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 6px 2px; cursor: pointer;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: var(--radius);
+  font: inherit; line-height: 1.2;
+}
+.ccal-day:hover { border-color: var(--accent-dim); }
+.ccal-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ccal-n { font-size: 13px; font-weight: 700; }
+.ccal-mark { font-size: 11px; color: var(--muted); }
+.ccal-mark.is-open { color: var(--ok); }
+.ccal-live { font-size: 10.5px; color: var(--text-2); }
+
+/* 終日休み。ここだけ塗ります。ひと目で「この日は入らない」と分かる必要があります */
+.ccal-day.is-off { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.ccal-day.is-off .ccal-mark { color: var(--on-ink); }
+/* 時間帯だけの休み。押しても切り替わらないので、塗りでは表しません */
+.ccal-day.is-part { border-color: var(--accent); border-style: dashed; }
+.ccal-day.is-part .ccal-mark.is-part { color: var(--accent); }
+.ccal-day.is-today { box-shadow: inset 0 0 0 2px var(--accent-dim); }
+.ccal-day.is-past { opacity: .38; cursor: default; }
+
 .booking-request {
   font-size: 12.5px; color: var(--text-2); margin-top: 10px; line-height: 1.75;
   padding: 9px 11px; background: var(--panel-2); border-radius: var(--radius);
