@@ -195,9 +195,14 @@ const SALON = {
      たとえば cp14 には「シャンプーは含まれません。」とありましたが、
      掲載のタイトルは「※シャンプーブロー込み」で、逆のことを書いていました。
 
-     ★minutes（所要時間）は掲載にありません。予約の枠を作るのに分数が要るので
-       置いてあるだけの目安です。確定値ではありません。★要確認
-       （店主に埋めてもらう一覧は README.md の「所要時間の確認」にあります）
+     minutes（所要時間）は、掲載の**予約画面**に出る「施術時間合計（目安）」です
+     （2026-08-17 に14件とも読み取り）。一覧ページには出ないので、
+     以前は前任が置いた目安が入っていました。実数と最大90分ずれていて、
+     「当日一緒に考えましょう！」は30分で押さえていました（実際は120分）。
+
+     ★ここは掲載の目安であって、この店の実測ではありません。
+       店主が「もっとかかる／早く終わる」と言ったら、そちらが正です。
+       管理ページの「おすすめメニュー」タブから変えられます。
 
      ※ 中の変数名は coupons のままです（予約の下書きや共有リンクが
         cp01 などのIDを持っているため、名前だけの変更で壊さないようにしています）。
@@ -245,7 +250,7 @@ const SALON = {
       id: 'cp04', badge: '全員', tags: ['カット', '縮毛矯正', 'トリートメント'],
       title: '【地毛より綺麗】自然に柔らかく仕上げるメンズ縮毛矯正',
       detail: '',
-      price: 22000, listPrice: null, minutes: 180,
+      price: 22000, listPrice: null, minutes: 120,
       image: 'assets/skill3.jpg',
       terms: ''
     },
@@ -269,7 +274,7 @@ const SALON = {
       id: 'cp07', badge: '全員', tags: ['カット', '縮毛矯正'],
       title: '【毎日をストレスフリーに】カット＋ベーシックストレートorアイパー',
       detail: '',
-      price: 19800, listPrice: null, minutes: 150,
+      price: 19800, listPrice: null, minutes: 120,
       image: 'assets/style1.jpg',
       terms: ''
     },
@@ -281,7 +286,7 @@ const SALON = {
          掲載側で価格未定（要相談）を ¥0 と表示しているものです。
          そのまま ¥0 と出すと無料だと誤解されます（景品表示法の有利誤認）。
          価格を空にして、サイト側の「お見積り」表示に乗せます。 */
-      price: null, listPrice: null, minutes: 180,
+      price: null, listPrice: null, minutes: 150,
       image: 'assets/style5.jpg',
       terms: ''
     },
@@ -289,7 +294,7 @@ const SALON = {
       id: 'cp09', badge: '全員', tags: ['トリートメント'],
       title: '【全ての施術が＋クオリティ】ダメージケアトリートメント',
       detail: '',
-      price: 3300, listPrice: null, minutes: 40,
+      price: 3300, listPrice: null, minutes: 30,
       image: '',
       terms: ''
     },
@@ -307,7 +312,7 @@ const SALON = {
       title: '【メニューも相談したい方へ】当日一緒に考えましょう！',
       detail: '',
       /* cp08 と同じく、掲載の「¥0」は価格未定（要相談）の意味です。 */
-      price: null, listPrice: null, minutes: 30,
+      price: null, listPrice: null, minutes: 120,
       image: '',
       terms: ''
     },
@@ -316,7 +321,7 @@ const SALON = {
       /* 「第１印象」の「１」と、「UP！」のあとの空白は掲載どおりの全角です */
       title: '第１印象確実UP！　眉毛WAX & 眉毛パーマ',
       detail: '',
-      price: 6600, listPrice: null, minutes: 50,
+      price: 6600, listPrice: null, minutes: 60,
       image: '',
       terms: ''
     },
@@ -333,7 +338,7 @@ const SALON = {
       id: 'cp14', badge: '全員', tags: ['ヘアセット'],
       title: 'ヘアセット ※シャンプーブロー込み',
       detail: '',
-      price: 4000, listPrice: null, minutes: 40,
+      price: 4000, listPrice: null, minutes: 30,
       image: '',
       terms: ''
     }
@@ -345,8 +350,9 @@ const SALON = {
      こちらで書き足してはいけません（店が言っていないことになります）。
 
      priceFrom: true は掲載が「¥4,000〜」の形式のもの。画面には「〜」が付きます。
-     ★minutes（所要時間）は掲載にありません。おすすめメニューと同じく、
-       予約の枠を作るために置いてあるだけの目安です。★要確認
+     minutes（所要時間）は、おすすめメニューと同じく掲載の予約画面から
+     読み取った「施術時間合計（目安）」です（2026-08-17・9件とも）。
+     ★掲載の目安であって、この店の実測ではありません。店主の言うほうが正です。
 
      ※ IDと中身の対応は差し替え前と変わっていません（m-cut1 は前も今も
         「3週以内のメンテナンス ¥4,000〜」です）。古い下書きが持っている
@@ -359,17 +365,17 @@ const SALON = {
         /* ★掲載では区分が「カット」と「その他」の両方に見えました。判断できないので
            「カット」に入れてあります。店主に確認してください。 */
         { id: 'm-cut1', name: 'ツーブロック、刈り上げ、フェードのメンテナンスカット',
-          price: 4000, priceFrom: true, minutes: 40,
+          price: 4000, priceFrom: true, minutes: 30,
           note: '当店のご来店から３週以内の方のメンテナンスメニューになりますスキンフェードは＋500になります',
           image: 'assets/skill1.jpg' },
-        { id: 'm-cut2', name: 'カットコース', price: 7000, minutes: 70,
+        { id: 'm-cut2', name: 'カットコース', price: 7000, minutes: 60,
           note: '', image: 'assets/skill1.jpg' },
-        { id: 'm-cut3', name: 'ラグジュアリーカットコース', price: 10000, minutes: 110,
+        { id: 'm-cut3', name: 'ラグジュアリーカットコース', price: 10000, minutes: 90,
           note: '', image: 'assets/skill1.jpg' },
         /* ★m-cut1 とほぼ同じ内容（3週以内のメンテナンス・¥4,000〜）ですが、
            掲載が2件出しているので2件のまま入れてあります。
            まとめてよいかは店主に確認してください。 */
-        { id: 'm-cut4', name: '刈り上げ＋フェードメンテナンス', price: 4000, priceFrom: true, minutes: 40,
+        { id: 'm-cut4', name: '刈り上げ＋フェードメンテナンス', price: 4000, priceFrom: true, minutes: 30,
           note: '当店ご来店後３週間以内のメンテナンスメニューになります！', image: 'assets/skill1.jpg' }
       ]
     },
@@ -390,7 +396,7 @@ const SALON = {
       id: 'perm',
       name: 'パーマ',
       items: [
-        { id: 'm-per1', name: 'カットコース＋パーマ', price: 14900, minutes: 130,
+        { id: 'm-per1', name: 'カットコース＋パーマ', price: 14900, minutes: 120,
           note: 'カットコース＋パーマになります！ラグジュアリーコースにされる場合は＋3300になります',
           image: 'assets/skill2.jpg' }
       ]
@@ -399,7 +405,7 @@ const SALON = {
       id: 'straight',
       name: '縮毛矯正',
       items: [
-        { id: 'm-str1', name: 'カット＋縮毛矯正', price: 19800, priceFrom: true, minutes: 180,
+        { id: 'm-str1', name: 'カット＋縮毛矯正', price: 19800, priceFrom: true, minutes: 120,
           note: 'レングスや髪のダメージによってはプラスケアが必須になる場合もあります。施術前にお伝えいたします。',
           image: 'assets/skill3.jpg' }
       ]
@@ -408,7 +414,7 @@ const SALON = {
       id: 'treatment',
       name: 'トリートメント',
       items: [
-        { id: 'm-tre1', name: '髪質改善トリートメント', price: 7000, priceFrom: true, minutes: 60,
+        { id: 'm-tre1', name: '髪質改善トリートメント', price: 7000, priceFrom: true, minutes: 30,
           note: '', image: '' }
       ]
     }
