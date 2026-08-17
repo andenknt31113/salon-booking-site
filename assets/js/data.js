@@ -217,15 +217,18 @@ const SALON = {
       id: 'cp01', badge: '全員', tags: ['カット'],
       title: '【清潔感と品が続く】men\'s骨格補正カット＋眉カット',
       detail: '',
-      price: 6900, listPrice: null, minutes: 70,
-      image: 'assets/skill5.jpg',
+      price: 6900, listPrice: null, minutes: 60,
+      /* 写真は空です。掲載の「眉カット・ひげ整え」の枠に置かれているのは
+         店のロゴで、施術の写真ではありません。ロゴを施術写真として出すと、
+         その仕上がりの見本だと読まれます。★店主の写真が届いたら入れてください。 */
+      image: '',
       terms: ''
     },
     {
       id: 'cp02', badge: '全員', tags: ['カット', 'トリートメント', 'ヘッドスパ'],
       title: '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース',
       detail: '',
-      price: 10000, listPrice: null, minutes: 110,
+      price: 10000, listPrice: null, minutes: 60,
       image: 'assets/skill1.jpg',
       terms: ''
     },
