@@ -236,15 +236,33 @@ const LINE_TO    = '';
 /* ============================================================
    シートの列（順番を変えるとスクリプトも直す必要があります）
    ============================================================ */
+/* 「予約の入口」は、あとから足した列です。すでに台帳を使っている店の
+   シートには見出しがありません。見出しが無い列は rowFor_ の書き先が
+   消えるので、記録したつもりのものがどこにも残りません。
+   getSheet_ が ensureHeaders_ で右端に足します（既存の列は動きません）。 */
 const HEADERS = [
   '予約番号', '受付日時', '来店日', '開始', '終了', '所要(分)',
   'メニュー', '担当', '担当ID', '指名料', '合計金額',
-  'お名前', 'フリガナ', '電話番号', 'メール', '来店回数', 'ご要望',
+  'お名前', 'フリガナ', '電話番号', 'メール', '来店回数', '予約の入口', 'ご要望',
   '状態', 'カレンダーID'
 ];
 
+/* 「予約の入口」に入れてよい言葉。
+   ★画面側（assets/js/common.js の SOURCE_LABELS）と同じにしてください
+     （test/settings.mjs が突き合わせています）。
+
+   一覧に無いものは空にします。この受け口は公開されているので、
+   ここを素通しにすると、台帳に好きな文字を書き込める欄になります。 */
+const SOURCE_LABELS = ['LINE', 'Googleマップ', '名刺・店内QR', 'Instagram',
+                       'ホットペッパー', '検索', 'ほかのサイト', '直接', '電話・来店'];
+
+function sourceLabel_(v) {
+  const t = String(v == null ? '' : v).trim();
+  return SOURCE_LABELS.indexOf(t) >= 0 ? t : '';
+}
+
 const MENU_HEADERS   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
-const COUPON_HEADERS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
+const COUPON_HEADERS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', 'タグ', '画像', '表示'];
 /* スタイルの「説明」は、掲載にある一文（「癖毛の方は曲がる縮毛矯正、…」）です。
    タイトルとタグだけだと語の羅列になり、どんなスタイルなのかが伝わりません。
    すでに5列で作られたシートには、入れ替えのときに右端へ足します（ensureHeaders_）。 */
@@ -347,6 +365,10 @@ function doAdminAdd_(sheet, d) {
     'お名前': cell_(d.name, LIMITS.name),
     '電話番号': "'" + telText_(d.tel).slice(0, LIMITS.tel),
     '来店回数': '電話・来店',
+    /* 電話・来店で受けた分を、サイト経由と混ぜません。
+       混ぜると「自社サイトで何件取れているのか」が分からなくなり、
+       掲載を止めてよいかの判断そのものが狂います。 */
+    '予約の入口': '電話・来店',
     'ご要望': cell_(d.memo, LIMITS.request),
     '状態': '予約確定',
     'カレンダーID': eventId
@@ -621,6 +643,9 @@ function doReserve_(sheet, d) {
     '電話番号': "'" + telText_(c.tel).slice(0, LIMITS.tel),
     'メール': cell_(halfWidth_(c.email), LIMITS.email),
     '来店回数': cell_(c.visit, LIMITS.visit),
+    /* 分からなければ空のままにします。埋めるために「直接」と書くと、
+       実績として数えられてしまいます（数字を作らないこと）。 */
+    '予約の入口': sourceLabel_(d.source),
     'ご要望': cell_(c.request, LIMITS.request),
     '状態': '予約確定',
     'カレンダーID': eventId
@@ -894,6 +919,10 @@ function readCouponSheet_(ss) {
       id: 'sc' + i,
       badge: String(r[col('対象')] || '全員').trim(),
       title: title,
+      /* タグはメニューページの絞り込みに使います。シートに列が無い店では
+         空になり、絞り込みの箱ごと出ません。14件を全部縦に送らせることに
+         なるので、入れ替えのときに掲載の分類を書き込みます。 */
+      tags: String(r[col('タグ')] || '').split(/[,、・\s]+/).filter(Boolean),
       detail: String(r[col('説明')] || ''),
       price: p.value,
       priceFrom: p.from,
@@ -1471,6 +1500,9 @@ function doAdminData_(d) {
       tel: String(r[col('電話番号')] || '').replace(/^'/, ''),
       email: String(r[col('メール')] || ''),
       visit: String(r[col('来店回数')] || ''),
+      /* 列が無かったころの予約は空で返ります。数字タブは、それを
+         「記録なし」として別に数えます（直接開いた分に混ぜません）。 */
+      source: String(r[col('予約の入口')] || ''),
       request: String(r[col('ご要望')] || ''),
       /* 書き方のゆれは、ここで一つに揃えてから画面に渡します */
       status: isCancelled_(r[col('状態')]) ? 'キャンセル' : String(r[col('状態')] || '')
@@ -1831,6 +1863,12 @@ function getSheet_() {
     sheet.setFrozenRows(1);
     sheet.setColumnWidth(HEADERS.indexOf('メニュー') + 1, 240);
     sheet.setColumnWidth(HEADERS.indexOf('ご要望') + 1, 260);
+  } else {
+    /* すでに使っている台帳には、あとから増えた列（「予約の入口」）がありません。
+       見出しが無いと rowFor_ の書き先が消え、記録したつもりのものが
+       どこにも残りません。右端に足すだけなので、店の人が足した列も、
+       いま入っている値も動きません。 */
+    ensureHeaders_(ss, SHEET_NAME, HEADERS);
   }
   return sheet;
 }
@@ -2225,8 +2263,13 @@ const LISTED_MENUS = [
    引き継いだ写真（店主が管理ページから入れたもの）があれば、
    そちらが優先されます（replaceKeepingImages_）。 */
 const COUPON_IMAGES = {
-  "【清潔感と品が続く】men's骨格補正カット＋眉カット": 'assets/skill5.jpg',        // 眉カット
-  '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース': 'assets/skill1.jpg', // カット
+  /* skill5.jpg は掲載で「眉カット・ひげ整えまで…」と説明が付いていましたが、
+     中身はロゴ画像でした。説明を信じて中を見ずに貼っていたので直します。
+     眉だけを写した写真は手元にないので、カットの写真を使います。 */
+  "【清潔感と品が続く】men's骨格補正カット＋眉カット": 'assets/style11.jpg',       // カット
+  /* skill1.jpg はパーマのかかった頭でした。カットのコースに貼ると
+     パーマ込みに見えるので、素のカットが分かる写真にします。 */
+  '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース': 'assets/style6.jpg', // カット
   "【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ　men's": 'assets/skill4.jpg', // 白髪ぼかし
   '【地毛より綺麗】自然に柔らかく仕上げるメンズ縮毛矯正': 'assets/skill3.jpg',      // 縮毛矯正
   '【毎朝のセット1分】品よく決まるお悩み解決メンズパーマ': 'assets/skill2.jpg',     // パーマ
@@ -2244,11 +2287,31 @@ const COUPON_IMAGES = {
 
 /* 単品メニューは区分ごとに。ここも施術が一致するものだけです。 */
 const MENU_IMAGES = {
-  'カット': 'assets/skill1.jpg',
+  'カット': 'assets/style6.jpg',
   'カラー': 'assets/style2.jpg',
   'パーマ': 'assets/skill2.jpg',
   '縮毛矯正': 'assets/skill3.jpg'
   /* トリートメントは、施術の写真がないので空のままです */
+};
+
+/* おすすめメニューの分類（メニューページの絞り込みタブになります）。
+   data.js の coupons[].tags と同じ内容です。ずれると、シートを読む前と
+   読んだあとで絞り込みの中身が変わります。 */
+const COUPON_TAGS = {
+  "【清潔感と品が続く】men's骨格補正カット＋眉カット": 'カット',
+  '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース': 'カット,トリートメント,ヘッドスパ',
+  "【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ　men's": 'カット,カラー',
+  '【地毛より綺麗】自然に柔らかく仕上げるメンズ縮毛矯正': 'カット,縮毛矯正,トリートメント',
+  '【毎朝のセット1分】品よく決まるお悩み解決メンズパーマ': 'カット,パーマ',
+  '【彩で見せるワンランク上のお洒落を】カット＋カラー': 'カット,カラー',
+  '【毎日をストレスフリーに】カット＋ベーシックストレートorアイパー': 'カット,縮毛矯正',
+  '【ブリーチメニューはこれ！】カット+デザインカラー': 'カット,カラー',
+  '【全ての施術が＋クオリティ】ダメージケアトリートメント': 'トリートメント',
+  '【髪の膨らみ、立ち上がり１発解決】カット+ダウンパーマ、アップパーマ': 'カット,パーマ',
+  '【メニューも相談したい方へ】当日一緒に考えましょう！': 'その他',
+  '第１印象確実UP！　眉毛WAX & 眉毛パーマ': 'その他',
+  '【髪のハリ.ツヤ.コシ全てのチャージ】髪質改善トリートメント': 'トリートメント',
+  'ヘアセット ※シャンプーブロー込み': 'ヘアセット'
 };
 
 const LISTED_COUPONS = [
@@ -2391,7 +2454,16 @@ const LISTED_SETTINGS = [
     + '誰が預かっているのかを書く必要があります。'],
   ['代表者名', '', 'プライバシーポリシーに出ます。'],
   ['問い合わせ先メール', '', '個人情報の開示・削除のご請求先として出ます。'],
-  ['プライバシーポリシー制定日', '', '例）2026年8月15日']
+  ['プライバシーポリシー制定日', '', '例）2026年8月15日'],
+  /* 掲載を止めるかどうかを、勘ではなく数字で決めるための2つです。
+     ★初期値は必ず空です。率も掲載料も契約プランごとに違うので、
+       こちらで置いた数字が、そのまま「浮いた金額」として画面に出ると
+       それは作り話になります。入るまで、金額は1円も出しません。 */
+  ['ホットペッパー手数料率（％）', '',
+    '予約1件の売上のうち、手数料として引かれる割合。請求明細を見て入れてください。'
+    + '入るまで、管理ページの「数字」タブに金額は出ません。'],
+  ['ホットペッパー掲載料（月額・円）', '',
+    '毎月かかる掲載料。予約が0件でもかかる分です。請求明細を見て入れてください。']
 ];
 
 /* 「設定」シートに、こちらが知っている項目の行が無ければ、いちばん下に足します。
@@ -2457,7 +2529,8 @@ function メニューを掲載内容に入れ替える() {
   log.push(replaceKeepingImages_(ss, COUPON_SHEET, COUPON_HEADERS, 'メニュー名',
     LISTED_COUPONS.map(function (r) {
       return { 'メニュー名': r[0], '価格': r[1], '通常価格': '', '所要(分)': r[2],
-               '説明': '', '条件': '', '対象': '全員', '画像': COUPON_IMAGES[r[0]] || '', '表示': '○' };
+               '説明': '', '条件': '', '対象': '全員', 'タグ': COUPON_TAGS[r[0]] || '',
+               '画像': COUPON_IMAGES[r[0]] || '', '表示': '○' };
     })));
 
   log.push(replaceKeepingImages_(ss, STYLE_SHEET, STYLE_HEADERS, 'タイトル',
@@ -2521,10 +2594,19 @@ function replaceKeepingImages_(ss, name, headers, keyHeader, rows) {
 function ensureHeaders_(ss, name, headers) {
   const sheet = ss.getSheetByName(name);
   if (!sheet || sheet.getLastRow() === 0) return;   // 作りたてなら writeSheetRows_ が見出しを書く
-  const head = sheetHeader_(sheet, headers);
+  /* 幅は sheetHeader_ ではなく、実際に使われている列数で見ます。
+
+     sheetHeader_ は、こちらが知っている列数まで幅を広げて読みます
+     （19列のシートに20個の見出しを渡すと、末尾が空の20個を返します）。
+     その長さを足す先に使うと、空の列を1つ挟んだ21列目に見出しを書いて
+     しまい、20列目が名前の無い列として残ります。 */
+  const width = sheet.getLastColumn() || 0;
+  if (!width) return;
+  const head = sheet.getRange(1, 1, 1, width).getValues()[0]
+    .map(function (v) { return String(v == null ? '' : v).trim(); });
   const missing = headers.filter(function (h) { return head.indexOf(h) < 0; });
   if (!missing.length) return;
-  sheet.getRange(1, head.length + 1, 1, missing.length)
+  sheet.getRange(1, width + 1, 1, missing.length)
     .setValues([missing]).setFontWeight('bold').setBackground('#f3efea');
 }
 
