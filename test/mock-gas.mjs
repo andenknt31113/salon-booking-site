@@ -33,8 +33,8 @@ const SHEET_STYLE = [
 ];
 
 const SHEET_COUPON = [
-  { メニュー名: '【シート】men\'s骨格補正カット＋眉カット', 価格: 6900, 通常価格: '', '所要(分)': 70, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '/mock-image.svg?seed=cp', 表示: '○' },
-  { メニュー名: '【シート】メンズ縮毛矯正', 価格: 22000, 通常価格: 24000, '所要(分)': 180, 説明: 'シート由来', 条件: '', 対象: '全員', 画像: '', 表示: '○' }
+  { メニュー名: '【シート】men\'s骨格補正カット＋眉カット', 価格: 6900, 通常価格: '', '所要(分)': 70, 説明: 'シート由来', 条件: '', 対象: '全員', タグ: 'カット', 画像: '/mock-image.svg?seed=cp', 表示: '○' },
+  { メニュー名: '【シート】メンズ縮毛矯正', 価格: 22000, 通常価格: 24000, '所要(分)': 180, 説明: 'シート由来', 条件: '', 対象: '全員', タグ: 'カット,縮毛矯正', 画像: '', 表示: '○' }
 ];
 
 /* 初期値の控え。reset で全部ここに戻します。
@@ -82,7 +82,8 @@ const deadlineMsg = () => 'ネットでの変更・キャンセルは前日' + D
 const UPLOADS = [];
 let SHEET_SETTINGS = { '電話番号': '', '営業開始': '09:00', '営業終了': '22:00', '最終受付': '21:00',
   'LINE友だち追加URL': '', 'Google口コミURL': '',
-  'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', '通知先メール': 'shop@example.com', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '' };
+  'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', '通知先メール': 'shop@example.com', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '',
+  'ホットペッパー手数料率（％）': '', 'ホットペッパー掲載料（月額・円）': '' };
 /* 本物の GAS と同じ価格の読み方 */
 function parsePrice(v) {
   const t = String(v ?? '').trim();
@@ -99,6 +100,16 @@ const digits = v => halfWidth(v).replace(/\D/g, '');
 /* 予約番号は英数字だけを見て、大文字に揃えて突き合わせます */
 const codeKey = v => halfWidth(v).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 const sameCode = (a, b) => !!codeKey(a) && codeKey(a) === codeKey(b);
+
+/* 予約の入口。本物（gas/Code.gs の SOURCE_LABELS）と同じ一覧で、
+   知らない言葉は空にします。ここを素通しにすると、
+   受け口が断るはずのものが試験では通ってしまいます。 */
+const SOURCE_LABELS = ['LINE', 'Googleマップ', '名刺・店内QR', 'Instagram',
+                       'ホットペッパー', '検索', 'ほかのサイト', '直接', '電話・来店'];
+const sourceLabel = v => {
+  const t = String(v ?? '').trim();
+  return SOURCE_LABELS.includes(t) ? t : '';
+};
 
 /* シート行を GAS と同じ形に変換する */
 function buildMenu() {
@@ -138,6 +149,7 @@ function buildCoupons() {
   const out = SHEET_COUPON.filter(r => String(r.表示).trim() !== '×').map((r, i) => {
     const p = parsePrice(r.価格);
     return { id: 'sc' + i, badge: String(r.対象 || '全員').trim(), title: r.メニュー名, detail: r.説明,
+      tags: String(r.タグ || '').split(/[,、・\s]+/).filter(Boolean),
       price: p.value, priceFrom: p.from, listPrice: Number(r.通常価格) || null,
       minutes: r['所要(分)'], terms: r.条件, image: String(r.画像 || '') };
   });
@@ -186,7 +198,8 @@ http.createServer((req, res) => {
         restore(SHEET_COUPON, INITIAL.coupon);
         SHEET_SETTINGS = { '電話番号': '', '営業開始': '09:00', '営業終了': '22:00', '最終受付': '21:00',
           'LINE友だち追加URL': '', 'Google口コミURL': '',
-          'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', '通知先メール': 'shop@example.com', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '' };
+          'キャッチコピー': '', 'お知らせ': '', '定休曜日': '', '通知先メール': 'shop@example.com', 'ロゴ画像': '', 'スタッフ写真': '', 'メイン写真': '',
+  'ホットペッパー手数料率（％）': '', 'ホットペッパー掲載料（月額・円）': '' };
         return reply(res, { ok: true });
       }
 
@@ -241,7 +254,8 @@ http.createServer((req, res) => {
             menus:[{ name: d.menu || '（電話予約）' }], staffName:'MATTEO', staffId:'st01',
             totalPrice:Number(d.price)||0,
             customer:{ name:d.name, tel:d.tel||'', email:'', visit:'電話・来店', request:d.memo||'' },
-            cancelled:false });
+            /* 電話・来店で受けた分は、サイト経由と混ぜません（本物と同じ） */
+            source:'電話・来店', cancelled:false });
           return reply(res, { ok:true, code, endTime });
         }
         /* 施術メモ（次回への申し送り）。店だけが書き、店だけが読みます。
@@ -277,6 +291,7 @@ http.createServer((req, res) => {
             name:r.customer?.name||'', tel:r.customer?.tel||'', email:r.customer?.email||'',
             visit:r.customer?.visit||'', request:r.customer?.request||'',
             note: (n => /^'[=+\-@]/.test(n) ? n.slice(1) : n)(String(r.note||'')),
+            source: r.source || '',
             status: r.cancelled ? 'キャンセル' : '予約確定' })),
           menus: SHEET_MENU, coupons: SHEET_COUPON, styles: SHEET_STYLE, reviews: SHEET_REVIEW,
           closedDates: SHEET_CLOSED.map(c=> typeof c==='string' ? { '休業日': c, '開始':'', '終了':'', 'メモ':'' } : { '休業日': c.date, '開始': c.start, '終了': c.end, 'メモ':'' }),
@@ -314,6 +329,21 @@ http.createServer((req, res) => {
           booked: LEDGER.filter(r => !r.cancelled && r.date >= today)
             .map(r => ({ date: r.date, time: r.time, minutes: r.totalMinutes, staffId: r.staffId || null }))
         });
+      }
+
+      /* テスト用：台帳に1行そのまま置く。
+         数字タブの試験で、先月ぶんや入口ごとの件数を作るのに使います。
+         受け口の確認（営業時間・直前すぎる予約）を通さずに置けるので、
+         ここは試験専用です。本物の Code.gs にはありません。 */
+      if (d.type === 'seed') {
+        LEDGER.push({ code: d.code, date: d.date, time: d.time, endTime: d.endTime,
+          totalMinutes: Number(d.totalMinutes) || 60,
+          menus: [{ name: d.menu || 'カット' }], staffName: 'MATTEO', staffId: 'st01',
+          totalPrice: Number(d.price) || 0,
+          customer: { name: d.name || 'テスト', tel: d.tel || '09000000000', email: '',
+                      visit: d.visit || '', request: '' },
+          source: sourceLabel(d.source), cancelled: !!d.cancelled });
+        return reply(res, { ok: true, code: d.code });
       }
 
       // テスト用：来店済みの状態を作る
@@ -467,7 +497,8 @@ http.createServer((req, res) => {
           d.code = c2;
         }
       }
-      LEDGER.push({ ...d, cancelled: false });
+      /* 予約の入口も、本物と同じで一覧にある言葉だけ受け取ります */
+      LEDGER.push({ ...d, source: sourceLabel(d.source), cancelled: false });
       return reply(res, { ok: true, code: d.code });
     });
     return;

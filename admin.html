@@ -56,6 +56,7 @@
         <div class="tabs" id="admin-tabs">
           <button class="tab" type="button" data-pane="reserve" aria-selected="true">予約一覧</button>
           <button class="tab" type="button" data-pane="customers" aria-selected="false">お客様</button>
+          <button class="tab" type="button" data-pane="numbers" aria-selected="false">数字</button>
           <button class="tab" type="button" data-pane="closed" aria-selected="false">休業日</button>
           <button class="tab" type="button" data-pane="menus" aria-selected="false">単品メニュー</button>
           <button class="tab" type="button" data-pane="coupons" aria-selected="false">おすすめメニュー</button>
@@ -182,6 +183,22 @@
             予約台帳を電話番号でまとめた一覧です。前回のメニューやご要望をここで確認できます。
           </p>
           <div id="customer-rows"></div>
+        </div>
+
+        <!-- 数字（掲載を続けるかどうかを、月に1回ここで決めます）
+             中身はすべて admin.js の renderNumbers が描きます。
+             台帳にある実績だけを出し、足りないものは「分かりません」と出します。 -->
+        <div class="admin-pane" data-pane="numbers" hidden>
+          <p class="note" style="margin:0 0 16px;">
+            ホットペッパーの掲載を続けるかどうかを決めるための画面です。
+            <b>ご来店日</b>でその月に数えています。台帳にある分だけなので、
+            ホットペッパー経由のご予約は、ここには入っていません。
+          </p>
+          <div class="view-switch" id="numbers-month" role="group" aria-label="どの月を見るか">
+            <button class="tab" type="button" data-month="0" aria-selected="true">今月</button>
+            <button class="tab" type="button" data-month="-1" aria-selected="false">先月</button>
+          </div>
+          <div id="numbers-body"></div>
         </div>
 
         <!-- 休業日 -->

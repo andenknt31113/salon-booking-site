@@ -241,10 +241,7 @@ const SALON = {
       title: '【清潔感と品が続く】men\'s骨格補正カット＋眉カット',
       detail: '',
       price: 6900, listPrice: null, minutes: 60,
-      /* 写真は空です。掲載の「眉カット・ひげ整え」の枠に置かれているのは
-         店のロゴで、施術の写真ではありません。ロゴを施術写真として出すと、
-         その仕上がりの見本だと読まれます。★店主の写真が届いたら入れてください。 */
-      image: '',
+      image: 'assets/style11.jpg',
       terms: ''
     },
     {
@@ -252,7 +249,7 @@ const SALON = {
       title: '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース',
       detail: '',
       price: 10000, listPrice: null, minutes: 60,
-      image: 'assets/skill1.jpg',
+      image: 'assets/style6.jpg',
       terms: ''
     },
     {
@@ -385,16 +382,16 @@ const SALON = {
         { id: 'm-cut1', name: 'ツーブロック、刈り上げ、フェードのメンテナンスカット',
           price: 4000, priceFrom: true, minutes: 30,
           note: '当店のご来店から３週以内の方のメンテナンスメニューになりますスキンフェードは＋500になります',
-          image: 'assets/skill1.jpg' },
+          image: 'assets/style6.jpg' },
         { id: 'm-cut2', name: 'カットコース', price: 7000, minutes: 60,
-          note: '', image: 'assets/skill1.jpg' },
+          note: '', image: 'assets/style6.jpg' },
         { id: 'm-cut3', name: 'ラグジュアリーカットコース', price: 10000, minutes: 90,
-          note: '', image: 'assets/skill1.jpg' },
+          note: '', image: 'assets/style6.jpg' },
         /* ★m-cut1 とほぼ同じ内容（3週以内のメンテナンス・¥4,000〜）ですが、
            掲載が2件出しているので2件のまま入れてあります。
            まとめてよいかは店主に確認してください。 */
         { id: 'm-cut4', name: '刈り上げ＋フェードメンテナンス', price: 4000, priceFrom: true, minutes: 30,
-          note: '当店ご来店後３週間以内のメンテナンスメニューになります！', image: 'assets/skill1.jpg' }
+          note: '当店ご来店後３週間以内のメンテナンスメニューになります！', image: 'assets/style6.jpg' }
       ]
     },
     {

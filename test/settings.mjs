@@ -314,6 +314,57 @@ if (sheetSettings) {
 }
 
 /* ============================================================
+   予約の入口の言葉も、2か所にあります。
+
+     ・assets/js/common.js の SOURCE_LABELS … 画面が控えて、送る言葉
+     ・gas/Code.gs の SOURCE_LABELS         … 受け口が台帳に書いてよい言葉
+
+   受け口は一覧に無い言葉を捨てます（公開されている入口なので、
+   自由に書ける欄にはできません）。ですから片方に言葉を足しただけだと、
+   その入口だけ、いつまでも空欄のまま記録されません。しかも予約は
+   ふつうに通るので、店にも何のしるしも出ません。
+   ============================================================ */
+console.log('\n【予約の入口】画面が送る言葉と、受け口が受け取る言葉が同じか');
+{
+  const box = loadSite();
+  vm.runInContext('globalThis.__src = SOURCE_LABELS.slice();', box);
+  const site = box.__src || [];
+  const m = gas.match(/const\s+SOURCE_LABELS\s*=\s*(\[[\s\S]*?\]);/);
+  const back = m ? vm.runInNewContext('(' + m[1] + ')') : null;
+
+  if (!site.length) {
+    problems.push('common.js の SOURCE_LABELS が読めない');
+    console.log('  ❌ 画面側の一覧が見つかりません');
+  } else if (!back) {
+    problems.push('Code.gs の SOURCE_LABELS が読めない');
+    console.log('  ❌ 受け口側の一覧が見つかりません');
+  } else {
+    const same = site.join('|') === back.join('|');
+    console.log(`  ${same ? '✅' : '❌'} 入口の言葉が同じ（${site.length}件）`);
+    if (!same) {
+      console.log('     画面 ' + site.join('／'));
+      console.log('     受け口 ' + back.join('／'));
+      problems.push('予約の入口の言葉が食い違う'
+        + '（その入口からの予約だけ、台帳の欄が空のままになります）');
+    }
+    /* 店が配る印（?from=…）の言葉が一覧から漏れていると、
+       配ったリンクからの予約だけが記録されません。 */
+    vm.runInContext('globalThis.__marks = VISIT_SOURCES.map(s => s.label);', box);
+    const marks = box.__marks || [];
+    const lost = marks.filter(k => back.indexOf(k) < 0);
+    console.log(`  ${!lost.length ? '✅' : '❌'} 店が配る印が、すべて受け口の一覧にある`);
+    if (lost.length) {
+      problems.push('受け口が受け取らない印を配ろうとしている：' + lost.join('／'));
+    }
+    /* 印の記号（from の値）が重なっていると、あとの1つが先の1つを隠します */
+    vm.runInContext('globalThis.__keys2 = VISIT_SOURCES.map(s => s.key);', box);
+    const keys = box.__keys2 || [];
+    console.log(`  ${keys.length === new Set(keys).size ? '✅' : '❌'} 同じ印が2つない`);
+    if (keys.length !== new Set(keys).size) problems.push('?from= の記号が重なっている');
+  }
+}
+
+/* ============================================================
    変更・キャンセルの受付期限は、画面と受け口の両方が判定します。
    同じシートを読ませて、同じ答えになることを確かめます。
    ここが割れると、画面では変更できるのに送ると断られます。

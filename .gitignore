@@ -2,3 +2,7 @@
 # テストを動かすときに作る、この機械の中だけのリンク。
 # 中身がリポジトリの外を指すため、GitHub Pages のビルドが落ちます。
 node_modules
+
+# clasp のログイン情報。アカウントの鍵そのものです。絶対にコミットしないこと。
+.clasprc.json
+.clasp.json.local

@@ -34,8 +34,13 @@ async function newPhone(label) {
 }
 
 /* お客様が1件予約する。使い回すのでまとめておく */
-async function book(p, { name, tel, menuIndex = 0, slotIndex = 0 }) {
-  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
+/* start を渡すと、そのURLから始めます（入口の印を付けたURLの確認に使います） */
+async function book(p, { name, tel, menuIndex = 0, slotIndex = 0, start = '' }) {
+  await p.goto(start || (B + '/reserve.html')); await p.waitForTimeout(1400);
+  // 印付きのURLは予約ページ以外のこともあるので、そのときは移ってもらう
+  if (start && !start.includes('reserve.html')) {
+    await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
+  }
   await p.locator('#coupon-choices .selectable').nth(menuIndex).click(); await p.waitForTimeout(400);
   await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(700);
   await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(900);
@@ -1210,6 +1215,109 @@ console.log('\n【UC31】スタイル名をご要望欄まで運ぶ');
   await p.reload(); await p.waitForTimeout(2200);
   check('UC31', '書きかけの文章を上書きしない',
     (await p.inputValue('#f-request')).includes('つむじが割れやすい'), true);
+  await p.context().close();
+}
+
+/* ============================================================
+   UC32 どこから来ていただいたかが、台帳に残る
+
+   店主が掲載を止めてよいか決めるには、自社サイトに何件来ているのか、
+   その入口はどこなのかが要ります。ところがそれを知るために、
+   お客様の予約の手を1つでも増やしてはいけません。増やした分だけ
+   予約が減り、掲載を止める根拠のほうが痩せます。
+
+   ですからお客様には何も尋ねません。ここで確かめるのは
+   「尋ねずに取れているか」と「予約が今までどおり通るか」です。
+   ============================================================ */
+console.log('\n【UC32】どこから来ていただいたかが、台帳に残る');
+
+/* 台帳に入った1件を、店主の目線（管理ページ）で読み直します */
+const ledgerOf = async code => {
+  const res = await post({ type: 'adminData', password: PW });
+  return (res.reservations || []).find(x => x.code === code) || {};
+};
+
+{
+  /* LINE公式アカウントに貼った印付きURLから来られた方 */
+  const p = await newPhone('UC32-LINE');
+  const r = await book(p, { name: 'LINE 太郎', tel: '09011110032', slotIndex: 2,
+    start: B + '/reserve.html?from=line' });
+  check('UC32', 'LINEの印を付けたURLからでも、予約はそのまま通る', /^LM-/.test(r.code), true);
+  check('UC32', '台帳に「LINE」として残る', (await ledgerOf(r.code)).source, 'LINE');
+  await p.context().close();
+}
+
+{
+  /* 料金が気になってメニューを見に行き、写真も見て、それから戻って予約する。
+     いちばんよくある動き方です。ここで入口が消えると、LINEの効き目が
+     いつまでも0件のまま出ます。 */
+  const p = await newPhone('UC32-回り道');
+  await p.goto(B + '/reserve.html?from=line'); await p.waitForTimeout(1200);
+  await p.goto(B + '/menu.html'); await p.waitForTimeout(800);
+  await p.goto(B + '/gallery.html'); await p.waitForTimeout(800);
+  await p.goto(B + '/index.html'); await p.waitForTimeout(800);
+  const r = await book(p, { name: '回り道 次郎', tel: '09011110033', slotIndex: 4 });
+  check('UC32', '途中で別のページを見て戻っても、入口が消えない',
+    (await ledgerOf(r.code)).source, 'LINE');
+  await p.context().close();
+}
+
+{
+  /* 名刺のQRから来られた方。印が違えば、別の入口として数えられます */
+  const p = await newPhone('UC32-QR');
+  const r = await book(p, { name: 'QR 三郎', tel: '09011110035', slotIndex: 6,
+    start: B + '/index.html?from=qr' });
+  check('UC32', '別の印は別の入口として残る', (await ledgerOf(r.code)).source, '名刺・店内QR');
+  await p.context().close();
+}
+
+{
+  /* 印の無いURLを直接開いた方。ここで予約が断られたら本末転倒です */
+  const p = await newPhone('UC32-印なし');
+  const r = await book(p, { name: '印なし 四郎', tel: '09011110036', slotIndex: 8 });
+  check('UC32', '印が無くても予約はそのまま通る', /^LM-/.test(r.code), true);
+  /* 分かるのは「直接開かれた」ところまでです。分からないものを
+     LINEや地図の実績に足したりはしません。 */
+  check('UC32', '分かる範囲だけが残る', (await ledgerOf(r.code)).source, '直接');
+  await p.context().close();
+}
+
+{
+  /* 知らない印を付けたURLが出回っても、台帳に妙な言葉を入れさせません */
+  const p = await newPhone('UC32-知らない印');
+  const r = await book(p, { name: '不明 五郎', tel: '09011110037', slotIndex: 10,
+    start: B + '/reserve.html?from=%3Cscript%3E' });
+  check('UC32', '知らない印でも予約は通る', /^LM-/.test(r.code), true);
+  check('UC32', '知らない印は台帳に入らない', (await ledgerOf(r.code)).source, '直接');
+  await p.context().close();
+}
+
+{
+  /* 店が電話で受けた分。サイト経由と混ぜると、掲載を止めてよいかの
+     判断そのものが狂います。 */
+  const t = new Date(); t.setDate(t.getDate() + 20);
+  const added = await post({ type: 'adminAdd', password: PW, force: true,
+    date: key(t), time: '19:00', minutes: 60, price: 4000,
+    name: '電話 六郎', tel: '0297001111', menu: 'カット' });
+  check('UC32', '電話で受けた予約は「電話・来店」として区別される',
+    (await ledgerOf(added.code)).source, '電話・来店');
+}
+
+{
+  /* ★お客様の手間を増やしていないこと。
+     入口を尋ねる欄が1つでも増えていたら、この仕組みは失敗です。 */
+  const p = await newPhone('UC32-手間');
+  await p.goto(B + '/reserve.html?from=line'); await p.waitForTimeout(1400);
+  const form = await p.evaluate(() => {
+    const f = document.querySelector('#customer-form');
+    return { text: f.innerText,
+      count: [...f.querySelectorAll('input, textarea, select')].filter(el => el.type !== 'hidden').length };
+  });
+  check('UC32', 'どこで知ったかを尋ねる欄が無い',
+    /どこで|きっかけ|お知りに|何を見て|ご紹介者/.test(form.text), false);
+  /* お名前・フリガナ・電話・メール・ご来店回数2つ・ご要望・同意 の8つのままです */
+  check('UC32', '入力欄の数が増えていない', form.count, 8);
+  check('UC32', '印が付いていても画面には出ない', /from=line/.test(form.text), false);
   await p.context().close();
 }
 

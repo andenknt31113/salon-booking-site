@@ -635,6 +635,10 @@ function buildReservation() {
        完了画面・予約確認ページで ¥0 と出てしまわないように持たせる。 */
     totalLabel: totalText(),
     totalMinutes: totalMinutes(),
+    /* どこから来ていただいたか。お客様には尋ねず、URLの印と参照元から
+       分かる範囲だけを common.js が控えています。
+       分からなければ空で送り、台帳の欄も空のままになります。 */
+    source: visitSource(),
     customer: { ...state.customer }
   };
 }
