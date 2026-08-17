@@ -236,12 +236,23 @@ const LINE_TO    = '';
 /* ============================================================
    シートの列（順番を変えるとスクリプトも直す必要があります）
    ============================================================ */
+/* 「施術メモ」は店が書く欄です。お客様は書けず、読めもしません。
+
+   位置が右端なのには理由があります。すでに使われている台帳には、この列が
+   ありません。colIndex_ は見出しに無い名前を HEADERS の並びで代用するので、
+   途中に足すと、古い台帳では**別の列を指します**（ご要望の次に足せば「状態」）。
+   店の書いたメモが状態欄を上書きし、予約が消えます。
+   右端なら代用の番号が列の外に出るので、読めば空、書く前に見出しの有無を
+   確かめれば止まります（doAdminNote_）。 */
 const HEADERS = [
   '予約番号', '受付日時', '来店日', '開始', '終了', '所要(分)',
   'メニュー', '担当', '担当ID', '指名料', '合計金額',
   'お名前', 'フリガナ', '電話番号', 'メール', '来店回数', 'ご要望',
-  '状態', 'カレンダーID'
+  '状態', 'カレンダーID', '施術メモ'
 ];
+
+/* 台帳の「施術メモ」列の見出し。名前を1か所に置いて、綴りのずれを防ぎます */
+const NOTE_HEADER = '施術メモ';
 
 const MENU_HEADERS   = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_HEADERS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
@@ -270,6 +281,7 @@ function doPost(e) {
     if (data.type === 'adminSave')    return json_(doAdminSave_(data));
     if (data.type === 'adminUpload')  return json_(doAdminUpload_(data));
     if (data.type === 'adminAdd')     return json_(doAdminAdd_(getSheet_(), data));
+    if (data.type === 'adminNote')    return json_(doAdminNote_(getSheet_(), data));
     if (data.type === 'availability') return json_(doAvailability_(getSheet_()));
     if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
     if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
@@ -355,6 +367,44 @@ function doAdminAdd_(sheet, d) {
   return { ok: true, code: code, endTime: endTime };
 }
 
+/* ============================================================
+   施術メモ（次回への申し送り）
+   ------------------------------------------------------------
+   店だけが書き、店だけが読みます。お客様の照会（doLookup_）は
+   返す項目を並べて書いてあるので、そこに足さないかぎり外へ出ません。
+
+   置き場所は予約台帳の行です。名簿を別に作っていないので、
+   お客様に「消してほしい」と言われたら、その行を消せば
+   ご来店の記録ごと消えます（DECISIONS.md）。
+   ============================================================ */
+function doAdminNote_(sheet, d) {
+  requireAdmin_(d);
+
+  const row = findRowByCode_(sheet, d.code);
+  if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };
+
+  /* 先に作られた台帳には、この列がありません。
+     無いまま書くと、colIndex_ が代用した番号に書くことになります。 */
+  ensureHeaders_(SpreadsheetApp.getActiveSpreadsheet(), SHEET_NAME, HEADERS);
+
+  const at = headerRow_(sheet).indexOf(NOTE_HEADER);
+  /* 列が作れなかったときは、書かずに断ります。
+     どこかの列を潰すくらいなら、保存できないほうがましです。 */
+  if (at < 0) return { ok: false, error: '台帳に「' + NOTE_HEADER + '」の列が作れませんでした。' };
+
+  const note = cell_(d.note, LIMITS.note);
+  sheet.getRange(row, at + 1).setValue(note);
+  // 切り詰めた・頭に ' が付いたときのために、保存した中身をそのまま返します
+  return { ok: true, code: String(d.code), note: noteText_(note) };
+}
+
+/* cell_ が数式に見える文字列の頭に付けた ' を、表示のときだけ外します。
+   「'」で始まるだけのメモを削らないよう、後ろが数式の形のときに限ります。 */
+function noteText_(v) {
+  const t = String(v == null ? '' : v);
+  return /^'[=+\-@]/.test(t) ? t.slice(1) : t;
+}
+
 /** 'HH:MM' に分を足す */
 function addMinutes_(hhmm, minutes) {
   const total = toMin_(hhmm) + Number(minutes || 0);
@@ -389,7 +439,9 @@ const MAX_PRICE     = 1000000;
 const LEAD_GRACE_MINUTES = 15;
 
 /* 文字の上限。長すぎる文字は台帳もメールも読めなくします */
-const LIMITS = { name: 60, kana: 60, tel: 20, email: 120, visit: 20, request: 1000, menu: 300 };
+/* note は店が書く施術メモです。お客様の入力ではありませんが、受け口は公開されて
+   いるので、合言葉さえ通れば誰でも送れます。長さは同じように見ます。 */
+const LIMITS = { name: 60, kana: 60, tel: 20, email: 120, visit: 20, request: 1000, menu: 300, note: 1000 };
 
 /* シートに文字を書くときは必ずこれを通します。
 
@@ -1454,6 +1506,10 @@ function doAdminData_(d) {
      読み込む前に足りない行を掲載中の内容で埋めておけば、それが起きません。
      足りているときは何も書きません（印も変わりません）。 */
   ensureSettingRows_(ss);
+  /* 台帳にも、こちらが知っている列が全部あるようにしておきます。
+     「施術メモ」はあとから足した列で、先に作られた台帳にはありません。
+     ここで足しておかないと、店が書いたメモの行き先がなくなります。 */
+  ensureHeaders_(ss, SHEET_NAME, HEADERS);
   const sheet = getSheet_();
   const last = sheet.getLastRow();
   const col = colIndex_(sheet);
@@ -1472,6 +1528,8 @@ function doAdminData_(d) {
       email: String(r[col('メール')] || ''),
       visit: String(r[col('来店回数')] || ''),
       request: String(r[col('ご要望')] || ''),
+      // 店が書いた施術メモ。管理ページにしか渡りません（doLookup_ には入れないこと）
+      note: noteText_(r[col(NOTE_HEADER)]),
       /* 書き方のゆれは、ここで一つに揃えてから画面に渡します */
       status: isCancelled_(r[col('状態')]) ? 'キャンセル' : String(r[col('状態')] || '')
     })).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));

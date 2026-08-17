@@ -244,6 +244,16 @@ http.createServer((req, res) => {
             cancelled:false });
           return reply(res, { ok:true, code, endTime });
         }
+        /* 施術メモ（次回への申し送り）。店だけが書き、店だけが読みます。
+           本番と同じで、長さを切り詰め、数式に見える文字列は文字として扱います。 */
+        if (d.type === 'adminNote') {
+          const r = LEDGER.find(x => x.code === d.code);
+          if (!r) return reply(res, { ok:false, error:'該当する予約が見つかりません: ' + d.code });
+          let note = String(d.note == null ? '' : d.note).trim().slice(0, 1000);
+          if (/^[=+\-@]/.test(note)) note = "'" + note;
+          r.note = note;
+          return reply(res, { ok:true, code:r.code, note: /^'[=+\-@]/.test(note) ? note.slice(1) : note });
+        }
         if (d.type === 'adminUpload') {
           const raw = String(d.dataBase64 || '');
           if (!raw) return reply(res, { ok:false, error:'画像が空です。' });
@@ -266,6 +276,7 @@ http.createServer((req, res) => {
             menu:(r.menus||[]).map(m=>m.name).join(' / '), staffName:r.staffName, price:r.totalPrice,
             name:r.customer?.name||'', tel:r.customer?.tel||'', email:r.customer?.email||'',
             visit:r.customer?.visit||'', request:r.customer?.request||'',
+            note: (n => /^'[=+\-@]/.test(n) ? n.slice(1) : n)(String(r.note||'')),
             status: r.cancelled ? 'キャンセル' : '予約確定' })),
           menus: SHEET_MENU, coupons: SHEET_COUPON, styles: SHEET_STYLE, reviews: SHEET_REVIEW,
           closedDates: SHEET_CLOSED.map(c=> typeof c==='string' ? { '休業日': c, '開始':'', '終了':'', 'メモ':'' } : { '休業日': c.date, '開始': c.start, '終了': c.end, 'メモ':'' }),

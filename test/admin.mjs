@@ -371,8 +371,13 @@ await group('【管9】CSVを会計用に落とす', async () => {
     /キャンセル 六郎[^\n]*キャンセル/.test(csv), true);
   const lines = csv.split('\r\n');
   check('管9', '1行目が見出し', lines[0].startsWith('"予約番号"'), true);
+  check('管9', '店が書いた施術メモも落ちてくる', lines[0].includes('"施術メモ"'), true);
+  /* 期待する列数は見出しから数えます。数を直に書くと、列が増えるたびに
+     試験の数字を書き換えることになり、そのとき「通すために」直したのか
+     仕様が変わったのかが見分けられなくなります。 */
+  const cols = (lines[0].match(/","/g) || []).length;
   check('管9', '列数が見出しとそろっている',
-    lines.slice(1).every(l => !l || (l.match(/","/g) || []).length === 12), true);
+    lines.slice(1).every(l => !l || (l.match(/","/g) || []).length === cols), true);
 });
 
 /* ============================================================
@@ -1201,6 +1206,76 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
   check('管25', '長すぎる文でも横にはみ出さない',
     await v.evaluate(() => document.body.scrollWidth) <= 390, true);
   await v.context().close();
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
+   管26 施術メモ（次回への申し送り）
+
+   1席・1人の店で店主がいちばん欲しがるのは
+   「この番号の人に前回何をしたか」と「次回への申し送り」です。
+   名簿は別に作らず、予約台帳の行に書きます（DECISIONS.md）。
+
+   ここで守るものは2つです。
+     ・書いた場所と読む場所が違っても、同じ中身が出ること
+     ・**お客様には絶対に出ないこと**（店の覚え書きだからです）
+   ============================================================ */
+await group('管26 施術メモ（次回への申し送り）', async () => {
+  const r1 = await add({ date: key(0), time: '10:00', name: 'メモ 一郎', tel: '09088887777', menu: 'カット' });
+  const p = await newPhone('管26');
+  await login(p);
+
+  const card = p.locator(`#admin-rows [data-code="${r1.code}"]`);
+  check('管26', '予約のカードに申し送りの欄がある', await card.locator('.note-box').count(), 1);
+  check('管26', 'まだ何も無いので「書く」と誘っている',
+    await textOf(card.locator('[data-note-summary]')), '次回への申し送りを書く');
+  check('管26', '空のメモ欄は出しっぱなしにしない',
+    await card.locator('[data-note-text]').isHidden(), true);
+
+  const MEMO = '右の生えぐせが強い。次回は横をもう少し短く。';
+  await card.locator('[data-note-summary]').click();
+  await card.locator('[data-note-input]').fill(MEMO);
+  await card.locator('[data-note-save]').click();
+  await p.waitForTimeout(900);
+  /* 保存できたか分からないまま閉じられると、次のご来店で何も出てきません。
+     そのときには、書いたのに消えたのか、書いていないのかが分かりません。 */
+  check('管26', '保存できたと画面が言う', await textOf(card.locator('[data-note-status]')), '保存しました');
+
+  const ledger = (await post({ type: 'adminData', password: PW })).reservations || [];
+  check('管26', '台帳に入っている', (ledger.find(x => x.code === r1.code) || {}).note, MEMO);
+
+  /* 予約一覧で書いたものが、お客様タブでもそのまま読めること。
+     片方だけ直ると、タブを切り替えた先に古い中身が残り、
+     どちらが本当なのか店主には分かりません。 */
+  await tab(p, 'お客様'); await p.waitForTimeout(400);
+  const ctext = await textOf(p.locator('#customer-rows'));
+  check('管26', 'お客様タブでも同じ申し送りが読める', ctext.includes(MEMO), true);
+  check('管26', '書いたあとは「直す」に変わる', ctext.includes('申し送りを直す'), true);
+
+  /* ★ ここが本題です。店の覚え書きなので、お客様の照会には出しません。 */
+  const look = await post({ type: 'lookup', code: r1.code, tel: '09088887777' });
+  check('管26', 'お客様の照会に予約は出る', look.ok, true);
+  check('管26', '**お客様の照会に施術メモは出ない**',
+    JSON.stringify(look).includes('生えぐせ'), false);
+
+  const v = await newPhone('管26-お客様');
+  const vtext = await visitorText(v, 'mypage.html');
+  check('管26', 'お客様の画面にも出ない', vtext.includes('生えぐせ'), false);
+  await v.context().close();
+
+  /* 合言葉が要ること。受け口は公開されているので、
+     画面を通さない送信でも書けてはいけません。 */
+  const nopw = await post({ type: 'adminNote', code: r1.code, note: '合言葉なしで書けてしまう' });
+  check('管26', '合言葉なしでは書けない', nopw.ok, false);
+  const after = (await post({ type: 'adminData', password: PW })).reservations || [];
+  check('管26', '断られたあとも中身が変わっていない',
+    (after.find(x => x.code === r1.code) || {}).note, MEMO);
+
+  // 無い予約番号に書こうとしたら断る（打ち間違い・古い画面から送られた場合）
+  const ghost = await post({ type: 'adminNote', password: PW, code: 'LM-ZZZZZ', note: 'どこにも無い' });
+  check('管26', '無い予約番号には書けない', ghost.ok, false);
 
   await p.context().close();
   await post({ type: 'reset' });

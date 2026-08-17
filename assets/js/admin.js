@@ -446,6 +446,92 @@ function closedCard(c) {
     </div>`;
 }
 
+/* ---------- 施術メモ（次回への申し送り） ----------
+   店だけが書き、店だけが読みます。お客様の照会には出ません
+   （受け口の doLookup_ が、返す項目を並べて書いてあります）。
+
+   置き場所は予約台帳の行です。名簿を別に作っていないので、
+   予約の行を消せば、そのときのメモも一緒に消えます（DECISIONS.md）。
+
+   書く場所と読む場所を分けています。
+     書きたくなるのは施術の直後 → 予約一覧のカード
+     読みたくなるのは次のご来店の前 → お客様タブの先頭
+   同じ部品を両方に出しているので、片方で保存すると両方の表示が変わります。 */
+
+/* 台帳の列と同じ上限です。ここだけ長くしても、受け口が切ります */
+const NOTE_MAX = 1000;
+
+function noteEditorHtml(r) {
+  const note = String(r.note || '').trim();
+  const code = esc(r.code);
+  return `
+    <div class="note-box" data-note-box="${code}">
+      <p class="note-text" data-note-text${note ? '' : ' hidden'}>申し送り：<span>${esc(note)}</span></p>
+      <details class="note-editor">
+        <summary data-note-summary>${noteSummaryLabel(!!note)}</summary>
+        <textarea class="note-input" data-note-input rows="3" maxlength="${NOTE_MAX}"
+          placeholder="次にご来店されたときに見たいことを書きます。お客様には表示されません。">${esc(note)}</textarea>
+        <div class="note-actions">
+          <button class="btn btn-ghost btn-sm" type="button" data-note-save="${code}">メモを保存</button>
+          <span class="note-status" data-note-status role="status"></span>
+        </div>
+      </details>
+    </div>`;
+}
+
+/* 保存できたら、画面に出ている同じ予約のメモを全部そろえます。
+
+   予約一覧とお客様タブは、どちらも画面の中に居ます（隠れているだけ）。
+   押したほうだけ直すと、タブを切り替えた先に古いメモが残り、
+   どちらが本当か分からなくなります。
+
+   予約番号はシートに手で書かれることがあるので、引用符が混ざっていても
+   選び方が壊れないよう CSS.escape を通します。 */
+function applyNoteToScreen(code, note) {
+  const has = !!note.trim();
+  document.querySelectorAll(`[data-note-box="${CSS.escape(code)}"]`).forEach(box => {
+    box.querySelector('[data-note-input]').value = note;
+    const text = box.querySelector('[data-note-text]');
+    text.hidden = !has;
+    text.querySelector('span').textContent = note;
+    box.querySelector('[data-note-summary]').textContent = noteSummaryLabel(has);
+  });
+}
+
+/* 書いたことがあるかどうかで、開く前の見出しを変えます。
+   出す場所が2か所あるので、文言はここ1か所に置きます。 */
+const noteSummaryLabel = has => (has ? '申し送りを直す' : '次回への申し送りを書く');
+
+async function saveNote(btn) {
+  const code = btn.dataset.noteSave;
+  const box = btn.closest('.note-box');
+  const input = box && box.querySelector('[data-note-input]');
+  const status = box && box.querySelector('[data-note-status]');
+  if (!input) return;
+
+  const note = input.value;
+  btn.disabled = true;
+  if (status) status.textContent = '保存中…';
+  const res = await adminPost({ type: 'adminNote', code, note });
+  btn.disabled = false;
+
+  if (!res.ok) {
+    /* 保存できていないのに黙っていると、書いたつもりで閉じられます。
+       次のご来店のときに何も出てこず、そのときには理由が分かりません。 */
+    if (status) status.textContent = '';
+    alert('メモを保存できませんでした。' + (res.error ? '\n' + res.error : ''));
+    return;
+  }
+
+  /* 受け口が切り詰めた・数式よけをした結果を正とします。
+     手元の文字をそのまま出すと、台帳の中身と画面が食い違います。 */
+  const saved = String(res.note == null ? note : res.note);
+  const r = (adminData.reservations || []).find(x => x.code === code);
+  if (r) r.note = saved;
+  applyNoteToScreen(code, saved);
+  if (status) status.textContent = '保存しました';
+}
+
 function reservationCard(r) {
   const off = isCancelled(r);
   /* 電話で受けた予約は、番号を控えていないことがあります。
@@ -467,6 +553,9 @@ function reservationCard(r) {
         : '電話番号の控えなし'}
       </p>
       ${r.request ? `<p class="booking-request">ご要望：${esc(r.request)}</p>` : ''}
+      ${/* キャンセルされた回にも書けるようにしています。
+            「来られなかった理由」も、次にお会いするときに知りたいことだからです。 */''}
+      ${noteEditorHtml(r)}
       ${off ? '' : `<div style="margin-top:12px;">
         <button class="btn btn-ghost btn-sm" type="button" data-admin-cancel="${esc(r.code)}">キャンセルにする</button>
       </div>`}
@@ -932,6 +1021,10 @@ function renderCustomers() {
         <p class="booking-detail">ご予約の合計 ${yen(c.spent)}</p>
         ${latest ? `<p class="booking-detail">前回：${formatDateJa(latest.date)}／${who(latest)}${
           esc(latest.menu)}${isCancelled(latest) ? '（キャンセル）' : ''}</p>` : ''}
+        ${/* 申し送りは「いちばん新しいご来店の回」に書きます。
+              次にお会いするときに読むものなので、書く相手はその回だからです。
+              古い回を直したくなったら、予約一覧のカードから直せます。 */''}
+        ${latest ? noteEditorHtml(latest) : ''}
         <details class="customer-history">
           <summary>ご来店の履歴（${c.visits.length}件）</summary>
           <ul>
@@ -940,6 +1033,9 @@ function renderCustomers() {
                 <span class="hist-date">${formatDateJa(v.date)} ${esc(v.time)}</span>
                 <span class="hist-menu">${who(v)}${esc(v.menu)}${isCancelled(v) ? '（キャンセル）' : ''}</span>
                 ${v.request ? `<span class="hist-request">ご要望：${esc(v.request)}</span>` : ''}
+                ${/* 過去の回のメモは読むだけにします。ここに入力欄を並べると、
+                      履歴を開くたびに欄が何個も出てきて、前回の内容が読めません。 */''}
+                ${v.note ? `<span class="hist-note">メモ：${esc(v.note)}</span>` : ''}
               </li>`).join('')}
           </ul>
         </details>
@@ -1630,10 +1726,13 @@ async function save(target) {
 function exportCsv() {
   const list = filteredReservations();
   if (!list.length) { alert('出力できる予約がありません。'); return; }
+  /* 施術メモも出します。店が自分の控えとして書き出すものなので、
+     店が書いた欄が抜けていると、控えとして使えません。
+     ただしこの中身は店の覚え書きです。**お客様に渡す紙には使えません。** */
   const head = ['予約番号', '来店日', '開始', '終了', 'メニュー', '担当', '金額',
-    'お名前', '電話番号', 'メール', '来店回数', 'ご要望', '状態'];
+    'お名前', '電話番号', 'メール', '来店回数', 'ご要望', '状態', '施術メモ'];
   const body = list.map(r => [r.code, r.date, r.time, r.endTime, r.menu, r.staffName,
-    r.price, r.name, r.tel, r.email, r.visit, r.request, r.status]);
+    r.price, r.name, r.tel, r.email, r.visit, r.request, r.status, r.note]);
   /* 「=」「+」「-」「@」で始まる文字は、ExcelやGoogleスプレッドシートで
      開いたときに数式として実行されます。お名前欄に式を書いて予約した人がいると、
      このCSVを開いた店側の端末でそれが動きます。先頭に ' を足して文字に固定します。 */
@@ -1833,6 +1932,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sv = e.target.closest('[data-save]');
     if (sv) { await save(sv.dataset.save); return; }
+
+    const nt = e.target.closest('[data-note-save]');
+    if (nt) { await saveNote(nt); return; }
 
     const cx = e.target.closest('[data-admin-cancel]');
     if (cx) {
