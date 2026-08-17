@@ -1050,6 +1050,18 @@ function renderCustomers() {
    サイトから表示できるURLを返してきます。ファイル名も向こうで付け直します。 */
 const MAX_EDGE = 1200;
 
+/* これを下回る写真は、サイトで引き伸ばされてぼやけます。
+
+   スマホは細かい点を2倍で描くので、表示幅600pxの枠でも1200px要ります。
+   実際、スタッフ写真に 254×336 の画像が入っていて、260×521 の枠に
+   引き伸ばされたうえ切り抜かれていました。掲載から取り込んだ控え
+   （assets/staff-matteo.jpg）は 853×1280 あるので、小さいほうが
+   勝っていたことになります。
+
+   止めはしません。外観の写真のように、小さくても他に無いものがあります。
+   ただ、気づかずに上書きされるのがいちばん困るので、一度聞きます。 */
+const MIN_EDGE = 800;
+
 function shrinkImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1058,6 +1070,14 @@ function shrinkImage(file) {
       const img = new Image();
       img.onerror = () => reject(new Error('画像として開けませんでした。'));
       img.onload = () => {
+        if (Math.max(img.width, img.height) < MIN_EDGE
+            && !confirm(`この写真は ${img.width}×${img.height} と小さく、`
+              + 'サイトでは引き伸ばされてぼやけます。\n'
+              + `長いほうが ${MIN_EDGE}px 以上の写真をおすすめします。\n\n`
+              + 'それでもこの写真を使いますか？')) {
+          reject(new Error('小さいので登録しませんでした。大きい写真を選び直してください。'));
+          return;
+        }
         const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
         const w = Math.round(img.width * scale);
         const h = Math.round(img.height * scale);

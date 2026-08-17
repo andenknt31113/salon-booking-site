@@ -1282,6 +1282,79 @@ await group('管26 施術メモ（次回への申し送り）', async () => {
 });
 
 /* ============================================================
+   管27 小さすぎる写真を、黙って受け取らない
+
+   スタッフ写真に 254×336 の画像が入っていて、260×521 の枠に
+   引き伸ばされたうえ切り抜かれていました。掲載から取り込んだ控えは
+   853×1280 あるので、小さいほうが勝っていたことになります。
+
+   店主は「登録しました」と出れば成功したと思います。ぼやけていることに
+   気づくのは、お客様がサイトを見たあとです。
+   ============================================================ */
+await group('管27 小さすぎる写真を黙って受け取らない', async () => {
+  /* PNG をその場で作ります。外の部品は使いません（このリポジトリの決まり）。 */
+  const zlib = await import('node:zlib');
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = buf => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(4); head.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([head, body, crc]);
+  };
+  const png = (w, h) => {
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+    ihdr[8] = 8; ihdr[9] = 2;                       // 8bit / RGB
+    const raw = Buffer.concat(Array.from({ length: h },
+      () => Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3, 0x88)])));
+    return Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))
+    ]);
+  };
+
+  const p = await newPhone('管27');
+  await login(p);
+  await tab(p, '写真'); await p.waitForTimeout(500);
+  await p.locator('#style-rows .admin-row').first().click(); await p.waitForTimeout(400);
+
+  const file = p.locator('[data-upload]').first();
+  const note = p.locator('.image-picker-note').first();
+  const text = p.locator('.image-picker input[type="text"]').first();
+  check('管27', '写真を選ぶ欄がある', await file.count(), 1);
+  const before = await text.inputValue();
+
+  /* 小さい写真：確認が出て、やめれば登録されない */
+  p.__dialogs.length = 0;
+  p.__answer = 'dismiss';
+  await file.setInputFiles({ name: 'small.png', mimeType: 'image/png', buffer: png(254, 336) });
+  await p.waitForTimeout(900);
+  check('管27', '小さい写真は確認を出す', /小さく|ぼやけ/.test(lastDialog(p)), true);
+  check('管27', '実際の大きさを見せる', /254×336/.test(lastDialog(p)), true);
+  check('管27', 'やめたら登録されない', await text.inputValue(), before);
+  check('管27', 'やめた理由が画面に残る', /小さい/.test(await textOf(note)), true);
+
+  /* 大きい写真：何も聞かずに通る */
+  p.__dialogs.length = 0;
+  await file.setInputFiles({ name: 'big.png', mimeType: 'image/png', buffer: png(900, 1200) });
+  await p.waitForTimeout(1800);
+  check('管27', '大きい写真では確認を出さない', p.__dialogs.length, 0);
+  check('管27', '大きい写真は登録される', (await text.inputValue()) !== before, true);
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
