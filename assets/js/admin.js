@@ -1503,7 +1503,22 @@ async function uploadImage(file, slot) {
 }
 
 /** 画像1つぶんの入力欄。URL欄・選択ボタン・小さな見本 */
-function imageField(label, url, attrs, slot, mark = '') {
+/* その行の「既定の写真」。リポジトリに置いてある写真の場所です。
+
+   管理ページは data.js をそのまま読んでいて、シートの内容で上書きされません。
+   だからここが既定の出どころになります。 */
+function defaultImageFor(target, index) {
+  const row = (edits[target] || [])[index] || {};
+  const name = String(row['メニュー名'] || row['タイトル'] || '').trim();
+  if (!name) return '';
+  const from = target === 'coupons' ? (SALON.coupons || [])
+    : target === 'menus' ? allMenuItems()
+      : target === 'styles' ? (SALON.styles || []) : [];
+  const hit = from.find(x => String(x.title || x.name || '').trim() === name);
+  return hit && hit.image ? String(hit.image) : '';
+}
+
+function imageField(label, url, attrs, slot, mark = '', def = '') {
   const v = url == null ? '' : String(url);
   return `
     <div class="form-field"${mark} style="margin:0 0 10px;">
@@ -1518,7 +1533,16 @@ function imageField(label, url, attrs, slot, mark = '') {
               <input type="file" accept="image/*" hidden data-upload="${esc(slot)}" />
             </label>
             ${v ? '<button class="btn btn-ghost btn-sm" type="button" data-clear-image>削除</button>' : ''}
+            ${/* 既定に戻す道が管理ページに無いと、店主は Apps Script を
+                  開くしかありません。触れない場所に閉じ込めることになります。 */''}
+            ${def && def !== v
+              ? `<button class="btn btn-ghost btn-sm" type="button"
+                         data-default-image="${esc(def)}">既定の写真に戻す</button>` : ''}
           </div>
+          ${/* いま出ている写真が、店主が上げたものか既定か、何ピクセルか。
+                これが見えないと、小さい写真を上げたことに誰も気づけません。
+                実際に 254×336 と 310×372 が入ったまま公開直前まで残りました。 */''}
+          <p class="image-size" data-image-size hidden></p>
           <p class="image-picker-note" hidden></p>
         </div>
       </div>
@@ -1565,7 +1589,7 @@ function fieldFor(col, value, target, index) {
     return imageField('画像',
       v,
       `data-target="${target}" data-index="${index}" data-col="画像"`,
-      target + '-' + index, mark);
+      target + '-' + index, mark, defaultImageFor(target, index));
   }
   if (col === '表示') {
     return `<label class="checkbox-line"${mark} style="margin-top:8px;">
@@ -2495,10 +2519,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  /* 写真が読み込めたら、実寸と出どころを欄の下に出します。
+
+     これが見えないせいで、254×336 のスタッフ写真と 310×372 の
+     メニュー写真が、公開直前まで気づかれずに残っていました。
+     店主から見れば「登録しました」と出た写真です。粗いことは、
+     お客様がサイトを見るまで誰も分かりません。
+
+     load は泡立たないので、捕まえる側で拾います。 */
+  document.addEventListener('load', e => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    const picker = img.closest('.image-picker');
+    if (!picker) return;
+    const out = picker.querySelector('[data-image-size]');
+    if (!out) return;
+    const w = img.naturalWidth, h = img.naturalHeight;
+    if (!w) return;
+    const src = img.getAttribute('src') || '';
+    const from = /^https?:\/\//.test(src) ? 'アップロードした写真' : '既定の写真';
+    const small = Math.max(w, h) < MIN_EDGE;
+    out.hidden = false;
+    out.style.color = small ? 'var(--danger)' : 'var(--muted)';
+    out.textContent = `${from}・${w}×${h}`
+      + (small ? `（小さいので、サイトでは引き伸ばされてぼやけます。${MIN_EDGE}px以上を推奨）` : '');
+  }, true);
+
   // 写真の選択
   document.addEventListener('change', e => {
     if (e.target.dataset && e.target.dataset.upload !== undefined) handleUpload(e.target);
   });
+  /* 「既定の写真に戻す」。押すと、リポジトリに置いてある写真の場所を入れます。
+     これが無いと、店主は Apps Script を開かないと既定に戻せません。 */
+  document.addEventListener('click', e => {
+    const def = e.target.closest('[data-default-image]');
+    if (!def) return;
+    const picker = def.closest('.image-picker');
+    const text = picker.querySelector('input[type="text"]');
+    text.value = def.dataset.defaultImage;
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    picker.querySelector('.image-preview').innerHTML =
+      `<img src="${esc(def.dataset.defaultImage)}" alt="" />`;
+    const note = picker.querySelector('.image-picker-note');
+    note.hidden = false;
+    note.style.color = 'var(--ok)';
+    note.textContent = '既定の写真に戻しました。保存を押すとサイトに出ます。';
+  });
+
   document.addEventListener('click', e => {
     const clr = e.target.closest('[data-clear-image]');
     if (!clr) return;

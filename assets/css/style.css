@@ -1561,3 +1561,6 @@ body[data-page="reviews"] .empty-state { color: var(--text-2); }
 /* 押すところは指1本ぶんを必ず確保します。マウスのある画面でも同じにします。
    この画面を開くのは店主のスマホだけなので、小さくする理由がありません。 */
 .num-card .btn { min-height: 44px; }
+
+/* 写真欄の下に出す実寸。小さい写真をその場で気づけるようにするためのものです */
+.image-size { font-size: 11.5px; line-height: 1.6; margin: 6px 0 0; }

@@ -1631,6 +1631,74 @@ await group('管31 休業日を日を押すだけで入り切りする', async (
 });
 
 /* ============================================================
+   管32 写真の出どころと大きさが、その場で分かる
+
+   写真は3つの場所から来ます。店主が上げたもの（Googleドライブ）、
+   こちらの既定（assets/…）、そして空。いちばん強いのは店主が上げたものです。
+
+   ところが管理ページには、いま出ているのがどれなのか、何ピクセルなのかが
+   出ていませんでした。そのせいで 254×336 のスタッフ写真と
+   310×372 のメニュー写真が、公開直前まで気づかれずに残りました。
+   店主から見れば「登録しました」と出た写真です。
+
+   さらに、**既定に戻す道が管理ページにありませんでした。**
+   戻すには Apps Script を開いて関数を実行するしかなく、店主には触れません。
+   ============================================================ */
+await group('管32 写真の出どころと大きさが分かる', async () => {
+  await post({ type: 'reset' });
+
+  /* data.js と同じ名前の行を作ります。名前が一致して初めて
+     「この行の既定はこれ」と分かるためです。 */
+  const NAME = '【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース';
+  const before = await post({ type: 'adminData', password: PW });
+  await post({ type: 'adminSave', password: PW, target: 'coupons', stamp: before.stamps.coupons,
+    rows: [{ 'メニュー名': NAME, 価格: 10000, 通常価格: '', '所要(分)': 60, 説明: '', 条件: '',
+             対象: '全員', タグ: 'カット',
+             /* 店主が上げた写真のつもり。http で始まるものが「上げた写真」です */
+             画像: B + '/mock-image.svg?seed=up', 表示: '○' }] });
+
+  const p = await newPhone('管32');
+  await login(p);
+  await tab(p, 'おすすめメニュー'); await p.waitForTimeout(900);
+
+  /* 写真欄は他のタブにもあります（単品メニュー・店舗情報）。隠れていても DOM には居るので、
+     このタブの中に絞らないと、別のタブの欄を掴みます。 */
+  const picker = p.locator('[data-pane="coupons"] .image-picker').first();
+  const size = picker.locator('[data-image-size]');
+  check('管32', '写真の実寸が出る', /\d+×\d+/.test(await textOf(size)), true);
+  check('管32', '店主が上げた写真だと分かる', /アップロード/.test(await textOf(size)), true);
+  check('管32', '小さければ、ぼやけると書いてある', /ぼやけ/.test(await textOf(size)), true);
+
+  const back = picker.locator('[data-default-image]');
+  check('管32', '既定に戻すボタンが出る', await back.count(), 1);
+
+  await back.click(); await p.waitForTimeout(400);
+  const text = picker.locator('input[type="text"]');
+  check('管32', '押すと既定の写真の場所が入る',
+    /^assets\//.test(await text.inputValue()), true);
+  check('管32', '戻したことを知らせる',
+    /既定/.test(await textOf(picker.locator('.image-picker-note'))), true);
+
+  await p.locator('[data-save="coupons"]').click(); await p.waitForTimeout(1800);
+  const saved = (await post({ type: 'adminData', password: PW })).coupons || [];
+  check('管32', '既定の写真が受け口まで届く',
+    /^assets\//.test(String((saved[0] || {})['画像'] || '')), true);
+
+  /* 既定と同じものが入っているときは、押す意味が無いので出しません */
+  await p.reload(); await p.waitForTimeout(1800);
+  await p.fill('#passcode', PW); await p.locator('#remember-me').setChecked(false);
+  await p.click('#gate-btn'); await p.waitForTimeout(1800);
+  await tab(p, 'おすすめメニュー'); await p.waitForTimeout(900);
+  check('管32', '既定と同じなら、戻すボタンは出さない',
+    await p.locator('[data-pane="coupons"] .image-picker').first().locator('[data-default-image]').count(), 0);
+  check('管32', '既定の写真だと分かる',
+    /既定/.test(await textOf(p.locator('[data-pane="coupons"] .image-picker').first().locator('[data-image-size]'))), true);
+
+  await p.context().close();
+  await post({ type: 'reset' });
+});
+
+/* ============================================================
    まとめ
    ============================================================ */
 const ng = results.filter(r => !r.ok);
