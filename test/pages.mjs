@@ -652,7 +652,17 @@ console.log('\n【13】一覧の見渡しやすさ（390px）');
   check('13', '「すべて」に戻すと14件に戻る', await p.locator('#coupon-list .coupon').count(), 14);
 
   /* おすすめ14件を通り過ぎずに単品メニューへ行けるか */
-  await p.locator('.page-jump a').nth(1).click(); await p.waitForTimeout(700);
+  await p.locator('.page-jump a').nth(1).click();
+  /* 決め打ちの秒数で測らないこと。この近道は滑らかに動くので、
+     測る時点でまだ動いている途中だと、着く位置ではなく通過点を見ることになります。
+     写真を1枚増減させただけで結果が変わり、飛べているのに落ちます。
+     止まったのを見てから測ります。 */
+  await p.waitForFunction(() => {
+    const y = Math.round(window.scrollY);
+    const done = window.__lastY === y;
+    window.__lastY = y;
+    return done && y > 0;
+  }, null, { timeout: 5000, polling: 250 });
   check('13', '近道から単品メニューまで飛べる', await p.evaluate(() => {
     const r = document.querySelector('#single').getBoundingClientRect();
     // 貼りついたヘッダーの下に隠れていないこと（scroll-padding-top ぶんを見る）
