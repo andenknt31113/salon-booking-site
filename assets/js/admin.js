@@ -49,8 +49,6 @@ const CLOSED_COLS = ['休業日', '開始', '終了', 'メモ'];
 const MENU_COLS = ['区分', 'メニュー名', '価格', '所要(分)', '説明', '画像', '表示'];
 const COUPON_COLS = ['メニュー名', '価格', '通常価格', '所要(分)', '説明', '条件', '対象', '画像', '表示'];
 const STYLE_COLS = ['タイトル', '分類', 'タグ', '説明', '画像', '表示'];
-const REVIEW_COLS = ['投稿日', '予約番号', 'ニックネーム', '年代', '性別',
-                     '評価', 'タイトル', '本文', '担当', 'メニュー', '状態'];
 /* 「店舗情報」タブに並べる項目。
 
    ひとつながりに並べていたころは11項目でした。いまは34項目あります。
@@ -200,7 +198,6 @@ const SETTING_SECTIONS = [
    保存する中身と、設定シート側（gas/Code.gs の LISTED_SETTINGS）の
    突き合わせに使います（test/settings.mjs）。 */
 const SETTING_KEYS = SETTING_SECTIONS.reduce((all, s) => all.concat(s.fields), []);
-const WEEK_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 /* キャンセルかどうか。台帳には「取消」「キャンセル済」などの書き方のゆれがありますが、
    受信先が「キャンセル」にそろえて返してくれるので、見るのはここだけで済みます。
@@ -615,14 +612,13 @@ let reserveView = 'list';
 
    シートは人が手で書く場所なので「9時」「０９：００」も来ます。
    読めない値をそのまま使うと目盛りが1つも作れず、
-   カレンダーが理由も出さずに空になります。 */
+   カレンダーが理由も出さずに空になります。
+
+   読み取り方そのものは common.js の parseTimeText と同じでなければいけません。
+   お客様の画面（applySettings）とこの画面が別々に読むと、同じシートから
+   違う営業時間が出ます。だから同じ関数を呼びます。 */
 function settingTime(key, fallback) {
-  const m = toHalfWidth((edits.settings || {})[key]).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
-  if (!m) return fallback;
-  const h = Number(m[1]);
-  const mi = Number(m[2] || 0);
-  if (h > 23 || mi > 59) return fallback;
-  return `${pad2(h)}:${pad2(mi)}`;
+  return parseTimeText((edits.settings || {})[key]) || fallback;
 }
 
 /** カレンダーの縦軸（営業開始〜最終受付） */
@@ -649,7 +645,7 @@ function acalHolidays() {
   const raw = String((edits.settings || {})['定休曜日'] ?? '').trim();
   if (!raw) return [];
   return [...new Set(raw.split(/[,、・\s]+/)
-    .map(t => WEEK_LABELS.indexOf(t.replace(/曜日?$/, '')))
+    .map(t => WEEKDAY_JA.indexOf(t.replace(/曜日?$/, '')))
     .filter(i => i >= 0))];
 }
 
@@ -739,12 +735,10 @@ function renderAdminCalendar() {
   const times = acalTimes();
   const today = toKey(new Date());
   const holidays = acalHolidays();
-  const base = new Date(); base.setHours(0, 0, 0, 0);
-  const dates = Array.from({ length: ACAL_DAYS }, (_, i) => {
-    const d = new Date(base);
-    d.setDate(d.getDate() + acalOffset + i);
-    return toKey(d);
-  });
+  /* 日付の並びは、お客様向けカレンダーと同じ Availability.dateRange を使います
+     （common.js）。同じ数え方を2か所に書くと、片方だけ直したときに
+     店の予定表とお客様の空席表が1日ずれます。 */
+  const dates = Availability.dateRange(acalOffset, ACAL_DAYS);
 
   $('#acal-range').textContent = `${formatDateJa(dates[0], { short: true })} 〜 `
     + formatDateJa(dates[dates.length - 1], { short: true });
@@ -1615,21 +1609,6 @@ function fieldFor(col, value, target, index) {
     </label>`;
 }
 
-/* 休業日だけは、日付・開始・終了・メモの4つしかなく、
-   しかも入れたその場で見比べたい（同じ日が2つ無いか）ので、
-   いままでどおり全部そのまま並べます。 */
-function renderRows(target, cols, host) {
-  const rows = edits[target];
-  $(host).innerHTML = rows.length
-    ? rows.map((row, i) => `
-        <div class="booking-card" style="border-left-color:var(--line);">
-          ${cols.map(c => fieldFor(c, row[c], target, i)).join('')}
-          <button class="btn btn-ghost btn-sm" type="button" data-remove="${target}" data-index="${i}"
-                  style="margin-top:10px;">この行を削除</button>
-        </div>`).join('')
-    : '<p class="empty-state">まだ登録がありません。下のボタンから追加してください。</p>';
-}
-
 /* 休業日の1行。
 
    直す前は「休業日・開始・終了・メモ」の入力欄が4つ並ぶだけでした。
@@ -1730,7 +1709,7 @@ function renderClosedCalendar() {
 
   host.innerHTML = `
     <table class="ccal">
-      <thead><tr>${['日', '月', '火', '水', '木', '金', '土']
+      <thead><tr>${WEEKDAY_JA
         .map((w, i) => `<th class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</th>`).join('')}</tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
@@ -2069,7 +2048,7 @@ function weekdayFieldHtml() {
     <div class="form-field">
       <span style="display:block;font-size:13px;font-weight:700;margin-bottom:6px;">定休曜日</span>
       <div class="weekday-picker">
-        ${WEEK_LABELS.map(w => `
+        ${WEEKDAY_JA.map(w => `
           <label class="radio-chip">
             <input type="checkbox" data-weekday="${w}" ${on.has(w) ? 'checked' : ''} />
             <span>${w}</span>

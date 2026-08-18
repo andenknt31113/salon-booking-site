@@ -89,7 +89,7 @@ table { border-collapse: collapse; width: 100%; }
 
 /* 数字は桁を揃える */
 .price-now, .menu-row-price, .rating-score, .summary-total strong,
-.calendar, .stat strong, .admin-table td, .done-code, .header-tel strong {
+.calendar, .stat strong, .done-code, .header-tel strong {
   font-variant-numeric: tabular-nums;
 }
 
@@ -120,7 +120,6 @@ table { border-collapse: collapse; width: 100%; }
   font-feature-settings: "lnum" 1, "onum" 0;
   font-weight: 700; letter-spacing: .06em; color: var(--ink); white-space: nowrap;
 }
-.wm-num { color: inherit; }
 .wm-sub {
   display: block; font-family: "Times New Roman", "Hiragino Mincho ProN", Georgia, serif;
   font-weight: 700; text-transform: uppercase;
@@ -215,20 +214,6 @@ table { border-collapse: collapse; width: 100%; }
   content: ""; position: absolute; inset: 3px; border: 1px solid var(--ink); opacity: .45;
 }
 .brand > .wordmark { min-width: 0; }
-.brand-text { min-width: 0; }
-.brand-name {
-  display: block;
-  font-family: var(--font-en);
-  font-size: 21px; font-weight: 700; letter-spacing: .22em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  line-height: 1.2;
-}
-.brand-sub {
-  display: block;
-  font-family: var(--font-en);
-  font-size: 10px; color: var(--muted); letter-spacing: .24em; text-transform: uppercase;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 14px; flex: none; }
 .header-actions .btn { white-space: nowrap; }
 .header-tel { text-align: right; line-height: 1.3; }
@@ -879,10 +864,6 @@ table { border-collapse: collapse; width: 100%; }
 .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
 .stat span { font-size: 11.5px; color: var(--muted); display: block; letter-spacing: .06em; }
 .stat strong { font-family: var(--font-en); font-size: 26px; color: var(--accent); }
-.admin-table { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.admin-table th, .admin-table td { padding: 12px 13px; border-bottom: 1px solid var(--line-2); font-size: 12.5px; text-align: left; white-space: nowrap; }
-.admin-table thead th { background: var(--panel-2); font-weight: 700; letter-spacing: .06em; }
-.table-scroll { overflow-x: auto; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
 .toolbar .input, .toolbar .select { width: auto; min-width: 160px; font-size: 13px; }
 
@@ -937,7 +918,6 @@ table { border-collapse: collapse; width: 100%; }
   .header-tel { display: none; }
   .header-actions .btn { padding: 10px 16px; font-size: 12.5px; }
   .brand-mark { width: 34px; height: 34px; font-size: 13px; }
-  .brand-name { font-size: 18px; letter-spacing: .18em; }
   .wordmark-sm .wm-name { font-size: 19px; letter-spacing: .17em; }
   .wordmark-sm .wm-sub { font-size: 8.5px; letter-spacing: .2em; }
   .staff-card-solo { flex-direction: column; }

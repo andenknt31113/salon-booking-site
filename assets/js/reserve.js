@@ -83,10 +83,13 @@ function clearProfile() {
 
    そのまま消すと、読み込み直しただけで選択が消えて最初からになります。
    まず**名前で**同じものを探し、見つからないときだけ諦めます。
-   （消さずに残すと「選択済みに見えるのに合計が0円」になります） */
-function reconcileSelections(saved) {
-  const byName = (list, name) => list.find(x => (x.title || x.name) === name);
+   （消さずに残すと「選択済みに見えるのに合計が0円」になります）
 
+   名前で引き当てる手つきは、シート到着後の remapSelection でも同じものを使います。
+   おすすめメニューは title、単品メニューは name と、持っている名前の欄が違うので、
+   両方を見る形をここ1か所に置いています。 */
+const byName = (list, name) => list.find(x => (x.title || x.name) === name);
+function reconcileSelections(saved) {
   if (state.couponId && !SALON.coupons.some(c => c.id === state.couponId)) {
     const c = saved && saved.couponName ? byName(SALON.coupons, saved.couponName) : null;
     state.couponId = c ? c.id : null;
@@ -912,8 +915,10 @@ async function submitReservation() {
 function renderDoneFollow(r) {
   const host = $('#done-follow');
   if (!host) return;
-  const rule = SALON.business.cancelDeadline || { daysBefore: 1, hour: 18 };
-  const limit = rule.daysBefore === 1 ? `前日${rule.hour}時` : `${rule.daysBefore}日前の${rule.hour}時`;
+  /* 期限の言い方は common.js の deadlineLabel() に1本化しています。
+     ここで同じ組み立てを書き写していたころは、店主が管理ページで期限を
+     変えたときに、この画面だけが古い時刻を案内する余地が残っていました。 */
+  const limit = deadlineLabel();
   const mail = r.delivered && r.customer && r.customer.email
     ? `<span>確認メールを <b>${esc(r.customer.email)}</b> 宛にお送りしました。
          数分たっても届かないときは、迷惑メールフォルダをご確認ください。</span>` : '';
@@ -1156,14 +1161,12 @@ function applyQueryParams(search) {
 function remapSelection(before) {
   if (!before.couponId && !before.menuIds.length) return;
 
-  const sameName = (list, name) => list.find(x => (x.title || x.name) === name);
-
   if (before.couponName) {
-    const c = sameName(SALON.coupons, before.couponName);
+    const c = byName(SALON.coupons, before.couponName);
     state.couponId = c ? c.id : null;
   }
   state.menuIds = before.menuNames
-    .map(n => { const m = sameName(allMenuItems(), n); return m ? m.id : null; })
+    .map(n => { const m = byName(allMenuItems(), n); return m ? m.id : null; })
     .filter(Boolean);
 
   // 見つからなかったものがあれば、日時は選び直してもらう（所要時間が変わるため）

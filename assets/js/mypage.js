@@ -121,14 +121,20 @@ function busy(btn, on, label) {
   }
 }
 
+/* ご予約の今の状態を表す札。
+   この端末の記録から描くカード（bookingCard）と、予約番号で照会した結果
+   （renderLookupResult）の両方に出ます。同じ札を2か所に書き写していたころは、
+   片方だけ言い方を直すと、同じご予約が画面によって違う状態に見えました。 */
+function statusChipHtml(r) {
+  if (isCancelled(r)) return '<span class="status-chip is-cancelled">キャンセル済み</span>';
+  if (isPast(r)) return '<span class="status-chip is-past">ご来店済み</span>';
+  return '<span class="status-chip">予約確定</span>';
+}
+
 function bookingCard(r) {
   const cancelled = isCancelled(r);
   const past = isPast(r);
-  const chip = cancelled
-    ? '<span class="status-chip is-cancelled">キャンセル済み</span>'
-    : past
-      ? '<span class="status-chip is-past">ご来店済み</span>'
-      : '<span class="status-chip">予約確定</span>';
+  const chip = statusChipHtml(r);
 
   // ご来店後は、ご感想をお願いする
   const reviewLink = (past && !cancelled)
@@ -227,12 +233,7 @@ function renderLookupResult(r) {
   const cancelled = isCancelled(r);
   const past = isPast(r);
   const canCancel = isCancellable(r);
-
-  const chip = cancelled
-    ? '<span class="status-chip is-cancelled">キャンセル済み</span>'
-    : past
-      ? '<span class="status-chip is-past">ご来店済み</span>'
-      : '<span class="status-chip">予約確定</span>';
+  const chip = statusChipHtml(r);
 
   $('#lookup-result').innerHTML = `
     <article class="booking-card ${cancelled ? 'is-cancelled' : ''}">

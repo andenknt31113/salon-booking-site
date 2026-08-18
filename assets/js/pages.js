@@ -6,16 +6,8 @@
 
 /* 写真が用意できていない箇所は、バーバーポールを思わせる斜めのストライプで埋めます。
    「画像が抜けている」ではなく、意図した意匠に見せるためです。
-   写真（image）が指定されていれば、そちらを優先します。 */
-function placeholder(hue, label, cls) {
-  return `
-    <div class="${cls} ph" style="--ph-hue:${hue};">
-      <span class="ph-stripes" aria-hidden="true"></span>
-      ${label ? `<span class="ph-label">${esc(label)}</span>` : ''}
-    </div>`;
-}
 
-/* 写真は意匠の上に重ねる。ファイルが無ければ img が取り除かれ、
+   写真は意匠の上に重ねる。ファイルが無ければ img が取り除かれ、
    下のストライプがそのまま見えるので、置くだけで切り替わります。 */
 function photoOrPlaceholder(item, label, cls, alt) {
   return `
@@ -384,8 +376,6 @@ function renderHomeReviewLink() {
 
 /* ---------- ページごとの初期化 ---------- */
 function initHome() {
-  const _wire = () => wireImageFallbacks();
-
   /* 管理ページの「お知らせ」。入力されているときだけ帯を出します。
      入れても出ないと、店側は入力欄を信用しなくなります。 */
   const noticeBox = $('#shop-notice');
@@ -461,7 +451,7 @@ function initHome() {
   renderHomeReviewLink();
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
-  _wire();
+  wireImageFallbacks();
 }
 
 function initMenuPage() {

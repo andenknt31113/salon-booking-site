@@ -177,7 +177,6 @@ function normalizeCode(v) {
 
 /* ---------- マスタ参照ヘルパー ---------- */
 const allMenuItems = () => SALON.menuCategories.flatMap(c => c.items);
-const findMenu = id => allMenuItems().find(m => m.id === id) || SALON.coupons.find(c => c.id === id) || null;
 const findStaff = id => SALON.staff.find(s => s.id === id) || null;
 const staffLabel = id => (id ? (findStaff(id)?.name ?? '不明') : '指名なし');
 
@@ -837,6 +836,24 @@ function cleanSettingList(v, maxItems, maxLen) {
     .slice(0, maxItems);
 }
 
+/* 設定シートの時刻を「09:00」の形に読み取る。読めなければ null。
+
+   営業時間はこの形でないと枠が1つも作れず、予約カレンダーが黙って空になります。
+   シートは手で書く場所なので「9時」「9:00〜」「２０：００」なども来ます。
+
+   ここに置いてあるのは、同じ読み取りを管理ページ（admin.js の settingTime）も
+   使うためです。以前は両方に同じ正規表現を書き写していたので、片方だけ直せば
+   お客様の画面と店の予定表が別々の営業時間で動く状態でした。 */
+function parseTimeText(v) {
+  // 全角は、いったん半角にそろえてから読みます
+  const m = toHalfWidth(v).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2] || 0);
+  if (h > 23 || mi > 59) return null;
+  return `${pad2(h)}:${pad2(mi)}`;
+}
+
 /** 管理ページ（設定シート）の内容をサイトに反映する。
  *
  *  ---- 空欄をどう読むか ----
@@ -893,23 +910,12 @@ function applySettings(st) {
   };
   set('電話番号', v => { SALON.tel = v; });
 
-  /* 営業時間は「09:00」の形でないと枠が1つも作れず、
-     予約カレンダーが黙って空になります。
-     シートは手で書く場所なので「9時」「9:00〜」なども来ます。
+  /* 営業時間の読み取りは parseTimeText（このファイルの上のほう）に置いています。
      読めない値は無視して、data.js の値をそのまま使います。 */
-  const time = v => {
-    // 「２０：００」のような全角も、いったん半角にそろえてから読みます
-    const m = toHalfWidth(v).trim().match(/^(\d{1,2})\s*[:：時]\s*(\d{1,2})?/);
-    if (!m) return null;
-    const h = Number(m[1]);
-    const mi = Number(m[2] || 0);
-    if (h > 23 || mi > 59) return null;
-    return `${pad2(h)}:${pad2(mi)}`;
-  };
   const setTime = (key, apply) => {
     const raw = st[key];
     if (raw === undefined || String(raw).trim() === '') return;
-    const v = time(raw);
+    const v = parseTimeText(raw);
     if (v) apply(v);
     else console.warn(`設定シートの「${key}」を読み取れませんでした（${raw}）。09:00 の形式で入力してください。`);
   };
@@ -1139,15 +1145,11 @@ function currentPage() {
  *  無ければ店名から文字ロゴ（ワードマーク）を組み立てます。
  *  ZER01 は「ZERO + 1」なので、数字部分だけ色を変えて意味を見せています。
  * ============================================================ */
-function wordmarkHtml() {
-  return esc(SALON.name);
-}
-
 function brandLockup(opt = {}) {
   const size = opt.size || 'sm';
   const wordmark = `
     <span class="wordmark wordmark-${size}">
-      <span class="wm-name">${wordmarkHtml()}</span>
+      <span class="wm-name">${esc(SALON.name)}</span>
       ${SALON.nameSub ? `<span class="wm-sub">${esc(SALON.nameSub)}</span>` : ''}
     </span>`;
 

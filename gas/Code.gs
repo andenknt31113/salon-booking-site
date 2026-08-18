@@ -540,6 +540,19 @@ function todayKey_() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 }
 
+/* yyyy-MM-dd を「通し日数」に直す。日付どうしの引き算に使います。
+
+   日付の引き算は、時差や夏時間で1日ずれることがあります。
+   どちらも日本時間の「暦の日付」なので、日数だけで比べます。
+
+   新規予約（checkReserve_）と日時変更（doChange_）が、どちらも同じ数え方で
+   受付範囲を見ます。別々に書いていたころは、片方だけ直せば
+   「予約は取れないのに、変更なら動かせる」抜け道になる形でした。 */
+function dayNo_(k) {
+  const p = String(k).split('-').map(Number);
+  return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000;
+}
+
 /** いま何時何分か（日本時間・0時からの分） */
 function nowMinJst_() {
   return timeToMin_(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm')) || 0;
@@ -555,13 +568,7 @@ function checkReserve_(sheet, d) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + 'T00:00:00+09:00').getTime())) {
     return '来店日が正しくありません。';
   }
-  /* 日付の引き算は、時差や夏時間で1日ずれることがあります。
-     どちらも日本時間の「暦の日付」なので、日数だけで比べます。 */
-  const dayNo = k => {
-    const p = String(k).split('-').map(Number);
-    return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000;
-  };
-  const ahead = dayNo(date) - dayNo(todayKey_());
+  const ahead = dayNo_(date) - dayNo_(todayKey_());
   if (ahead < 0) return 'すでに過ぎた日付です。';
   if (ahead > BOOKABLE_DAYS) return `ご予約は${BOOKABLE_DAYS}日先まで承っております。`;
 
@@ -774,7 +781,6 @@ function doReserve_(sheet, d) {
     lineUrl ? '【次回のご予約はLINEから】' : '',
     lineUrl || '',
     lineUrl ? '友だち追加していただくと、前日のリマインドが届き、次回のご予約もワンタップで開けます。' : '',
-    lineUrl ? '' : '',
     `${SALON_NAME}`,
     salonSignature_()
   ].filter(Boolean).join('\n'));
@@ -841,9 +847,7 @@ function removeFromCalendar_(eventId) {
    氏名・電話番号などの個人情報は一切含めません。
    ============================================================ */
 function doAvailability_(sheet) {
-  const last = sheet.getLastRow();
-  if (last < 2) return { ok: true, booked: [] };
-
+  // 台帳が空のときは readRows_ が [] を返すので、ここで数えなおしません
   const rows = readRows_(sheet);
   const col = colIndex_(sheet);
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
@@ -1320,11 +1324,7 @@ function doChange_(sheet, d) {
   /* 変更先も、新規予約と同じ条件で確かめます。
      ここを見ていないと「予約は今日以降しか取れないのに、
      変更なら過去や営業時間外に動かせる」という抜け道になります。 */
-  const dayNo = k => {
-    const q = String(k).split('-').map(Number);
-    return Date.UTC(q[0], q[1] - 1, q[2]) / 86400000;
-  };
-  const ahead = dayNo(newDate) - dayNo(todayKey_());
+  const ahead = dayNo_(newDate) - dayNo_(todayKey_());
   if (ahead < 0) return { ok: false, error: 'すでに過ぎた日付には変更できません。' };
   if (ahead > BOOKABLE_DAYS) {
     return { ok: false, error: `ご予約は${BOOKABLE_DAYS}日先まで承っております。` };
@@ -1436,9 +1436,8 @@ function deadlineMessage_() {
 
 /* その枠が既に埋まっているか（自分自身の予約は除く） */
 function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
-  const last = sheet.getLastRow();
-  if (last < 2) return false;
   const col = colIndex_(sheet);
+  // 台帳が空のときは readRows_ が [] を返すので、下の some が false になります
   const rows = readRows_(sheet);
 
   const start = toMin_(time);
@@ -1578,11 +1577,10 @@ function doAdminData_(d) {
      ここで足しておかないと、店が書いたメモの行き先がなくなります。 */
   ensureHeaders_(ss, SHEET_NAME, HEADERS);
   const sheet = getSheet_();
-  const last = sheet.getLastRow();
   const col = colIndex_(sheet);
 
-  const reservations = last < 2 ? [] :
-    readRows_(sheet).map(r => ({
+  // 台帳が空のときは readRows_ が [] を返すので、ここで数えなおしません
+  const reservations = readRows_(sheet).map(r => ({
       code: String(r[col('予約番号')]),
       date: normalizeDate_(r[col('来店日')]),
       time: normalizeTime_(r[col('開始')]),
