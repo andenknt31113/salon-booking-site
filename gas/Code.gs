@@ -553,6 +553,23 @@ function dayNo_(k) {
   return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000;
 }
 
+/* 欠けている項目で「undefined」と書かない。
+   フォームでは必須にしていますが、受け口は公開されているため
+   項目が欠けたまま届くことがあります。
+   長さも切ります。台帳側だけ切ってメールに元の文字を使うと、
+   そこだけ何万文字にもなり、開けないメールが届きます。
+
+   確認メール（doReserve_）とカレンダーの予定の中身（addToCalendar_）の
+   両方から呼ぶので、トップレベルに置きます。doReserve_ の中に置いていたころは、
+   addToCalendar_ から見えず、CALENDAR_ID を設定した瞬間に
+   カレンダー登録が必ず失敗する形でした。 */
+function or_(v, alt, limit) {
+  let t = String(v == null ? '' : v).trim();
+  const max = limit || 200;
+  if (t.length > max) t = t.slice(0, max) + '…';
+  return t === '' ? (alt || '—') : t;
+}
+
 /** いま何時何分か（日本時間・0時からの分） */
 function nowMinJst_() {
   return timeToMin_(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm')) || 0;
@@ -712,17 +729,6 @@ function doReserve_(sheet, d) {
     'カレンダーID': eventId
   }));
 
-  /* 欠けている項目で「undefined」と書かない。
-     フォームでは必須にしていますが、この受け口は公開されているため
-     項目が欠けたまま届くことがあります。 */
-  /* 長さも切ります。台帳側だけ切ってメールに元の文字を使うと、
-     そこだけ何万文字にもなり、開けないメールが届きます。 */
-  const or_ = (v, alt, limit) => {
-    let t = String(v == null ? '' : v).trim();
-    const max = limit || 200;
-    if (t.length > max) t = t.slice(0, max) + '…';
-    return t === '' ? (alt || '—') : t;
-  };
   /* 金額が決まっていない予約（デザインカラー等）は「0円」と書かない。
      店舗が無料と受け取ってしまうため。 */
   const priceLine = d.totalLabel && !Number(d.totalPrice)
@@ -1359,11 +1365,26 @@ function doChange_(sheet, d) {
   sheet.getRange(row, col('開始') + 1).setValue(newTime);
   sheet.getRange(row, col('終了') + 1).setValue(normalizeTime_(d.endTime));
 
-  // カレンダーの予定も入れ直す
+  /* カレンダーの予定も入れ直す。
+     addToCalendar_ の引数は（予約の中身, お客様, メニュー文）の3つ。
+     新規予約と同じ形に組み直して渡します。以前はここだけ引数が1つずれていて、
+     変更後の予定が「お客様様・30分・金額NaN円」になる形でした。 */
   removeFromCalendar_(String(before[col('カレンダーID')] || ''));
   const eventId = addToCalendar_(
-    { date: newDate, time: newTime, endTime: d.endTime, customer: { name: name, tel: String(before[col('電話番号')] || '') } },
-    d.code, menuText);
+    {
+      date: newDate, time: newTime, code: d.code,
+      totalMinutes: minutes,
+      staffName: String(before[col('担当')] || ''),
+      totalPrice: Number(before[col('合計金額')] || 0)
+    },
+    {
+      name: name,
+      tel: String(before[col('電話番号')] || ''),
+      email: email,
+      visit: String(before[col('来店回数')] || ''),
+      request: String(before[col('ご要望')] || '')
+    },
+    menuText);
   if (eventId) sheet.getRange(row, col('カレンダーID') + 1).setValue(eventId);
 
   mailCustomer_(email, `ご予約の日時を変更しました（${newDate} ${newTime}）`, [
