@@ -437,16 +437,39 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
   await b2.context().close();
 
   await p.reload(); await p.waitForTimeout(1500);
-  check('UC14', 'https以外のURLは採用しない',
-    await p.evaluate(() => SALON.lineAddUrl), '');
+  /* 見るのは「空になること」ではなく「危ない値が採用されないこと」です。
+     data.js に控えのURLを置いたので、弾かれたときに残るのは
+     こちらが用意した https のURLになります（設定シートの値は捨てられます）。 */
+  const bad = await p.evaluate(() => SALON.lineAddUrl);
+  check('UC14', 'https以外のURLは採用しない', bad === '' || /^https:\/\//.test(bad), true);
+  check('UC14', '打ち込まれた値が残らない', /javascript/i.test(bad), false);
   check('UC14', '変なリンクがサイトに出ない',
     await p.locator('.site-footer a[href^="javascript:"]').count(), 0);
+
+  /* 空欄にしたら、控えのURLごと消えること。
+
+     data.js に控えを置いたぶん、ここが効かないと
+     「LINEをやめたのに、サイトの案内だけ残り続ける」状態になります。
+     店主は管理ページで空にしたのに消えない、という形なので、
+     自分では直せません。控えを置いた日から、これは必ず見ます。 */
+  /* 設定の保存には「印」が要ります（別端末との上書きを防ぐため）。
+     前は渡し忘れていて、保存が黙って断られたまま「控えが消えない」と
+     判定していました。製品のバグではなく、この試験のバグでした。 */
+  const cur = await post({ type: 'adminData', password: PW });
+  const cleared = await post({ type: 'adminSave', password: PW, target: 'settings',
+    stamp: cur.stamps.settings, rows: { ...cur.settings, 'LINE友だち追加URL': '' } });
+  check('UC14', '空欄の保存が通る', cleared.ok, true);
+  await p.reload(); await p.waitForTimeout(1500);
+  check('UC14', '空欄にすれば、控えのURLごと案内を消せる',
+    await p.evaluate(() => SALON.lineAddUrl), '');
+  check('UC14', '消したあとはフッターにも出ない',
+    await p.locator('.site-footer a[href*="line.me"], .site-footer a[href*="lin.ee"]').count(), 0);
   await p.context().close();
 
   // あと片付け（この先の試験に影響させない）
+  const fin = await post({ type: 'adminData', password: PW });
   await post({ type: 'adminSave', password: PW, target: 'settings',
-    rows: { ...(await post({ type: 'adminData', password: PW })).settings,
-            'LINE友だち追加URL': '' } });
+    stamp: fin.stamps.settings, rows: { ...fin.settings, 'LINE友だち追加URL': '' } });
 }
 
 /* ============================================================
