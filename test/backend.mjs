@@ -871,7 +871,7 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
   vm.runInContext(srcLive + `;globalThis.__a = ${fnName};`, ctx);
   let out;
   try { out = ctx.__a(payload); } catch (e) { out = { ok: false, threw: String(e && e.message) }; }
-  return { out, store };
+  return { out, store, ctx };
 }
 
 console.log('\n【店側の入口】合言葉');
@@ -947,6 +947,23 @@ console.log('\n【店側の入口】まちがいが続いたら');
   admin('doAdminData_', { password: 'himitsu' }, shop2).out.ok
     ? ok('お客様のキャンセルは、まちがい回数に数えない')
     : note('お客様のキャンセル', 'が回数に数えられ、店が入れなくなる');
+}
+
+console.log('\n【守り】台帳の毎日バックアップ');
+{
+  /* dailyBackup はトリガーで毎日動かす前提の関数です。
+     「同じ曜日の古い写しを捨ててから、新しい写しを置く」ことだけ確かめます。 */
+  const b = admin('doAdminData_', {});
+  const acts = [];
+  b.ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getName: () => '予約台帳', getId: () => 'ssid' }) };
+  b.ctx.DriveApp = {
+    getFilesByName: () => { const f = [{ setTrashed: () => acts.push('捨てた') }]; return { hasNext: () => f.length > 0, next: () => f.shift() }; },
+    getFileById: () => ({ makeCopy: () => acts.push('写した') })
+  };
+  vm.runInContext('dailyBackup()', b.ctx);
+  acts.join('→') === '捨てた→写した'
+    ? ok('同じ曜日の古い写しを捨ててから、新しい写しを置く')
+    : note('毎日バックアップ', '動きが違う: ' + acts.join('→'));
 }
 
 console.log('\n【店側の入口】保存');

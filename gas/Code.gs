@@ -92,12 +92,17 @@ function requireAdmin_(d) {
     店が電話で受けたキャンセルを台帳に反映するときに使います。
     お客様は電話番号で本人確認しますが、店にお客様の番号を
     打たせるのは筋が違うので、こちらは認証で通します。 */
+/* まちがいの数えかたは requireAdmin_ と同じ帳面を使います。
+   こちらを数えずにおくと、キャンセルの入り口から合言葉を試し放題になるためです。 */
 function isAdmin_(d) {
   try {
+    if (d.token && validToken_(String(d.token))) return true;
     const pw = adminPassword_();
     if (!pw) return false;
-    if (String(d.password || '') === pw) return true;
-    return !!(d.token && validToken_(String(d.token)));
+    if (adminLockedMinutes_()) return false;
+    if (String(d.password || '') === pw) { clearAdminFails_(); return true; }
+    if (String(d.password || '')) noteAdminFail_();
+    return false;
   } catch (e) { return false; }
 }
 
@@ -2864,4 +2869,26 @@ function testReserve() {
       visit: '初めて', request: 'これはテストです'
     }
   });
+}
+
+/* ============================================================
+   台帳の毎日バックアップ（推奨）
+
+   使う場合は「トリガー」で
+   ・実行する関数 → dailyBackup
+   ・イベントのソース → 時間主導型
+   ・タイプ → 日付ベースのタイマー（例：午前2時〜3時）
+
+   曜日ごとに1部、合計7部の写しをドライブに置き、
+   翌週の同じ曜日に古いほうを捨てて置き直します。
+   台帳は顧客名簿そのものなので、誤って消しても
+   最大7日前までの姿に戻せるようにしておきます。
+   ============================================================ */
+function dailyBackup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const day = ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
+  const name = ss.getName() + ' バックアップ（' + day + '）';
+  const olds = DriveApp.getFilesByName(name);
+  while (olds.hasNext()) olds.next().setTrashed(true);
+  DriveApp.getFileById(ss.getId()).makeCopy(name);
 }
