@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#F1ECE0" />
-  <meta name="description" content="ZER01 barber/lounge の空席状況。メニュー・担当・日時を選ぶだけで24時間ご予約いただけます。" />
+  <meta name="description" content="ZER01 barber/lounge の予約方法と受付状況をご案内します。" />
   <title>空席状況・ネット予約</title>
 
   <link rel="canonical" href="https://andenknt31113.github.io/salon-booking-site/reserve.html" />
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="ZER01 barber/lounge" />
   <meta property="og:title" content="空席状況・ネット予約｜ZER01 barber/lounge" />
-  <meta property="og:description" content="ZER01 barber/lounge の空席状況。メニュー・担当・日時を選ぶだけで24時間ご予約いただけます。" />
+  <meta property="og:description" content="ZER01 barber/lounge の予約方法と受付状況をご案内します。" />
   <meta property="og:url" content="https://andenknt31113.github.io/salon-booking-site/reserve.html" />
   <meta property="og:image" content="https://andenknt31113.github.io/salon-booking-site/assets/ogp.png" />
   <meta property="og:image:width" content="1200" />
@@ -31,7 +31,7 @@
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>空席状況・ネット予約</span>
         </nav>
         <h1>空席状況・ネット予約</h1>
-        <p>メニュー → スタッフ → 日時 → お客様情報の順にお進みください。</p>
+        <p class="booking-active-only">メニュー → スタッフ → 日時 → お客様情報の順にお進みください。</p>
       </div>
     </div>
 
@@ -39,6 +39,7 @@
       <div class="container">
         <!-- ステップ表示 -->
         <div class="notice" id="change-notice" hidden></div>
+        <div class="notice" id="booking-paused-notice" role="status"></div>
         <ol class="steps" id="steps">
           <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
           <li class="step" data-step="2"><b>STEP 2</b><span id="step2-label">スタッフ</span></li>
@@ -264,6 +265,7 @@
   <div id="site-footer"></div>
 
   <script src="assets/js/data.js"></script>
+  <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js"></script>
   <script src="assets/js/reserve.js"></script>
 </body>

@@ -327,7 +327,11 @@ function renderLegend() {
    黙って出しておくと、それを最新だと思って選ばれます。 */
 function showCalendarLoading(on) {
   const el = $('#cal-status');
-  if (el) el.hidden = !on;
+  if (!el) return;
+  const unavailable = !on && !!SALON.reservationEndpoint && Remote.loaded && Remote.booked === null;
+  el.hidden = !on && !unavailable;
+  el.textContent = on ? '最新の空き状況を確認しています…'
+    : unavailable ? '空き状況を確認できません。現在ネット予約の日時を選べないため、時間をおいて再読み込みするか、店舗へお問い合わせください。' : '';
 }
 
 function renderCalendar() {
@@ -398,12 +402,14 @@ function initStep3() {
    data.js の lineAddUrl が空のあいだは何も出しません。 */
 function renderLineInvite() {
   const host = $('#line-invite');
-  if (!host || !SALON.lineAddUrl) return;
+  if (!host) return;
+  host.hidden = true;
+  host.innerHTML = '';
+  if (!SALON.lineAddUrl) return;
   host.innerHTML = `
-    <p class="line-invite-title">次回のご予約は、LINEからワンタップで</p>
+    <p class="line-invite-title">お店のLINE公式アカウント</p>
     <p class="line-invite-text">
-      友だち追加していただくと、前日のリマインドが届き、
-      次回のご予約もこの画面まで一度で開けます。
+      友だち追加はこちらから。ご予約の確認・変更は、このサイトの予約確認ページをご利用ください。
     </p>
     <a class="btn btn-line" href="${esc(SALON.lineAddUrl)}" target="_blank" rel="noopener">
       LINEで友だち追加
@@ -771,6 +777,9 @@ function showDeliveryWarning(sent) {
 /* 選んだ時間がもう取れないときの言い方。理由ごとに変えます。 */
 function slotStopMessage(reason) {
   const tail = '\n別の日時をお選びください。';
+  if (reason === 'unverified') {
+    return '空き状況を確認できませんでした。時間をおいて再読み込みするか、店舗へお問い合わせください。';
+  }
   if (reason === 'too-soon') {
     return `恐れ入ります。ご選択の時間は、当日のご予約の受付時刻（${SALON.business.minLeadHours}時間前まで）を過ぎました。`
       + tail + `\nお急ぎの場合は${SALON.tel ? `お電話（${SALON.tel}）で` : '店舗まで'}ご相談ください。`;
@@ -822,6 +831,7 @@ async function submitReservation() {
   }
 
   let reservation;
+  let changeUnchanged = false;
   if (changing) {
     // 予約番号はそのまま。日時だけ差し替える。
     reservation = { ...changing, date: state.date, time: state.time,
@@ -829,6 +839,8 @@ async function submitReservation() {
     const sent = await sendToEndpoint({
       type: 'change',
       code: changing.code,
+      fromDate: changing.date,
+      fromTime: changing.time,
       date: state.date,
       time: state.time,
       endTime: reservation.endTime,
@@ -841,10 +853,11 @@ async function submitReservation() {
     if (!sent.ok && !sent.noEndpoint) {
       setSubmitting(false);
       // 受付期限切れ・枠の埋まりは、送信できなかったのとは理由が違う
-      alert(sent.deadline || sent.taken ? sent.error : deliveryFailureMessage(sent, '変更'));
+      alert(sent.deadline || sent.taken || sent.stale ? sent.error : deliveryFailureMessage(sent, '変更'));
       if (sent.taken) { state.time = null; await Remote.load(true); goTo(3); }
       return;
     }
+    changeUnchanged = sent.unchanged === true;
     reservation.delivered = sent.ok;
     Store.reschedule(changing.code, reservation);
   } else {
@@ -875,9 +888,11 @@ async function submitReservation() {
   }
 
   if (changing) {
-    $('#h-done').textContent = '日時を変更しました';
+    $('#h-done').textContent = changeUnchanged ? 'すでにこの日時でご予約済みです' : '日時を変更しました';
     const desc = $('#h-done').nextElementSibling;
-    if (desc) desc.textContent = '予約番号は変わりません。変更後の内容はこちらです。';
+    if (desc) desc.textContent = changeUnchanged
+      ? '予約番号は変わりません。現在の予約内容はこちらです。'
+      : '予約番号は変わりません。変更後の内容はこちらです。';
   }
 
   $('#done-code').textContent = reservation.code;
@@ -920,9 +935,10 @@ function renderDoneFollow(r) {
      変えたときに、この画面だけが古い時刻を案内する余地が残っていました。 */
   const limit = deadlineLabel();
   const mail = r.delivered && r.customer && r.customer.email
-    ? `<span>確認メールを <b>${esc(r.customer.email)}</b> 宛にお送りしました。
-         数分たっても届かないときは、迷惑メールフォルダをご確認ください。</span>` : '';
+    ? `<span>確認メールの宛先：<b>${esc(r.customer.email)}</b>。
+         メールが届かない場合も、予約番号でご予約を確認できます。迷惑メールフォルダもご確認ください。</span>` : '';
   host.innerHTML = mail
+    + '<span>予約番号はコピーするか、画面を保存してお控えください。メールが届かない・番号が分からない場合は、<a href="mypage.html#reservation-help">予約確認ページのご案内</a>をご確認ください。確認できないまま新しく予約し直さないでください。</span>'
     + `<span>ご都合が変わった場合は、<b>${esc(limit)}まで</b>
          「予約内容を確認する」から日時の変更・キャンセルができます。
          それ以降は${contactWay({ html: true })}</span>`;
@@ -988,6 +1004,7 @@ function updateSummary() {
 }
 
 function renderStep() {
+  document.body.classList.toggle('reservation-change', !!changing);
   $$('.reserve-panel').forEach(p => {
     p.classList.toggle('is-active', Number(p.dataset.panel) === state.step);
   });
@@ -1294,13 +1311,15 @@ document.addEventListener('DOMContentLoaded', () => {
     showCalendarLoading(true);
     await Remote.load(true);
     showCalendarLoading(false);
-    if (had && !Availability.slotInfo(had.date, had.time, state.staffId, totalMinutes()).available) {
+    const info = had ? Availability.slotInfo(had.date, had.time, state.staffId, totalMinutes()) : null;
+    if (info && !info.available) {
       state.time = null;
       renderCalendar();
       updateSummary();
       renderStepCta();
-      alert(`${formatDateJa(had.date)} ${had.time} は、ただいまお受けできなくなりました。\n`
-        + '別の日時をお選びください。');
+      alert(info.reason === 'unverified'
+        ? slotStopMessage(info.reason)
+        : `${formatDateJa(had.date)} ${had.time} は、ただいまお受けできなくなりました。\n別の日時をお選びください。`);
       return;
     }
     renderCalendar();

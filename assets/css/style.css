@@ -563,6 +563,14 @@ table { border-collapse: collapse; width: 100%; }
 /* 予約ページの、画面下に貼りつく「次へ」。
    スマホでのみ出します。画面が広いときは各ステップの下のボタンで足ります。 */
 .step-cta { display: none; }
+.booking-paused-only, #booking-paused-notice { display: none; }
+.booking-paused .booking-paused-only,
+.booking-paused:not(.reservation-change) #booking-paused-notice { display: block; }
+.booking-paused .booking-active-only,
+.booking-paused:not(.reservation-change) #reserve-layout,
+.booking-paused:not(.reservation-change) #steps,
+.booking-paused:not(.reservation-change) #step-cta { display: none !important; }
+#booking-paused-notice p a { display: inline-flex; align-items: center; min-height: 44px; }
 
 /* 予約完了後のLINE友だち追加のお誘い（lineAddUrl を入れたときだけ出ます） */
 .line-invite {

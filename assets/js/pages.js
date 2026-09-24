@@ -56,7 +56,7 @@ function couponCard(c) {
           <div class="price-now">${priceLabel(c)}</div>
           <div class="price-min">所要 約${formatDuration(c.minutes)}</div>
         </div>
-        <a class="btn btn-primary btn-sm" href="reserve.html?menu=${encodeURIComponent(c.id)}">このメニューで予約</a>
+        <a class="btn btn-primary btn-sm" href="reserve.html?menu=${encodeURIComponent(c.id)}">${SALON.draft ? '予約について' : 'このメニューで予約'}</a>
       </div>
     </article>`;
 }
@@ -83,7 +83,8 @@ function staffCard(s) {
   /* 在籍1名の店では、予約画面に「指名なし」が出ません（reserve.js）。
      それなのに「指名して予約」と書くと、指名しない道もあるように読めます。
      選ばなかったときの担当を探して、お客様が予約画面で迷います。 */
-  const cta = isSolo ? `${esc(s.name)}に予約する` : `${esc(s.name)}を指名して予約`;
+  const cta = SALON.draft ? '予約について'
+    : isSolo ? `${esc(s.name)}に予約する` : `${esc(s.name)}を指名して予約`;
 
   return `
     <article class="staff-card${solo}">
@@ -129,7 +130,9 @@ function styleCard(sy) {
               文字を2つに分けているのは、折り返す場所を決めるためです。
               1つの文字列だと、狭い画面で「このスタイルで予」「約」と割れます。 */ ''}
         <a class="btn btn-outline btn-sm style-book" href="reserve.html"
-           data-style="${esc(sy.title)}"><span>このスタイルで</span><span>予約</span></a>
+           data-style="${esc(sy.title)}">${SALON.draft
+             ? '<span>予約</span><span>について</span>'
+             : '<span>このスタイルで</span><span>予約</span>'}</a>
       </div>
     </article>`;
 }
@@ -200,12 +203,7 @@ function menuGroupHtml(cat) {
    受信先を入れる前は投稿フォーム自体を出していない（initReviewForm）ので、
    そのあいだは案内も出しません。無いものを探させないためです。 */
 function reviewEmptyHtml({ formHere = false } = {}) {
-  if (!SALON.reservationEndpoint) {
-    return '<p class="empty-state">口コミはまだ届いていません。</p>';
-  }
-  const where = formHere ? '下のフォーム' : '口コミページのフォーム';
-  return `<p class="empty-state">口コミはまだ届いていません。<br />`
-    + `ご来店いただいた方は、${where}からご感想をお聞かせください。</p>`;
+  return '<p class="empty-state">口コミの確認・投稿はGoogleでご案内しています。</p>';
 }
 
 /* トップを開いた方が最初に読む1行。
@@ -251,7 +249,7 @@ function renderFaq(host) {
   host.innerHTML = SALON.faq.map((f, i) => `
     <div class="faq-item" data-faq="${i}">
       <button class="faq-q" type="button" aria-expanded="false">${esc(f.q)}</button>
-      <div class="faq-a"><span>${esc(String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
+      <div class="faq-a"><span>${esc(SALON.draft && f.q === '予約は必要ですか？' ? 'ネット予約は準備中です。ご予約については店舗へお問い合わせください。' : String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
     </div>`).join('');
 
   bindOnce('faq', () => host.addEventListener('click', e => {
@@ -350,28 +348,13 @@ function homeStyles(limit = 4) {
   return [...new Set([...代表, ...SALON.styles])].slice(0, limit);
 }
 
-/* トップの「お客様の声」の下にあるボタンの行き先。
-   口コミは0件です。それなのに「口コミをすべて見る」と書いてあると、
-   押した先には「まだ届いていません」の一文しかありません。行き止まりです。
-   架空の口コミは作らないと決めている（DECISIONS.md）以上、必ず通る道なので、
-   件数に合わせて行き先のほうを変えます。
-
-   投稿フォームは受信先を入れるまで出しません（initReviewForm）。
-   出ていないフォームへ誘うと、また行き止まりになるので、
-   そのあいだはボタン自体を出しません。 */
 function renderHomeReviewLink() {
   const link = $('#home-review-link');
   if (!link) return;
   const box = link.parentElement;
-  if (SALON.reviews.length) {
-    link.textContent = '口コミをすべて見る';
-    link.href = 'reviews.html';
-    box.hidden = false;
-    return;
-  }
-  link.textContent = 'ご感想をお寄せください';
-  link.href = 'reviews.html#write';
-  box.hidden = !SALON.reservationEndpoint;
+  link.textContent = 'Googleの口コミを見る・書く';
+  link.href = 'reviews.html';
+  box.hidden = false;
 }
 
 /* ---------- ページごとの初期化 ---------- */
@@ -385,17 +368,8 @@ function initHome() {
     noticeBox.hidden = !text;
   }
 
-  /* 評価は実際に集まってから出す（rating が null のあいだは表示しない）。
-     隠すだけでなく、出し直すところまで両方向でやります。
-     口コミがシートから届くのは最初の描画より後なので、隠す片道だけにしていたころは、
-     せっかく集まった評価がトップに一生出ませんでした。 */
   const ratingBox = $('.hero-rating');
-  if (ratingBox) ratingBox.hidden = !SALON.rating;
-  if (SALON.rating) {
-    $('#hero-score').textContent = SALON.rating.toFixed(1);
-    $('#hero-stars').textContent = stars(SALON.rating);
-    $('#hero-count').textContent = `口コミ ${SALON.reviewCount.toLocaleString('ja-JP')}件`;
-  }
+  if (ratingBox) ratingBox.hidden = true;
   /* トップの大きい写真。
      has-photo は「写真が読めたとき」だけ付けます（wireImageFallbacks が付ける）。
      先に付けてしまうと、写真が無いときに暗い膜と白文字だけが残り、
@@ -445,9 +419,7 @@ function initHome() {
   setHtml($('#home-styles'), homeStyles().map(styleCard).join(''));
   bindStyleBooking();
   setHtml($('#home-staff'), SALON.staff.map(staffCard).join(''));
-  $('#home-reviews').innerHTML = SALON.reviews.length
-    ? SALON.reviews.slice(0, 2).map(reviewCard).join('')
-    : reviewEmptyHtml();
+  $('#home-reviews').innerHTML = reviewEmptyHtml();
   renderHomeReviewLink();
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
@@ -626,47 +598,35 @@ function initReviewForm() {
   }));
 }
 
-/* ご感想をいただいた直後だけ、Googleにも書いていただけないかお願いします。
-   このサイトの口コミは店が下げられるので、外から見た信用にはなりません。
-   信用になるのはGoogle側です（DECISIONS.md）。
-   店舗情報にURLを入れていないあいだは何も出しません。 */
 function renderGoogleReviewLink() {
   const host = $('#google-review');
-  if (!host || !SALON.googleReviewUrl) return;
+  if (!host) return;
+  const query = encodeURIComponent([SALON.name, SALON.nameSub, SALON.address].filter(Boolean).join(' '));
+  const viewUrl = 'https://www.google.com/maps/search/?api=1&query=' + query;
+  let writeUrl = '';
+  try {
+    const url = new URL(SALON.googleReviewUrl);
+    if (url.protocol === 'https:' && url.hostname === 'g.page'
+        && /^\/r\/[^/]+\/review\/?$/.test(url.pathname)) writeUrl = url.href;
+  } catch {}
   host.innerHTML = `
-    <p style="font-size:13px;color:var(--text-2);line-height:1.8;margin:20px 0 14px;">
-      よろしければ、Googleにも同じ内容をお寄せいただけると励みになります。
-    </p>
-    <a class="btn btn-outline" href="${esc(SALON.googleReviewUrl)}" target="_blank" rel="noopener">
-      Googleにクチコミを書く
-    </a>`;
+    <div class="notice" style="display:block;">
+      <h2 style="font-size:20px;margin-bottom:16px;">Googleの口コミ</h2>
+      <p style="margin-bottom:20px;">ご来店の感想はGoogleへお寄せください。口コミの内容・評価は、Googleの店舗ページでご覧いただけます。</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+        <a class="btn btn-outline" href="${esc(viewUrl)}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a>
+        ${writeUrl ? `<a class="btn btn-primary" href="${esc(writeUrl)}" target="_blank" rel="noopener noreferrer">Googleに口コミを書く（別タブ）</a>` : ''}
+      </div>
+      <p style="font-size:13px;">「見る」はGoogleマップを開きます。ZER01の店舗ページから「クチコミ」を選んでください。このサイトでは口コミを収集・掲載しません。</p>
+      ${writeUrl ? '' : '<p style="margin-top:12px;">投稿用の直接リンクは準備中です。Googleの店舗ページから投稿してください。</p>'}
+    </div>`;
   host.hidden = false;
 }
 
 function initReviewsPage() {
-  initReviewForm();
-  $('#review-summary').innerHTML = SALON.rating
-    ? `<div style="text-align:center;">
-         <div class="rating-score" style="font-size:44px;">${SALON.rating.toFixed(1)}</div>
-         <div class="stars" style="font-size:20px;">${stars(SALON.rating)}</div>
-         ${/* --muted は12.5pxだと地に対して3.49:1しかなく、屋外では読めません */ ''}
-         <p style="font-size:12.5px;color:var(--text-2);margin-top:6px;">全 ${SALON.reviewCount.toLocaleString('ja-JP')}件の口コミ</p>
-       </div>`
-    : '';
-  $('#review-list').innerHTML = SALON.reviews.length
-    ? SALON.reviews.map(reviewCard).join('')
-    : (SALON.reviewCount
-        ? `<p class="empty-state">${SALON.reviewCount}件の評価をいただいています。<br />個別の口コミはただいま準備中です。</p>`
-        : reviewEmptyHtml({ formHere: true }));
+  renderGoogleReviewLink();
 }
 
-/* 起動。
-   まず掲載中の内容（data.js）ですぐ描き、
-   スプレッドシートが届いたら描き直します。
-
-   取得を待ってから描いていたころは、Apps Script の応答が遅いあいだ
-   （久しぶりの呼び出しでは数秒かかります）トップのキャッチコピーすら
-   出ませんでした。LINEから来た方が最初に見る画面が空白になります。 */
 document.addEventListener('DOMContentLoaded', () => {
   const page = document.body.dataset.page;
   const init = {
@@ -678,9 +638,4 @@ document.addEventListener('DOMContentLoaded', () => {
   }[page] || (() => {});
 
   init();
-
-  Catalog.load().then(source => {
-    // シートに中身があったときだけ描き直す（同じ内容で2度描かない）
-    if (source === 'sheet') init();
-  });
 });

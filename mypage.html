@@ -31,7 +31,7 @@
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>予約確認</span>
         </nav>
         <h1>ご予約の確認・キャンセル</h1>
-        <p>ご予約時にお使いになった端末・ブラウザからご確認いただけます。</p>
+        <p>予約した端末の記録、または予約番号とお電話番号でご確認いただけます。</p>
       </div>
     </div>
 
@@ -92,8 +92,15 @@
           <div id="lookup-result" style="margin-top:18px;"></div>
         </section>
 
+        <details class="notice" id="reservation-help">
+          <summary>メールが届かない・予約番号が分からないとき</summary>
+          <p>まず、このページの予約一覧と迷惑メールフォルダをご確認ください。予約した端末・ブラウザには記録が残っている場合があります。</p>
+          <p>メールが届かないだけでは、予約が失敗したとは限りません。確認できない場合は、新しく予約し直さず、お名前・予約した日時・お電話番号を店舗へお伝えください。</p>
+          <p id="reservation-help-contact"></p>
+        </details>
+
         <p style="text-align:center;margin-top:36px;">
-          <a class="btn btn-primary btn-lg" href="reserve.html">新しく予約する</a>
+          <a class="btn btn-primary btn-lg" href="reserve.html"><span class="booking-active-only">新しく予約する</span><span class="booking-paused-only">予約のご案内を見る</span></a>
         </p>
       </div>
     </section>
@@ -102,6 +109,7 @@
   <div id="site-footer"></div>
 
   <script src="assets/js/data.js"></script>
+  <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js"></script>
   <script src="assets/js/mypage.js"></script>
 </body>

@@ -6,6 +6,7 @@
 /* ---------- 短縮セレクタ ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+SALON.draft = SALON.draft || !SALON.bookingLaunchApproved;
 
 /* ---------- フォーマット ---------- */
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
@@ -472,18 +473,19 @@ const Availability = {
       && (b.staffId || null) === (ig.staffId || null);
   },
 
-  isBooked(staffId, dateKey, time) {
+  isBooked(staffId, dateKey, time, durationMin = SALON.business.slotMinutes) {
     const slotStart = toMinutes(time);
+    const slotEnd = slotStart + durationMin;
     const overlaps = (date, start, minutes) =>
       date === dateKey
-      && slotStart >= toMinutes(start)
-      && slotStart < toMinutes(start) + (minutes || SALON.business.slotMinutes);
+      && slotStart < toMinutes(start) + (minutes || SALON.business.slotMinutes)
+      && toMinutes(start) < slotEnd;
 
     const mine = Store.active().some(r =>
       r.code !== this.ignoreCode
       && r.staffId === staffId && overlaps(r.date, r.time, r.totalMinutes));
 
-    return mine || Remote.isBusy(staffId, dateKey, time);
+    return mine || Remote.isBusy(staffId, dateKey, time, durationMin);
   },
 
   /* デモ用の「先約」。予約が1件も無い画面はカレンダーが全部○になり、
@@ -518,9 +520,9 @@ const Availability = {
   },
 
   /** 1枠単位で、そのスタッフが空いているか */
-  isStaffSlotFree(staffId, dateKey, time) {
+  isStaffSlotFree(staffId, dateKey, time, durationMin = SALON.business.slotMinutes) {
     if (!this.isWorking(staffId, dateKey)) return false;
-    if (this.isBooked(staffId, dateKey, time)) return false;
+    if (this.isBooked(staffId, dateKey, time, durationMin)) return false;
     const t = toMinutes(time);
     return !this.busyBlocks(staffId, dateKey).some(([s, e]) => t >= s && t < e);
   },
@@ -530,6 +532,9 @@ const Availability = {
    * @returns {{ symbol:string, free:number, available:boolean, reason:string }}
    */
   slotInfo(dateKey, time, staffId = null, durationMin = SALON.business.slotMinutes) {
+    if (SALON.reservationEndpoint && Remote.booked === null) {
+      return { symbol: '×', free: 0, available: false, reason: 'unverified' };
+    }
     if (!this.isBookableDate(dateKey)) return { symbol: '-', free: 0, available: false, reason: 'closed' };
     if (this.isTooSoon(dateKey, time)) return { symbol: '×', free: 0, available: false, reason: 'too-soon' };
 
@@ -548,7 +553,8 @@ const Availability = {
     // 施術時間ぶん連続で空いているスタッフを数える
     const free = targets.filter(st => {
       for (let i = 0; i < need; i++) {
-        if (!this.isStaffSlotFree(st.id, dateKey, toHHMM(start + i * slotMinutes))) return false;
+        const length = Math.min(slotMinutes, durationMin - i * slotMinutes);
+        if (!this.isStaffSlotFree(st.id, dateKey, toHHMM(start + i * slotMinutes), length)) return false;
       }
       return true;
     }).length;
@@ -639,7 +645,10 @@ const Remote = {
           body: JSON.stringify({ type: 'availability' })
         });
         const data = await res.json();
-        this.booked = Array.isArray(data.booked) ? data.booked : [];
+        if (!res.ok || !data || data.ok !== true || !Array.isArray(data.booked)) {
+          throw new Error('空席状況の応答を確認できませんでした。');
+        }
+        this.booked = data.booked;
         return true;
       } catch (e) {
         // 取得できないときはこの端末の予約だけで判定する（予約自体は続行できる）
@@ -659,16 +668,17 @@ const Remote = {
       席が1つの店では、担当が誰かに関わらず、時間が重なれば埋まっています。
       電話で受けた予約（担当なしで入ることがあります）と、サイトからの
       予約が、同じ時間に2件入らないようにするためです。 */
-  isBusy(staffId, dateKey, time) {
+  isBusy(staffId, dateKey, time, durationMin = SALON.business.slotMinutes) {
     if (!this.booked) return false;
-    const t = toMinutes(time);
+    const start = toMinutes(time);
+    const end = start + durationMin;
     const oneSeat = SALON.staff.length <= 1;
     return this.booked.some(b =>
       !Availability.isIgnoredSlot(b)
       && b.date === dateKey
       && (oneSeat || b.staffId === staffId)
-      && t >= toMinutes(b.time)
-      && t < toMinutes(b.time) + (b.minutes || SALON.business.slotMinutes));
+      && start < toMinutes(b.time) + (b.minutes || SALON.business.slotMinutes)
+      && toMinutes(b.time) < end);
   }
 };
 
@@ -709,6 +719,8 @@ function normalizeItem(m) {
   };
 }
 
+const STATIC_CATALOG_PAGES = new Set(['home', 'menu', 'staff', 'gallery', 'reviews', 'privacy']);
+
 const Catalog = {
   loaded: false,
   loading: null,
@@ -721,6 +733,10 @@ const Catalog = {
      ボタンが並んだままになり、選んでも合計に入らない状態になります。
      取得中は同じ約束を返して、全員に同じ結果を渡します。 */
   load() {
+    if (STATIC_CATALOG_PAGES.has(document.body.dataset.page)) {
+      this.loaded = true;
+      return Promise.resolve(this.source);
+    }
     if (this.loading) return this.loading;
     if (this.loaded) return Promise.resolve(this.source);
     this.loading = this._fetch().finally(() => {
@@ -742,13 +758,13 @@ const Catalog = {
       const data = await res.json();
 
       // 中身があるときだけ差し替える（空のシートで消えてしまわないように）
-      if (Array.isArray(data.categories) && data.categories.length) {
+      if (Array.isArray(data.categories)) {
         SALON.menuCategories = data.categories.map(c => ({
           ...c, items: (c.items || []).map(normalizeItem)
         }));
         this.source = 'sheet';
       }
-      if (Array.isArray(data.coupons) && data.coupons.length) {
+      if (Array.isArray(data.coupons)) {
         SALON.coupons = data.coupons.map(normalizeItem);
         this.source = 'sheet';
       }
@@ -983,8 +999,7 @@ function applySettings(st) {
   SALON.business.cancelDeadline = rule;
 
   /* ---- 「準備中」の帯 ----
-     これがサイトの公開スイッチです。以前は data.js の draft にあり、
-     店主は自分の店のサイトを自分で公開できませんでした。
+     サイト側の受付開始承認と設定シートの両方がそろうまで表示する。
      読めない書き方はそのまま（勝手に公開も、勝手に非公開もしない）。 */
   if (st['準備中の帯'] !== undefined) {
     const v = toHalfWidth(String(st['準備中の帯'])).trim().toLowerCase();
@@ -993,6 +1008,7 @@ function applySettings(st) {
     else if (/^(出す|表示|する|はい|true|on|yes|○|o)/.test(v)) SALON.draft = true;
     else if (v) console.warn(`設定シートの「準備中の帯」は「出す」か「出さない」で入力してください（${v}）。`);
   }
+  if (!SALON.bookingLaunchApproved) SALON.draft = true;
   /* 文言だけを空にしても帯は消えません（消すのは上の「準備中の帯」です）。
      空で上書きすると、店が書いていない当たり障りのない一文が出てしまうので、
      掲載中の文言を残します。 */
@@ -1249,6 +1265,9 @@ function renderAdminHeader(host) {
 }
 
 function renderHeader() {
+  document.body.classList.toggle('booking-paused', !!SALON.draft);
+  const notice = $('#booking-paused-notice');
+  if (notice) setHtml(notice, `<h2>ネット予約は準備中です</h2><p>現在、このサイトから新しいご予約はお受けしていません。ご予約については店舗へお問い合わせください。</p>${SALON.tel ? `<a class="btn btn-primary" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">店舗へ電話する</a>` : ''}<p><a href="mypage.html">すでにお持ちの予約を確認する</a></p>`);
   const host = $('#site-header');
   if (!host) return;
   const page = currentPage();
@@ -1258,7 +1277,8 @@ function renderHeader() {
     || 'SL';
   const nav = NAV_ITEMS.map(item => {
     const cur = item.href === page ? ' aria-current="page"' : '';
-    return `<li><a href="${item.href}"${cur}>${item.label}</a></li>`;
+    const label = SALON.draft && item.href === 'reserve.html' ? '予約について' : item.label;
+    return `<li><a href="${item.href}"${cur}>${label}</a></li>`;
   }).join('');
 
   const draft = SALON.draft
@@ -1279,7 +1299,7 @@ function renderHeader() {
             <span>TEL / 受付 ${esc(SALON.business.openTime)}-${esc(SALON.business.closeTime)}</span>
             <strong>${esc(SALON.tel)}</strong>
           </a>` : ''}
-          <a class="btn btn-primary btn-sm" href="reserve.html">ネット予約</a>
+          <a class="btn btn-primary btn-sm" href="reserve.html">${SALON.draft ? '予約について' : 'ネット予約'}</a>
         </div>
       </div>
       <nav class="site-nav" aria-label="メインメニュー">
@@ -1326,14 +1346,13 @@ function renderFooter() {
           <div>
             <h4>RESERVATION</h4>
             <ul>
-              <li><a href="reserve.html">空席状況・ネット予約</a></li>
+              <li><a href="reserve.html">${SALON.draft ? '予約について' : '空席状況・ネット予約'}</a></li>
               <li><a href="mypage.html">ご予約の確認・キャンセル</a></li>
               ${SALON.lineAddUrl
                 ? `<li><a href="${esc(SALON.lineAddUrl)}" target="_blank" rel="noopener">LINEで友だち追加</a></li>`
                 : ''}
               <li><a href="index.html#faq">よくあるご質問</a></li>
               <li><a href="privacy.html">プライバシーポリシー</a></li>
-              <li><a href="admin.html">スタッフ用 予約管理</a></li>
             </ul>
           </div>
         </div>
@@ -1354,7 +1373,7 @@ function stickyCta() {
   return `
     <div class="sp-cta">
       ${SALON.tel ? `<a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>` : ''}
-      <a class="btn btn-primary" href="reserve.html">24時間ネット予約</a>
+      <a class="btn btn-primary" href="reserve.html">${SALON.draft ? '予約について' : '24時間ネット予約'}</a>
     </div>`;
 }
 
@@ -1411,6 +1430,13 @@ function injectStructuredData() {
 function applyDocumentTitle() {
   const base = `${SALON.name} ${SALON.nameSub || SALON.branch}`.trim();
   document.title = document.title ? `${document.title}｜${base}` : base;
+}
+
+if (typeof PUBLISHED_MENUS !== 'undefined' && PUBLISHED_MENUS) {
+  SALON.menuCategories = PUBLISHED_MENUS.categories.map(category => ({
+    ...category, items: category.items.map(normalizeItem)
+  }));
+  SALON.coupons = PUBLISHED_MENUS.coupons.map(normalizeItem);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

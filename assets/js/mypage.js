@@ -333,6 +333,8 @@ document.addEventListener('DOMContentLoaded', () => {
   /* 受付期限の案内。期限も連絡先も設定で変わるので、まるごとここで組み立てます。
      電話番号が空のときに「までお電話ください」だけが残る、という出方をさせません。 */
   const renderDeadlineNote = () => {
+    const help = $('#reservation-help-contact');
+    if (help) help.innerHTML = contactWay({ html: true });
     const note = $('#deadline-note');
     if (!note) return;
     note.innerHTML = `ネットでの変更・キャンセルは<b>${deadlineLabel()}まで</b>です。`

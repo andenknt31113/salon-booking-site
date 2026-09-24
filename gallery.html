@@ -34,7 +34,7 @@
         <!-- 「ご要望欄に名前を書いていただければ」と書いてありましたが、
              書き写す作業をお客様にさせていました。カードのボタンが名前を運ぶので、
              お願いする文ではなく、何が起きるかを書きます。 -->
-        <p>気になるスタイルの「このスタイルで予約」を押すと、そのスタイル名をご要望欄に入れた状態でご予約に進めます。</p>
+        <p><span class="booking-active-only">気になるスタイルの「このスタイルで予約」を押すと、そのスタイル名をご要望欄に入れた状態でご予約に進めます。</span><span class="booking-paused-only">気になるスタイルから、ご予約についてのご案内を確認できます。</span></p>
       </div>
     </div>
 
@@ -47,7 +47,7 @@
              付いたので、ここは「決めずに予約に進む方」のための道として残します。
              スタイルが1件も無いときでも、このページが行き止まりにならない道でもあります。 -->
         <p style="text-align:center;margin-top:32px;">
-          <a class="btn btn-primary btn-lg" href="reserve.html">スタイルを決めずに予約に進む</a>
+          <a class="btn btn-primary btn-lg" href="reserve.html"><span class="booking-active-only">スタイルを決めずに予約に進む</span><span class="booking-paused-only">予約のご案内を見る</span></a>
         </p>
       </div>
     </section>
@@ -56,6 +56,7 @@
   <div id="site-footer"></div>
 
   <script src="assets/js/data.js"></script>
+  <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js"></script>
   <script src="assets/js/pages.js"></script>
 </body>

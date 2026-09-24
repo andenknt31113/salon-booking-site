@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#F1ECE0" />
-  <meta name="description" content="ZER01 barber/lounge（茨城県龍ケ崎市中根台）の公式サイト。メンズ専門。フェード・メンズ縮毛矯正・白髪ぼかし。24時間ネット予約受付中。" />
+  <meta name="description" content="ZER01 barber/lounge（茨城県龍ケ崎市中根台）の公式サイト。メンズ専門。フェード・メンズ縮毛矯正・白髪ぼかし、メニューや店舗情報をご案内します。" />
   <title>ZER01 barber/lounge｜龍ケ崎のメンズ専門バーバー</title>
 
   <link rel="canonical" href="https://andenknt31113.github.io/salon-booking-site/" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="ZER01 barber/lounge" />
   <meta property="og:title" content="ZER01 barber/lounge｜龍ケ崎のメンズ専門バーバー" />
-  <meta property="og:description" content="ZER01 barber/lounge（茨城県龍ケ崎市中根台）の公式サイト。メンズ専門。フェード・メンズ縮毛矯正・白髪ぼかし。24時間ネット予約受付中。" />
+  <meta property="og:description" content="ZER01 barber/lounge（茨城県龍ケ崎市中根台）の公式サイト。メンズ専門。フェード・メンズ縮毛矯正・白髪ぼかし、メニューや店舗情報をご案内します。" />
   <meta property="og:url" content="https://andenknt31113.github.io/salon-booking-site/" />
   <meta property="og:image" content="https://andenknt31113.github.io/salon-booking-site/assets/ogp.png" />
   <meta property="og:image:width" content="1200" />
@@ -45,7 +45,7 @@
         <p class="hero-desc" id="hero-desc"></p>
         <ul class="hero-meta" id="hero-meta"></ul>
         <div class="hero-cta">
-          <a class="btn btn-primary btn-lg" href="reserve.html">空席を見て予約する</a>
+          <a class="btn btn-primary btn-lg" href="reserve.html">予約のご案内を見る</a>
           <a class="btn btn-outline btn-lg" href="menu.html">メニュー・料金</a>
         </div>
       </div>
@@ -60,7 +60,8 @@
       </div>
       <div class="notice is-info">
         <b>お知らせ</b>
-        <span>ネット予約は24時間受付中です。当日のご予約は施術開始<span id="lead-hours"></span>時間前まで承ります。それ以降はお電話でご相談ください。</span>
+        <span class="booking-active-only">ネット予約は24時間受付中です。当日のご予約は施術開始<span id="lead-hours"></span>時間前まで承ります。それ以降はお電話でご相談ください。</span>
+        <span class="booking-paused-only">ネット予約は準備中です。ご予約については店舗へお問い合わせください。</span>
       </div>
     </section>
 
@@ -73,7 +74,7 @@
                安くなると思って来られた方に、その場で違うと申し上げることになります。 -->
           <span class="section-label">RECOMMENDED</span>
           <h2 class="section-title">おすすめメニュー</h2>
-          <p class="section-desc">カットとカラーなど、組み合わせの決まったコースです。そのままご予約いただけます。</p>
+          <p class="section-desc">カットとカラーなど、組み合わせの決まったコースをご紹介します。</p>
         </div>
         <div class="coupon-list" id="home-coupons"></div>
         <p style="text-align:center;margin-top:26px;">
@@ -88,7 +89,7 @@
         <div class="section-head">
           <span class="section-label">HAIR STYLE</span>
           <h2 class="section-title">ヘアスタイル</h2>
-          <p class="section-desc">なりたいイメージが見つかったら、そのままご予約いただけます。</p>
+          <p class="section-desc">なりたいイメージを探してみてください。</p>
         </div>
         <div class="style-grid" id="home-styles"></div>
         <p style="text-align:center;margin-top:26px;">
@@ -150,9 +151,10 @@
     <!-- CTA -->
     <section class="section">
       <div class="container-narrow" style="text-align:center;">
-        <h2 class="section-title" style="margin-bottom:14px;">ご予約はネットが便利です</h2>
-        <p class="section-desc" style="margin-bottom:24px;">空席状況を見ながら、24時間いつでもご予約いただけます。</p>
-        <a class="btn btn-primary btn-lg" href="reserve.html">空席カレンダーを見る</a>
+        <h2 class="section-title" style="margin-bottom:14px;">ご予約について</h2>
+        <p class="section-desc booking-active-only" style="margin-bottom:24px;">空席状況を見ながら、24時間いつでもご予約いただけます。</p>
+        <p class="section-desc booking-paused-only">ネット予約は準備中です。ご予約については店舗へお問い合わせください。</p>
+        <a class="btn btn-primary btn-lg" href="reserve.html">予約のご案内を見る</a>
       </div>
     </section>
   </main>
@@ -160,6 +162,7 @@
   <div id="site-footer"></div>
 
   <script src="assets/js/data.js"></script>
+  <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js"></script>
   <script src="assets/js/pages.js"></script>
 </body>
