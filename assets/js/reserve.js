@@ -880,6 +880,21 @@ async function submitReservation() {
       goTo(3);
       return;
     }
+    if (sent.draft) {
+      setSubmitting(false);
+      SALON.draft = true;
+      renderHeader();
+      renderFooter();
+      alert(sent.error || 'ただいま準備中のため、ネット予約はお受けしていません。');
+      return;
+    }
+    if (!sent.ok && (sent.catalogChanged || sent.conflict || sent.cancelled || sent.closed || sent.scheduleChanged || sent.invalid)) {
+      setSubmitting(false);
+      const reason = sent.error || '予約を受け付けられませんでした。';
+      alert(reason + ((sent.closed || sent.scheduleChanged)
+        ? '\n最新の受付状況を確認するため、ページを読み込み直してください。' : ''));
+      return;
+    }
     reservation.delivered = sent.ok;
     reservation.deliveryError = sent.ok ? '' : (sent.error || '');
     Store.add(reservation);
@@ -1251,10 +1266,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#submit-reservation').addEventListener('click', submitReservation);
   $('#copy-code').addEventListener('click', copyCode);
 
-  /* メニューをスプレッドシートから取り込む。
-     待ってから描くと、応答が遅いあいだ選択肢が1つも出ません。
-     先に掲載中の内容で描き、届いたら中身だけ入れ替えます。 */
   Catalog.load().then(source => {
+    if (SALON.reservationEndpoint && source !== 'sheet') {
+      setHtml($('#catalog-status'), '最新のメニューと受付条件を確認できません。現在ネット予約は進められません。時間をおいて再読み込みするか、店舗へお問い合わせください。'
+        + (SALON.tel ? ` <a href="tel:${esc(SALON.tel.replace(/-/g, ''))}">店舗へ電話する</a>` : ''));
+      return;
+    }
+    document.body.classList.remove('catalog-unverified');
     if (source !== 'sheet') return;
     /* いま選ばれているものを、名前で新しいメニューに引き継ぎます。
 

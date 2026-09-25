@@ -4,6 +4,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../assets/js/pages.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../reviews.html', import.meta.url), 'utf8');
+const homeHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const render = source.match(/^function renderGoogleReviewLink\([^]*?^}/m)[0];
 const host = { hidden: true, innerHTML: '' };
 const salon = { name: '試験店舗', nameSub: '理容室', address: '試験住所', googleReviewUrl: 'https://g.page/r/example/review' };
@@ -33,5 +34,9 @@ assert.equal((html.match(/id="google-review"/g) || []).length, 1, '投稿リン�
 assert.ok(!html.includes('id="review-form"'), '自社の口コミフォームを設けない');
 assert.ok(!html.includes('id="review-list"'), '自社の口コミ一覧を設けない');
 assert.ok(!html.includes('id="review-summary"'), '自社の評価集計を設けない');
+assert.ok(homeHtml.includes('>Googleの口コミを見る・書く</a>'), 'トップの口コミ導線は初期HTMLからGoogle案内にする');
+assert.ok(!homeHtml.includes('口コミをすべて見る'), '初期HTMLに古い案内を残さない');
+assert.ok(!homeHtml.includes('class="hero-rating"'), '初期HTMLから使わない評価欄を外す');
+assert.ok(html.includes('href="reserve.html"'), '口コミページから予約案内へ戻れる');
 assert.match(source, /function initReviewsPage\(\)\s*\{\s*renderGoogleReviewLink\(\);/, 'ページ初期化時に表示する');
 console.log('Google口コミ導線：全項目成功');

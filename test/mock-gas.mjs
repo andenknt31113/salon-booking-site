@@ -3,14 +3,42 @@
    - reserve / cancel / availability / menu / lookup を処理する
    - 台帳・メニュー・クーポンをサーバー側で保持する（スプレッドシート相当） */
 import http from 'node:http';
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { readFileSync, existsSync, writeFileSync, realpathSync, statSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join, resolve, sep } from 'node:path';
+import { demoCatalog, demoReservations, demoHtml } from '../tools/demo-support.mjs';
 
 /* このファイルの1つ上（リポジトリの直下）をサイトの置き場所として配信する */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = Number(process.env.PORT || 8820);
+const LOCAL_HOST = '127.0.0.1';
+export function createMockHandler({ port = 8820, demoMode = false, apiOnly = false } = {}) {
+const PORT = port;
+const DEMO_MODE = demoMode;
+const DEMO_PAGES = new Set(['index.html', 'admin.html', 'design-a.html', 'reserve.html', 'mypage.html',
+  'menu.html', 'gallery.html', 'staff.html', 'reviews.html', 'privacy.html', 'favicon.svg']);
+const SITE_PAGES = new Set([...DEMO_PAGES, '404.html', 'robots.txt', 'sitemap.xml']);
 const LEDGER = [];
+const issueCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const code = 'LM-' + Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    if (!LEDGER.some(row => sameCode(row.code, code))) return code;
+  }
+  throw new Error('予約番号を発行できませんでした。');
+};
+const PHONE_REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{16,80}$/;
+const PHONE_MINUTES_PER_DAY = 24 * 60;
+const phoneContent = data => JSON.stringify({ date: data.date, time: data.time, minutes: Number(data.minutes),
+  price: Number(data.price || 0), name: String(data.name || '').trim(), tel: String(data.tel || ''),
+  menu: String(data.menu || '').trim() || '（電話予約）', memo: String(data.memo || '').trim() });
+const adminReservation = reservation => ({ code: reservation.code, date: reservation.date, time: reservation.time,
+  endTime: reservation.endTime, menu: (reservation.menus || []).map(menu => menu.name).join(' / '),
+  staffName: reservation.staffName, price: reservation.totalPrice, name: reservation.customer?.name || '',
+  tel: reservation.customer?.tel || '', email: reservation.customer?.email || '', visit: reservation.customer?.visit || '',
+  request: reservation.customer?.request || '', note: String(reservation.note || '').replace(/^'(?=[=+\-@])/, ''),
+  source: reservation.source || '', status: reservation.cancelled ? 'キャンセル' : '予約確定' });
+const phoneResult = (reservation, duplicate) => ({ ok: true, code: reservation.code, endTime: reservation.endTime,
+  requestId: reservation.phoneRequestId || '', duplicate, reservation: adminReservation(reservation) });
 
 /* スプレッドシートの「メニュー」「クーポン」シート相当 */
 const SHEET_MENU = [
@@ -55,7 +83,7 @@ const types = {
 const SLOW = { ms: 0 };
 const reply = (res, obj) => {
   const send = () => {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json', ...(apiOnly ? {} : { 'Access-Control-Allow-Origin': '*' }) });
     res.end(JSON.stringify(obj));
   };
   SLOW.ms ? setTimeout(send, SLOW.ms) : send();
@@ -91,6 +119,16 @@ const INITIAL = JSON.parse(JSON.stringify({
   menu: SHEET_MENU, closed: SHEET_CLOSED, style: SHEET_STYLE, coupon: SHEET_COUPON,
   settings: SHEET_SETTINGS
 }));
+if (DEMO_MODE) {
+  const catalog = demoCatalog();
+  SHEET_MENU.splice(0, SHEET_MENU.length, ...catalog.menus);
+  SHEET_COUPON.splice(0, SHEET_COUPON.length, ...catalog.coupons);
+  SHEET_STYLE.splice(0, SHEET_STYLE.length, ...catalog.styles);
+  INITIAL.menu = catalog.menus;
+  INITIAL.coupon = catalog.coupons;
+  INITIAL.style = catalog.styles;
+  LEDGER.push(...demoReservations());
+}
 /* 本物の GAS と同じ価格の読み方 */
 function parsePrice(v) {
   const t = String(v ?? '').trim();
@@ -103,6 +141,15 @@ function parsePrice(v) {
 const halfWidth = v => String(v ?? '')
   .replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
   .replace(/　/g, ' ');
+const parseBookableMinutes = value => {
+  const match = halfWidth(value).trim().match(/^(\d+)\s*分?$/);
+  const minutes = match ? Number(match[1]) : NaN;
+  return Number.isInteger(minutes) && minutes >= 15 && minutes <= 480 ? minutes : null;
+};
+const isShown = value => {
+  const display = halfWidth(value).trim().toLowerCase();
+  return !['×', '✕', '✖', '✗', 'x', '非表示', '非公開', '休止', '停止', 'false', 'no', 'off', '0'].includes(display);
+};
 const digits = v => halfWidth(v).replace(/\D/g, '');
 /* 予約番号は英数字だけを見て、大文字に揃えて突き合わせます */
 const codeKey = v => halfWidth(v).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -139,7 +186,9 @@ const publicSettings = st => Object.fromEntries(
 function buildMenu() {
   const groups = [];
   SHEET_MENU.forEach((r, i) => {
-    if (String(r.表示).trim() === '×') return;
+    if (!String(r.メニュー名 || '').trim() || !isShown(r.表示)) return;
+    const minutes = parseBookableMinutes(r['所要(分)']);
+    if (minutes === null) return;
     /* 区分が空でも、本物と同じ既定名でまとめます。
        ここを本番より緩くすると、本番では起きない不具合を試験で作れてしまいます。 */
     const catName = String(r.区分 || 'メニュー').trim();
@@ -147,7 +196,7 @@ function buildMenu() {
     if (!g) { g = { id: 'cat' + groups.length, name: catName, items: [] }; groups.push(g); }
     const p = parsePrice(r.価格);
     g.items.push({ id: 'sm' + i, name: r.メニュー名, price: p.value, priceFrom: p.from,
-      minutes: r['所要(分)'], note: r.説明, image: String(r.画像 || '') });
+      minutes, note: r.説明, image: String(r.画像 || '') });
   });
   return groups.length ? groups : null;
 }
@@ -170,12 +219,16 @@ function buildStyles() {
 }
 
 function buildCoupons() {
-  const out = SHEET_COUPON.filter(r => String(r.表示).trim() !== '×').map((r, i) => {
+  const out = [];
+  SHEET_COUPON.forEach((r, i) => {
+    if (!String(r.メニュー名 || '').trim() || !isShown(r.表示)) return;
+    const minutes = parseBookableMinutes(r['所要(分)']);
+    if (minutes === null) return;
     const p = parsePrice(r.価格);
-    return { id: 'sc' + i, badge: String(r.対象 || '全員').trim(), title: r.メニュー名, detail: r.説明,
+    out.push({ id: 'sc' + i, badge: String(r.対象 || '全員').trim(), title: r.メニュー名, detail: r.説明,
       tags: String(r.タグ || '').split(/[,、・\s]+/).filter(Boolean),
       price: p.value, priceFrom: p.from, listPrice: Number(r.通常価格) || null,
-      minutes: r['所要(分)'], terms: r.条件, image: String(r.画像 || '') };
+      minutes, terms: r.条件, image: String(r.画像 || '') });
   });
   return out.length ? out : null;
 }
@@ -191,7 +244,84 @@ function hitsClosed(dateKey, time, minutes) {
   });
 }
 
-http.createServer((req, res) => {
+function validDateKey(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return false;
+  const date = new Date(value + 'T12:00:00+09:00');
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function changeTarget(reservation, data, asAdmin) {
+  const start = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(data.time))
+    ? Number(data.time.slice(0, 2)) * 60 + Number(data.time.slice(3)) : NaN;
+  if (!validDateKey(data.date) || !Number.isFinite(start)) {
+    return { ok: false, error: '日時が正しくありません。' };
+  }
+  const now = new Date();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const ahead = Math.round((Date.parse(data.date + 'T12:00:00Z') - Date.parse(today + 'T12:00:00Z')) / 86400000);
+  if (ahead < 0) return { ok: false, error: 'すでに過ぎた日付には変更できません。' };
+  if (ahead > 60) return { ok: false, error: 'ご予約は60日先まで承っております。' };
+  const currentMinute = (now.getUTCHours() * 60 + now.getUTCMinutes() + 9 * 60) % PHONE_MINUTES_PER_DAY;
+  if (asAdmin && ahead === 0 && start < currentMinute) {
+    return { ok: false, error: 'すでに過ぎた時刻には変更できません。' };
+  }
+  if (!asAdmin && ahead * PHONE_MINUTES_PER_DAY + start - currentMinute < 2 * 60 - 15) {
+    return { ok: false, error: '当日のご予約は2時間前までとなっております。お手数ですが店舗までお電話ください。' };
+  }
+  const minutes = Number(reservation.totalMinutes);
+  if (!Number.isInteger(minutes) || minutes < 15 || minutes > 480) {
+    return { ok: false, error: '所要時間が正しくありません。' };
+  }
+  const toMinute = time => Number(String(time).slice(0, 2)) * 60 + Number(String(time).slice(3, 5));
+  const open = toMinute(SHEET_SETTINGS['営業開始'] || '09:00');
+  const close = toMinute(SHEET_SETTINGS['営業終了'] || '22:00');
+  const last = toMinute(SHEET_SETTINGS['最終受付'] || '21:00');
+  if (start < open || start > Math.min(last, close) || start + minutes > close) {
+    return { ok: false, error: '営業時間外のご予約は承れません。' };
+  }
+  const weekday = ['日', '月', '火', '水', '木', '金', '土'][new Date(data.date + 'T12:00:00Z').getUTCDay()];
+  if (String(SHEET_SETTINGS['定休曜日'] || '').split(/[,、・\s]+/).some(value => value.replace(/曜日?$/, '') === weekday)) {
+    return { ok: false, error: 'その日は定休日のため、ご予約を承れません。' };
+  }
+  if (hitsClosed(data.date, data.time, minutes)) {
+    return { ok: false, error: 'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' };
+  }
+  if (LEDGER.some(row => !row.cancelled && !sameCode(row.code, data.code) && row.date === data.date
+      && start < toMinute(row.endTime) && toMinute(row.time) < start + minutes)) {
+    return { ok: false, error: 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' };
+  }
+  return { ok: true, start, minutes };
+}
+
+return (req, res) => {
+  if (apiOnly && (req.url !== '/exec' || req.method !== 'POST')) { res.writeHead(404).end(); return; }
+  if (DEMO_MODE && !apiOnly) {
+    const origin = `http://${LOCAL_HOST}:${PORT}`;
+    if (req.headers.host !== `${LOCAL_HOST}:${PORT}` || (req.headers.origin && req.headers.origin !== origin)) {
+      res.writeHead(403).end(); return;
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'");
+    if (req.url === '/demo-ui.js') {
+      res.writeHead(200, { 'Content-Type': types['.js'] });
+      res.end(readFileSync(join(ROOT, 'tools/demo-ui.js'))); return;
+    }
+    if (req.url.startsWith('/exec') && req.method !== 'POST') { res.writeHead(405).end(); return; }
+  }
+  if (!apiOnly && req.url.split('?')[0] !== '/exec' && !req.url.startsWith('/mock-image.svg')) {
+    try {
+      const path = decodeURIComponent(req.url.split('?')[0]).replace(/^\//, '') || 'index.html';
+      const asset = path.startsWith('assets/') && !path.split('/').some(part => part.startsWith('.'));
+      const pages = DEMO_MODE ? DEMO_PAGES : SITE_PAGES;
+      if ((!pages.has(path) && !asset) || !['GET', 'HEAD'].includes(req.method)) {
+        res.writeHead(404).end(); return;
+      }
+      const file = realpathSync(resolve(ROOT, path));
+      if (!file.startsWith(resolve(ROOT) + sep) || (asset && !file.startsWith(resolve(ROOT, 'assets') + sep)) || !statSync(file).isFile()) {
+        res.writeHead(404).end(); return;
+      }
+    } catch (error) { res.writeHead(404).end(); return; }
+  }
   if (req.url.startsWith('/mock-image.svg')) {
     res.writeHead(200, { 'Content-Type':'image/svg+xml', 'Access-Control-Allow-Origin':'*' });
     res.end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#7B2B22"/></svg>');
@@ -202,7 +332,13 @@ http.createServer((req, res) => {
     let body = '';
     req.on('data', c => body += c);
     req.on('end', () => {
-      const d = JSON.parse(body);
+      let d;
+      try { d = JSON.parse(body); } catch (error) { res.writeHead(400).end(); return; }
+      if (!d || typeof d !== 'object' || Array.isArray(d)
+          || (d.type !== undefined && typeof d.type !== 'string')) { res.writeHead(400).end(); return; }
+      if (DEMO_MODE && ['slowmode', 'failmode', 'htmlmode'].includes(d.type)) {
+        res.writeHead(400).end(); return;
+      }
       if (d.type === 'slowmode') { SLOW.ms = Number(d.ms) || 0; const t = SLOW.ms; SLOW.ms = 0; const r = { ok: true, ms: t }; reply(res, r); SLOW.ms = t; return; }
 
       /* テスト用：台帳を空に戻す。
@@ -224,6 +360,7 @@ http.createServer((req, res) => {
            2か所に書いていたころは、片方に項目を足すともう片方が古いままになり、
            reset のあとだけ設定が欠ける、という追いにくい壊れ方をしました。 */
         SHEET_SETTINGS = JSON.parse(JSON.stringify(INITIAL.settings));
+        if (DEMO_MODE) LEDGER.push(...demoReservations());
         return reply(res, { ok: true });
       }
 
@@ -259,7 +396,7 @@ http.createServer((req, res) => {
 
       // ---- 管理ページ ----
       if (d.type && d.type.startsWith('admin')) {
-        const authed = d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        const authed = DEMO_MODE || d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
         if (!authed) return reply(res, { ok:false, error:'パスワードが違います。' });
         if (d.type === 'adminLogin') {
           if (!d.remember) return reply(res, { ok:true });
@@ -269,10 +406,21 @@ http.createServer((req, res) => {
         }
         if (d.type === 'adminAdd') {
           const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
-          const mins = Number(d.minutes) || 60;
+          const mins = d.minutes == null || d.minutes === '' ? 60 : Number(d.minutes);
           if (!d.date || !d.time) return reply(res, { ok:false, error:'来店日と開始時刻をご確認ください。' });
           if (!String(d.name||'').trim()) return reply(res, { ok:false, error:'お名前をご入力ください。' });
           const start = toMin(d.time), end = start + mins;
+          const date = new Date(d.date + 'T12:00:00+09:00');
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== d.date
+              || !/^([01]\d|2[0-3]):[0-5]\d$/.test(d.time) || !Number.isInteger(mins) || mins < 15 || mins > 480
+              || end >= PHONE_MINUTES_PER_DAY || !Number.isFinite(Number(d.price || 0)) || Number(d.price || 0) < 0 || Number(d.price || 0) > 1000000) {
+            return reply(res, { ok: false, error: '日時・所要時間・金額をご確認ください。' });
+          }
+          if (d.requestId && !PHONE_REQUEST_ID_PATTERN.test(d.requestId)) return reply(res, { ok: false, error: '受付IDが正しくありません。' });
+          const content = phoneContent(d);
+          const previous = d.requestId && LEDGER.find(row => row.phoneRequestId === d.requestId);
+          if (previous) return reply(res, previous.phoneContent === content ? phoneResult(previous, true)
+            : { ok: false, requestConflict: true, error: 'この受付は別の内容で登録済みです。登録結果を確認してください。' });
           if (!d.force) {
             const taken = LEDGER.some(x => !x.cancelled && x.date === d.date
               && start < toMin(x.endTime) && toMin(x.time) < end);
@@ -291,8 +439,14 @@ http.createServer((req, res) => {
             totalPrice:Number(d.price)||0,
             customer:{ name:d.name, tel:d.tel||'', email:'', visit:'電話・来店', request:d.memo||'' },
             /* 電話・来店で受けた分は、サイト経由と混ぜません（本物と同じ） */
-            source:'電話・来店', cancelled:false });
-          return reply(res, { ok:true, code, endTime });
+            source:'電話・来店', cancelled:false, phoneRequestId: d.requestId || '', phoneContent: content });
+          return reply(res, phoneResult(LEDGER[LEDGER.length - 1], false));
+        }
+        if (d.type === 'adminAddStatus') {
+          if (!PHONE_REQUEST_ID_PATTERN.test(String(d.requestId || ''))) return reply(res, { ok: false, error: '受付IDが正しくありません。' });
+          const reservation = LEDGER.find(row => row.phoneRequestId === d.requestId);
+          return reply(res, reservation ? { ...phoneResult(reservation, true), found: true }
+            : { ok: true, requestId: d.requestId, found: false });
         }
         /* 施術メモ（次回への申し送り）。店だけが書き、店だけが読みます。
            本番と同じで、長さを切り詰め、数式に見える文字列は文字として扱います。 */
@@ -303,6 +457,25 @@ http.createServer((req, res) => {
           if (/^[=+\-@]/.test(note)) note = "'" + note;
           r.note = note;
           return reply(res, { ok:true, code:r.code, note: /^'[=+\-@]/.test(note) ? note.slice(1) : note });
+        }
+        if (d.type === 'adminChange') {
+          const reservation = LEDGER.find(row => sameCode(row.code, d.code));
+          if (!reservation) return reply(res, { ok: false, error: '該当する予約が見つかりません。最新の予定を読み込んでください。' });
+          if (!d.fromDate || !d.fromTime) return reply(res, { ok: false, error: '変更前の日時が必要です。最新の予定を読み込んでください。' });
+          if (reservation.date !== d.fromDate || reservation.time !== d.fromTime) {
+            return reply(res, { ok: false, stale: true, error: '別の画面で予約日時が変わりました。最新の予定を確認してください。' });
+          }
+          if (reservation.cancelled) return reply(res, { ok: false, error: 'キャンセル済みのご予約は変更できません。' });
+          const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+          if (reservation.date < today) return reply(res, { ok: false, error: '過ぎたご予約の日時は変更できません。' });
+          if (reservation.date === d.date && reservation.time === d.time) return reply(res, { ok: false, error: '変更前と同じ日時です。' });
+          const target = changeTarget(reservation, d, true);
+          if (!target.ok) return reply(res, target);
+          reservation.changedFrom = { date: reservation.date, time: reservation.time };
+          reservation.date = d.date;
+          reservation.time = d.time;
+          reservation.endTime = `${String(Math.floor((target.start + target.minutes) / 60)).padStart(2, '0')}:${String((target.start + target.minutes) % 60).padStart(2, '0')}`;
+          return reply(res, { ok: true, reservation: adminReservation(reservation) });
         }
         if (d.type === 'adminUpload') {
           const raw = String(d.dataBase64 || '');
@@ -321,14 +494,8 @@ http.createServer((req, res) => {
         };
         const allStamps = () => Object.fromEntries(
           ['menus','coupons','styles','reviews','closed','settings'].map(t => [t, stampOf(t)]));
-        if (d.type === 'adminData') return reply(res, { ok:true, stamps: allStamps(),
-          reservations: LEDGER.map(r=>({ code:r.code, date:r.date, time:r.time, endTime:r.endTime,
-            menu:(r.menus||[]).map(m=>m.name).join(' / '), staffName:r.staffName, price:r.totalPrice,
-            name:r.customer?.name||'', tel:r.customer?.tel||'', email:r.customer?.email||'',
-            visit:r.customer?.visit||'', request:r.customer?.request||'',
-            note: (n => /^'[=+\-@]/.test(n) ? n.slice(1) : n)(String(r.note||'')),
-            source: r.source || '',
-            status: r.cancelled ? 'キャンセル' : '予約確定' })),
+        if (d.type === 'adminData') return reply(res, { ok:true, stamps: allStamps(), capabilities: { phoneRequestIds: true, adminChange: true },
+          reservations: LEDGER.map(adminReservation),
           menus: SHEET_MENU, coupons: SHEET_COUPON, styles: SHEET_STYLE, reviews: SHEET_REVIEW,
           closedDates: SHEET_CLOSED.map(c=> typeof c==='string' ? { '休業日': c, '開始':'', '終了':'', 'メモ':'' } : { '休業日': c.date, '開始': c.start, '終了': c.end, 'メモ':'' }),
           settings: SHEET_SETTINGS });
@@ -337,6 +504,16 @@ http.createServer((req, res) => {
           if (d.stamp !== stampOf(d.target)) {
             return reply(res, { ok:false, stale:true,
               error:'この内容は、別の端末から変更されています。いったん読み込み直してください。' });
+          }
+          if (d.target === 'menus' || d.target === 'coupons') {
+            const invalidIndex = (d.rows || []).findIndex(row => row
+              && String(row['メニュー名'] || '').trim() && isShown(row.表示)
+              && parseBookableMinutes(row['所要(分)']) === null);
+            if (invalidIndex >= 0) {
+              return reply(res, { ok:false, invalidDuration:true, invalidRow:invalidIndex,
+                error:'予約に出すメニューの' + (invalidIndex + 1)
+                  + '件目の所要時間をご確認ください。15〜480分の整数を入力するか、表示を外してください。' });
+            }
           }
           if (d.target === 'closed') { SHEET_CLOSED.length = 0; (d.rows||[]).forEach(r=>{
             if (!r['休業日']) return;
@@ -393,7 +570,7 @@ http.createServer((req, res) => {
         const body = String(d.body||'').trim();
         if (!body) return reply(res, { ok:false, error:'ご感想をご入力ください。' });
         const r = LEDGER.find(x => sameCode(x.code, d.code));
-        if (!r || digits(r.customer?.tel) !== digits(d.tel)) {
+        if (!r || !digits(d.tel) || digits(r.customer?.tel) !== digits(d.tel)) {
           return reply(res, { ok:false, error:'ご予約が確認できませんでした。' });
         }
         if (r.cancelled) return reply(res, { ok:false, error:'キャンセルされたご予約には投稿いただけません。' });
@@ -412,32 +589,34 @@ http.createServer((req, res) => {
       if (d.type === 'change') {
         const r = LEDGER.find(x => sameCode(x.code, d.code));
         if (!r) return reply(res, { ok:false, error:'該当する予約が見つかりません' });
-        if (d.tel && digits(r.customer?.tel) !== digits(d.tel)) {
+        const asAdmin = d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        if (!asAdmin && (!digits(d.tel) || digits(r.customer?.tel) !== digits(d.tel))) {
           return reply(res, { ok:false, error:'ご予約が確認できませんでした。' });
         }
         if (r.cancelled) return reply(res, { ok:false, error:'キャンセル済みのご予約は変更できません。' });
-        if (!withinDeadline(r.date)) return reply(res, { ok:false, deadline:true, error:deadlineMsg() });
-        // 同じ担当の同じ時間に別の予約がないか
-        const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
-        const start = toMin(d.time), end = start + (Number(d.minutes)||30);
-        const taken = LEDGER.some(x => !x.cancelled && !sameCode(x.code, d.code)
-          && x.date === d.date   /* 席は1つ：担当が誰でも、重なれば埋まっている */
-          && start < toMin(x.endTime) && toMin(x.time) < end);
-        if (taken) return reply(res, { ok:false, error:'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' });
-        if (hitsClosed(d.date, d.time, d.minutes)) {
-          return reply(res, { ok:false,
-            error:'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' });
+        if (!asAdmin && !withinDeadline(r.date)) return reply(res, { ok:false, deadline:true, error:deadlineMsg() });
+        const target = changeTarget(r, d, asAdmin);
+        if (!target.ok) return reply(res, target);
+        const hasPrevious = d.fromDate !== undefined || d.fromTime !== undefined;
+        if (hasPrevious && (!d.fromDate || !d.fromTime)) {
+          return reply(res, { ok: false, error: '変更前の日時が必要です。予約確認画面を開き直してください。' });
+        }
+        if (r.date === d.date && r.time === d.time) return reply(res, { ok:true, unchanged:true });
+        if (hasPrevious && (r.date !== d.fromDate || r.time !== d.fromTime)) {
+          return reply(res, { ok: false, stale: true,
+            error: '別の画面で予約日時が変わりました。予約確認画面を開き直して最新の予定を確認してください。' });
         }
 
         r.changedFrom = { date: r.date, time: r.time };
-        r.date = d.date; r.time = d.time; r.endTime = d.endTime;
-        r.totalMinutes = Number(d.minutes) || r.totalMinutes;
+        r.date = d.date;
+        r.time = d.time;
+        r.endTime = `${String(Math.floor((target.start + target.minutes) / 60)).padStart(2, '0')}:${String((target.start + target.minutes) % 60).padStart(2, '0')}`;
         return reply(res, { ok:true });
       }
 
       if (d.type === 'lookup') {
         const r = LEDGER.find(x => sameCode(x.code, d.code));
-        if (!r || digits(r.customer?.tel) !== digits(d.tel)) {
+        if (!r || !digits(d.tel) || digits(r.customer?.tel) !== digits(d.tel)) {
           return reply(res, { ok: false, error: 'ご予約が見つかりませんでした。' });
         }
         return reply(res, {
@@ -457,14 +636,88 @@ http.createServer((req, res) => {
         if (!t) return reply(res, { ok: false, error: 'not found' });
         /* 電話番号は必ず確認する（本物と同じ。省略できると他人がキャンセルできる）。
            ただし店（管理ページ）からは、パスワードで通す。 */
-        const asAdmin = d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        const asAdmin = DEMO_MODE || d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
         if (!asAdmin && (!digits(d.tel) || digits(t.customer?.tel) !== digits(d.tel))) {
           return reply(res, { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' });
         }
         if (t.cancelled) return reply(res, { ok:true, alreadyCancelled:true });
-        if (!withinDeadline(t.date)) return reply(res, { ok:false, deadline:true, error:deadlineMsg() });
+        if (!asAdmin && !withinDeadline(t.date)) return reply(res, { ok:false, deadline:true, error:deadlineMsg() });
         t.cancelled = true;
         return reply(res, { ok: true });
+      }
+
+      if (typeof d.code !== 'string' || !/^[A-Za-z0-9-]{1,20}$/.test(d.code)
+          || !sameCode(d.code, d.code)) d.code = issueCode();
+      {
+        const dup = LEDGER.find(r => sameCode(r.code, d.code));
+        if (dup) {
+          const tel = digits(d.customer?.tel);
+          const sameCustomer = /^0\d{9,10}$/.test(tel)
+            && digits(dup.customer?.tel) === tel;
+          const menuText = reservation => (Array.isArray(reservation.menus) ? reservation.menus : [])
+            .map(menu => menu && menu.name).filter(Boolean).join(' / ') || String(reservation.menuText || '').trim();
+          if (sameCustomer && dup.cancelled) return reply(res, { ok: false, cancelled: true,
+            error: 'この予約番号はキャンセル済みです。予約確認ページで現在の内容を確認してください。' });
+          const sameContent = dup.date === d.date && dup.time === d.time
+            && Number(dup.totalMinutes) === Number(d.totalMinutes)
+            && menuText(dup) === menuText(d)
+            && Number(dup.nominationFee || 0) === Number(d.nominationFee || 0)
+            && Number(dup.totalPrice || 0) === Number(d.totalPrice || 0)
+            && String(dup.customer?.name || '').trim() === String(d.customer?.name || '').trim()
+            && String(dup.customer?.kana || '').trim() === String(d.customer?.kana || '').trim()
+            && String(dup.customer?.email || '').trim() === String(d.customer?.email || '').trim()
+            && String(dup.customer?.visit || '').trim() === String(d.customer?.visit || '').trim()
+            && String(dup.customer?.request || '').trim() === String(d.customer?.request || '').trim()
+            && String(dup.staffName || '').trim() === String(d.staffName || '').trim()
+            && String(dup.staffId || '').trim() === String(d.staffId || '').trim()
+            && sourceLabel(dup.source) === sourceLabel(d.source);
+          if (sameCustomer && sameContent) return reply(res, { ok: true, code: d.code, duplicate: true });
+          if (sameCustomer) return reply(res, { ok: false, conflict: true,
+            error: '同じ予約番号の内容が台帳と一致しません。予約確認ページで現在の内容を確認してください。' });
+          d.code = issueCode();
+        }
+      }
+
+      if (Array.isArray(d.menus) && d.menus.some(menu => menu && Object.hasOwn(menu, 'id'))) {
+        const available = (buildMenu() || []).flatMap(group => group.items)
+          .concat((buildCoupons() || []).map(coupon => ({ ...coupon, name: coupon.title, isCoupon: true })));
+        const chosen = [];
+        const seen = new Set();
+        for (const input of d.menus) {
+          const item = input && available.find(candidate => candidate.id === input.id);
+          if (!item || seen.has(item.id) || input.name !== item.name
+              || Number(input.price) !== Number(item.price || 0)
+              || Number(input.minutes) !== Number(item.minutes)
+              || !!input.priceFrom !== !!item.priceFrom) {
+            return reply(res, { ok:false, catalogChanged:true,
+              error:'メニュー・料金・所要時間を確認できません。ページを再読み込みしてメニューを選び直してください。' });
+          }
+          seen.add(item.id);
+          chosen.push(item);
+        }
+        if (chosen.filter(item => item.isCoupon).length > 1
+            || Number(d.totalPrice) !== chosen.reduce((sum, item) => sum + Number(item.price || 0), 0)
+            || Number(d.totalMinutes) !== chosen.reduce((sum, item) => sum + item.minutes, 0)
+            || Number(d.nominationFee || 0) !== 0
+            || (d.staffId && d.staffId !== 'st01')) {
+          return reply(res, { ok:false, catalogChanged:true,
+            error:'メニュー・料金・所要時間を確認できません。ページを再読み込みしてメニューを選び直してください。' });
+        }
+      }
+
+      if (!validDateKey(d.date)) return reply(res, { ok: false, invalid: true, error: '来店日が正しくありません。' });
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(new Date());
+      const ahead = Math.round((Date.parse(d.date + 'T12:00:00Z') - Date.parse(today + 'T12:00:00Z')) / 86400000);
+      if (ahead < 0) return reply(res, { ok: false, invalid: true, error: 'すでに過ぎた日付です。' });
+      if (ahead > 60) return reply(res, { ok: false, invalid: true, error: 'ご予約は60日先まで承っております。' });
+      const reservationMinutes = Number(d.totalMinutes);
+      if (!Number.isInteger(reservationMinutes) || reservationMinutes < 15 || reservationMinutes > 480) {
+        return reply(res, { ok: false, invalid: true, error: '所要時間が正しくありません。' });
+      }
+      if (!/^0\d{9,10}$/.test(digits(d.customer?.tel))) {
+        return reply(res, { ok: false, invalid: true, error: '電話番号をご確認ください。' });
       }
 
       /* 営業時間の外（画面を通さず送られてきた場合の砦）。
@@ -477,8 +730,8 @@ http.createServer((req, res) => {
         const close = toMin(SHEET_SETTINGS['営業終了']) ?? toMin('22:00');
         const last = Math.min(toMin(SHEET_SETTINGS['最終受付']) ?? close, close);
         const start = toMin(d.time);
-        if (start === null || start < open || start > last || start + (Number(d.totalMinutes) || 30) > close) {
-          return reply(res, { ok:false, error:'営業時間外のご予約は承れません。' });
+        if (start === null || start < open || start > last || start + reservationMinutes > close) {
+          return reply(res, { ok:false, scheduleChanged:true, error:'営業時間外のご予約は承れません。' });
         }
         /* 直前すぎる予約（本物と同じ2時間前まで、時計のずれ15分ぶんの余裕つき）。
            店が電話で受けた予約（adminAdd）はここを通りません。
@@ -489,7 +742,7 @@ http.createServer((req, res) => {
         const until = (Date.UTC(q0[0], q0[1] - 1, q0[2]) / 864e5 - today0) * 1440
           + start - (jst.getUTCHours() * 60 + jst.getUTCMinutes());
         if (until < 2 * 60 - 15) {
-          return reply(res, { ok:false,
+          return reply(res, { ok:false, invalid:true,
             error:'当日のご予約は2時間前までとなっております。お手数ですが店舗までお電話ください。' });
         }
         // 定休曜日（本物と同じ読み方）
@@ -498,43 +751,31 @@ http.createServer((req, res) => {
           .filter(i => i >= 0);
         const q = String(d.date).split('-').map(Number);
         if (days.length && q[0] && days.includes(new Date(Date.UTC(q[0], q[1]-1, q[2], 12)).getUTCDay())) {
-          return reply(res, { ok:false, error:'その日は定休日のため、ご予約を承れません。' });
+          return reply(res, { ok:false, scheduleChanged:true, error:'その日は定休日のため、ご予約を承れません。' });
         }
       }
 
       // 休業日・受けない時間帯（画面を通さず送られてきた場合の砦）
-      if (hitsClosed(d.date, d.time, d.totalMinutes)) {
-        return reply(res, { ok:false,
+      if (hitsClosed(d.date, d.time, reservationMinutes)) {
+        return reply(res, { ok:false, closed:true,
           error:'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' });
       }
 
-      // 本物と同じ枠の最終確認（同時に押された場合は片方を弾く）
       {
         const toMin = t => { const m=String(t||'').match(/^(\d{1,2}):(\d{2})/); return m?+m[1]*60+ +m[2]:0; };
-        const start = toMin(d.time), end = start + (Number(d.totalMinutes)||30);
+        const start = toMin(d.time), end = start + reservationMinutes;
         const taken = LEDGER.some(x => !x.cancelled && !sameCode(x.code, d.code)
-          && x.date === d.date   /* 席は1つ：担当が誰でも、重なれば埋まっている */
+          && x.date === d.date
           && start < toMin(x.endTime) && toMin(x.time) < end);
         if (taken) return reply(res, { ok:false, taken:true,
           error:'ご希望の時間は、ちょうど他のお客様のご予約が入りました。別の日時をお選びください。' });
       }
-
-      // 本物と同じ重複・衝突の扱い
-      {
-        const dup = LEDGER.find(r => sameCode(r.code, d.code));
-        if (dup) {
-          const same = digits(dup.customer?.tel) === digits(d.customer?.tel)
-            && dup.date === d.date && dup.time === d.time;
-          if (same) return reply(res, { ok: true, code: d.code, duplicate: true });
-          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-          let c2;
-          do { c2 = 'LM-' + Array.from({length:5}, () => chars[Math.floor(Math.random()*chars.length)]).join(''); }
-          while (LEDGER.some(r => r.code === c2));
-          d.code = c2;
-        }
-      }
       /* 予約の入口も、本物と同じで一覧にある言葉だけ受け取ります */
-      LEDGER.push({ ...d, source: sourceLabel(d.source), cancelled: false });
+      const startParts = String(d.time).match(/^(\d{1,2}):(\d{2})/);
+      const endMinute = Number(startParts[1]) * 60 + Number(startParts[2]) + reservationMinutes;
+      const endTime = `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`;
+      LEDGER.push({ ...d, endTime, totalMinutes: reservationMinutes,
+        source: sourceLabel(d.source), cancelled: false });
       return reply(res, { ok: true, code: d.code });
     });
     return;
@@ -556,5 +797,16 @@ http.createServer((req, res) => {
       .replace(/reservationEndpoint: '[^']*'/, `reservationEndpoint: 'http://127.0.0.1:${PORT}/exec'`));
     return;
   }
+  if (DEMO_MODE && p.endsWith('.html')) {
+    res.end(demoHtml(readFileSync(p, 'utf8'))); return;
+  }
   res.end(readFileSync(p));
-}).listen(PORT, () => console.log('テスト用サーバー起動: http://127.0.0.1:' + PORT));
+};
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const port = Number(process.env.PORT || 8820);
+  const demoMode = process.argv.includes('--demo');
+  http.createServer(createMockHandler({ port, demoMode })).listen(port, LOCAL_HOST,
+    () => console.log(`${demoMode ? '架空データのデモ' : 'テスト用サーバー'}起動: http://${LOCAL_HOST}:${port}`));
+}

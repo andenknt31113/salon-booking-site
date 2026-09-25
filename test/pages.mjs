@@ -1,7 +1,7 @@
 /* 一覧系ページの試験
    お客様が最初に見る5ページ（サロンTOP / スタイル / スタッフ / メニュー / 口コミ）が、
-   写真がまだ1枚も無い状態でも、口コミが0件でも、店がシートを書き換えたあとでも
-   「ちゃんとした店だ」と思える見え方になっているかを確かめる。
+   写真を読めない状態・Google口コミへの案内・公開データの更新後でも
+   誤案内や表示崩れが起きないことを確かめる。
 
    1項目 = 1つの「これが崩れているとお客様が誤解する／読めない」 */
 /* Playwright の場所。
@@ -29,9 +29,7 @@ function check(g, label, actual, expected) {
 async function newPhone(label, opt = {}) {
   const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
-  /* 写真がまだ1枚も無い状態（いまの実態）を、確実に作るための細工。
-     assets/*.jpg は置かれていないので普段も出ませんが、
-     シートに写真を登録したあとでも「読めなかったとき」を再現できるようにしておく。 */
+  /* 画像が読めなかった状態を再現する。 */
   if (opt.noPhoto) await ctx.route(/\.(jpg|jpeg|png|webp|svg)(\?|$)/i, r => r.abort());
   /* いちばん明るい写真が入ったときを作る。
      店主は管理ページから写真を差し替えます。いま入っている1枚（暗い店内）に
@@ -40,14 +38,21 @@ async function newPhone(label, opt = {}) {
     status: 200, contentType: 'image/svg+xml',
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000">'
       + '<rect width="1200" height="1000" fill="#ffffff"/></svg>' }));
-  /* Apps Script を入れる前（いまの公開状態）。受信先が空の data.js に戻す。 */
-  if (opt.noEndpoint) {
+  /* 受け口を使わない場合と、公開用の静的データを差し替えた場合を再現する。 */
+  if (opt.noEndpoint || opt.publishedData) {
     await ctx.route('**/assets/js/data.js', async r => {
       const res = await r.fetch();
-      const body = (await res.text()).replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
+      const source = await res.text();
+      const body = (opt.noEndpoint
+        ? source.replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''") : source)
+        + (opt.publishedData ? `\nObject.assign(SALON, ${JSON.stringify(opt.publishedData)});\n` : '');
       await r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
     });
   }
+  if (opt.publishedMenus) await ctx.route('**/assets/js/published-menus.js', r => r.fulfill({
+    status: 200, contentType: 'text/javascript; charset=utf-8',
+    body: `const PUBLISHED_MENUS = ${JSON.stringify(opt.publishedMenus)};\n`
+  }));
   const p = await ctx.newPage();
   p.on('pageerror', e => jsErrors.push(`[${label}] ${e.message}`));
   return p;
@@ -72,9 +77,9 @@ await post({ type: 'reset' }).catch(() => {});
 }
 
 /* ============================================================
-   【1】写真がまだ1枚も無い状態で、5ページが見苦しくないか
+   【1】写真を読めない状態で、5ページが見苦しくないか
    ============================================================ */
-console.log('\n【1】写真がまだ1枚も無い状態（いまの実態）');
+console.log('\n【1】写真を読めない状態');
 {
   const p = await newPhone('1', { noPhoto: true });
   for (const page of ['index.html', 'gallery.html', 'staff.html', 'menu.html', 'reviews.html']) {
@@ -115,52 +120,41 @@ console.log('\n【1】写真がまだ1枚も無い状態（いまの実態）');
 /* ============================================================
    【2】口コミが0件のとき（架空の口コミ・評価は絶対に作らない）
    ============================================================ */
-console.log('\n【2】口コミが0件のとき');
+console.log('\n【2】Google口コミへの案内と自社掲載の禁止');
 {
-  // Apps Script を入れる前。投稿フォーム自体を出していない状態
   const p = await newPhone('2', { noEndpoint: true });
   await p.goto(B + '/reviews.html'); await p.waitForTimeout(1500);
-  const formShown = await p.locator('#review-form').isVisible();
-  const emptyText = (await p.locator('#review-list').innerText()).replace(/\n/g, ' ');
-  check('2', '受信先が無いあいだは投稿フォームを出していない', formShown, false);
-  /* フォームを出していないのに「下のフォームから」と書くと、
-     お客様は無いものを探すことになる。 */
-  check('2', 'フォームが無いときに「下のフォーム」と案内していない', /下のフォーム/.test(emptyText), false);
-  check('2', '口コミが0件だと伝えている', /まだ届いていません/.test(emptyText), true);
-  check('2', '評価の数字を出していない', /\d\.\d/.test(emptyText), false);
+  const guide = await p.locator('#google-review').innerText();
+  check('2', 'Googleの店舗ページへの入口がある',
+    await p.locator('#google-review a[href^="https://www.google.com/maps/search/"]').count(), 1);
+  check('2', '未確認の直接投稿URLをボタンにしない',
+    await p.locator('#google-review a:has-text("Googleに口コミを書く")').count(), 0);
+  check('2', '自社で口コミを収集・掲載しないと伝える', /このサイトでは口コミを収集・掲載しません/.test(guide), true);
+  check('2', '自社の投稿フォームを出さない', await p.locator('#review-form').count(), 0);
+  check('2', '自社の口コミ一覧を出さない', await p.locator('#review-list').count(), 0);
+  check('2', '評価の数字を作らない', /\d\.\d/.test(guide), false);
 
   await p.goto(B + '/index.html'); await p.waitForTimeout(1500);
-  const home = (await p.locator('#home-reviews').innerText()).replace(/\n/g, ' ');
-  check('2', 'トップも同じく0件と伝えている', /まだ届いていません/.test(home), true);
-  /* アンケートは送っていない。「お送りするアンケート」と書くと、
-     届かないものを待たれて、いつまでもご感想をいただけない。 */
-  check('2', '送っていないアンケートを案内していない', /アンケート/.test(home), false);
-  check('2', '評価（星・数値）を出していない',
-    await p.evaluate(() => !document.querySelector('.hero-rating').hidden), false);
-  check('2', '架空の口コミを1件も出していない', await p.locator('#home-reviews .review').count(), 0);
-
-  await p.goto(B + '/reviews.html'); await p.waitForTimeout(1200);
-  check('2', '口コミページの説明文もアンケートに触れていない',
-    /アンケート/.test(await p.locator('.page-head').innerText()), false);
+  const home = await p.locator('#home-reviews').innerText();
+  check('2', 'トップもGoogleへの案内にする', /Google/.test(home), true);
+  check('2', '送っていないアンケートを案内しない', /アンケート/.test(home), false);
+  check('2', '不要な評価欄をHTMLに残さない', await p.locator('.hero-rating').count(), 0);
+  check('2', '架空の口コミを1件も出さない', await p.locator('#home-reviews .review').count(), 0);
   await p.context().close();
 }
-
-/* Apps Script を入れたあと。書ける場所があるなら、その場所を案内する */
 {
   const p = await newPhone('2b');
   await p.goto(B + '/reviews.html'); await p.waitForTimeout(1600);
-  check('2', '投稿できるときは口コミページで「下のフォーム」と案内する',
-    /下のフォーム/.test(await p.locator('#review-list').innerText()), true);
-  await p.goto(B + '/index.html'); await p.waitForTimeout(1600);
-  check('2', 'トップでは書ける場所（口コミページ）へ案内する',
-    /口コミページのフォーム/.test(await p.locator('#home-reviews').innerText()), true);
+  check('2', '受け口を設定しても自社投稿フォームを復活させない', await p.locator('#review-form').count(), 0);
+  check('2', '受け口の有無でGoogleへの入口を消さない',
+    await p.locator('#google-review a[href^="https://www.google.com/maps/search/"]').count(), 1);
   await p.context().close();
 }
 
 /* ============================================================
-   【3】店が口コミを掲載したら、トップの評価が出る
+   【3】旧台帳の口コミを自社サイトに掲載しない
    ============================================================ */
-console.log('\n【3】口コミが集まったとき');
+console.log('\n【3】旧台帳に口コミが残っていても自社掲載しない');
 {
   await saveSheet('reviews', [
     { 投稿日: '2026-08-10', 予約番号: 'LM-TEST1', ニックネーム: 'T.K', 年代: '30代', 性別: '',
@@ -171,21 +165,17 @@ console.log('\n【3】口コミが集まったとき');
   ]);
   const p = await newPhone('3');
   await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
-  /* 口コミはシートから届くので、最初に描いたあとに届く。
-     「無いから隠す」の片道だけだと、集まった評価が一生出ない。 */
-  check('3', '集まった評価がトップに出る',
-    await p.evaluate(() => !document.querySelector('.hero-rating').hidden), true);
-  check('3', '評価の数字が口コミから計算されている',
-    await p.locator('#hero-score').innerText(), '4.5');
-  check('3', '件数を出している', /2件/.test(await p.locator('#hero-count').innerText()), true);
-  check('3', 'トップに口コミが並ぶ', await p.locator('#home-reviews .review').count(), 2);
+  check('3', '旧台帳の評価欄をトップに出さない', await p.locator('.hero-rating').count(), 0);
+  check('3', '旧台帳の口コミをトップに並べない', await p.locator('#home-reviews .review').count(), 0);
+  check('3', '旧台帳の本文をトップに出さない',
+    /仕上がりに満足しています/.test(await p.locator('main').innerText()), false);
+  check('3', 'Googleへの案内は残る', /Google/.test(await p.locator('#home-reviews').innerText()), true);
 
   await p.goto(B + '/reviews.html'); await p.waitForTimeout(1600);
-  check('3', '口コミページにも並ぶ', await p.locator('#review-list .review').count(), 2);
-  /* 年代・担当が空の口コミで「（・）」「担当：」だけが残らないか */
-  const second = (await p.locator('#review-list .review').nth(1).innerText()).replace(/\n/g, ' ');
-  check('3', '空の項目でカッコだけが残らない', /（・|（）/.test(second), false);
-  check('3', '担当が空なら「担当：」を出さない', /担当：\s*$|担当：\s*／/.test(second), false);
+  check('3', '口コミページにも旧台帳の本文を出さない',
+    /仕上がりに満足しています/.test(await p.locator('main').innerText()), false);
+  check('3', '口コミページの投稿先はGoogleのまま',
+    await p.locator('#google-review a[href^="https://www.google.com/maps/search/"]').count(), 1);
   await p.context().close();
   await saveSheet('reviews', []);
 }
@@ -193,7 +183,7 @@ console.log('\n【3】口コミが集まったとき');
 /* ============================================================
    【4】店がメニューを入れ替えたあと、絞り込みタブが正しく動くか
    ============================================================ */
-console.log('\n【4】シート由来のメニューと絞り込みタブ');
+console.log('\n【4】シート変更は公開前に混ぜず、公開データで絞り込み');
 {
   await saveSheet('menus', [
     { 区分: 'カット', メニュー名: 'メンズカット', 価格: '4000〜', '所要(分)': 50, 説明: '', 画像: '', 表示: '○' },
@@ -203,31 +193,38 @@ console.log('\n【4】シート由来のメニューと絞り込みタブ');
   ]);
   const p = await newPhone('4');
   await p.goto(B + '/menu.html'); await p.waitForTimeout(1800);
-  const names = () => p.locator('#menu-list .menu-row-name').allInnerTexts();
-
-  check('4', 'タブがシートの区分になっている',
-    (await p.locator('#menu-tabs .tab').allInnerTexts()).join('/'), 'すべて/カット/スパ');
-  check('4', '「表示×」のメニューは出さない', (await names()).includes('旧メニュー'), false);
-
-  /* ここが抜けていると、絞り込んだ瞬間に一覧が真っ白になる。
-     押した先の処理だけが古い一覧を見にいくため、目で見て気づきにくい。 */
-  await p.locator('#menu-tabs .tab').nth(1).click(); await p.waitForTimeout(400);
-  check('4', '区分で絞り込むと、その区分だけが並ぶ',
-    (await names()).join('/'), 'メンズカット/キッズカット');
-
-  await p.locator('#menu-tabs .tab').nth(2).click(); await p.waitForTimeout(400);
-  check('4', 'もう一方の区分でも並ぶ', (await names()).join('/'), '炭酸スパ');
-
-  /* 「すべて」に戻したときに掲載中の（＝店が直す前の）料金が出ると、
-     お客様は違う金額を見て来店することになる。 */
-  await p.locator('#menu-tabs .tab').nth(0).click(); await p.waitForTimeout(400);
-  const all = await names();
-  check('4', '「すべて」に戻すとシートの内容に戻る', all.join('/'), 'メンズカット/キッズカット/炭酸スパ');
-  check('4', '古い掲載メニューが混ざらない', all.some(n => /メンテナンスカット|ラグジュアリー/.test(n)), false);
-
-  check('4', '「4000〜」が「¥4,000〜」で出る',
-    (await p.locator('#menu-list .menu-row-price').first().innerText()).trim(), '¥4,000〜');
+  check('4', 'シートだけ変えても公開済み9件を置き換えない', await p.locator('#menu-list .menu-row').count(), 9);
+  check('4', '未公開のメニューを出さない',
+    /キッズカット|炭酸スパ|旧メニュー/.test(await p.locator('#menu-list').innerText()), false);
   await p.context().close();
+
+  const publishedMenus = {
+    categories: [
+      { id: 'cat0', name: 'カット', items: [
+        { id: 'sm0', name: 'メンズカット', price: 4000, priceFrom: true, minutes: 50 },
+        { id: 'sm1', name: 'キッズカット', price: 2500, minutes: 30 }
+      ] },
+      { id: 'cat1', name: 'スパ', items: [
+        { id: 'sm2', name: '炭酸スパ', price: 3000, minutes: 30 }
+      ] }
+    ], coupons: []
+  };
+  const published = await newPhone('4公開後', { publishedMenus });
+  await published.goto(B + '/menu.html'); await published.waitForTimeout(1800);
+  const names = () => published.locator('#menu-list .menu-row-name').allInnerTexts();
+  check('4', '公開データの区分がタブになる',
+    (await published.locator('#menu-tabs .tab').allInnerTexts()).join('/'), 'すべて/カット/スパ');
+  check('4', '非公開メニューは公開データにも含めない', (await names()).includes('旧メニュー'), false);
+  await published.locator('#menu-tabs .tab').nth(1).click(); await published.waitForTimeout(400);
+  check('4', '公開後もカットだけに絞れる', (await names()).join('/'), 'メンズカット/キッズカット');
+  await published.locator('#menu-tabs .tab').nth(2).click(); await published.waitForTimeout(400);
+  check('4', '公開後もスパだけに絞れる', (await names()).join('/'), '炭酸スパ');
+  await published.locator('#menu-tabs .tab').nth(0).click(); await published.waitForTimeout(400);
+  check('4', 'すべてに戻すと公開した3件に戻る',
+    (await names()).join('/'), 'メンズカット/キッズカット/炭酸スパ');
+  check('4', '公開料金の「〜」を維持する',
+    (await published.locator('#menu-list .menu-row-price').first().innerText()).trim(), '¥4,000〜');
+  await published.context().close();
 }
 
 /* ============================================================
@@ -235,45 +232,48 @@ console.log('\n【4】シート由来のメニューと絞り込みタブ');
    ============================================================ */
 console.log('\n【5】料金の書き方');
 {
-  /* 価格を空にした行は README で「カウンセリングでお見積り」と案内している。
-     ページごとに別の言葉が出ると、値段の付け忘れのように見える。 */
   await saveSheet('menus', [
     { 区分: 'カット', メニュー名: '価格未定メニュー', 価格: '', '所要(分)': 50, 説明: '', 画像: '', 表示: '○' },
     { 区分: 'カット', メニュー名: 'メンズカット', 価格: '4000〜', '所要(分)': 50, 説明: '', 画像: '', 表示: '○' }
   ]);
   await saveSheet('coupons', [
-    { 'メニュー名': 'デザインカラー', 価格: '', 通常価格: '', '所要(分)': 180,
+    { 'メニュー名': '未公開の試験カラー', 価格: '', 通常価格: '', '所要(分)': 180,
       説明: 'カウンセリングでお見積りします', 条件: '', 対象: '全員', 画像: '', 表示: '○' },
     { 'メニュー名': '縮毛矯正コース', 価格: 22000, 通常価格: '', '所要(分)': 180,
       説明: '', 条件: '', 対象: '全員', 画像: '', 表示: '○' }
   ]);
   const p = await newPhone('5');
   await p.goto(B + '/menu.html'); await p.waitForTimeout(1800);
-  const rowPrice = (await p.locator('#menu-list .menu-row-price').first().innerText()).trim();
-  const cpPrice = (await p.locator('#coupon-list .price-now').first().innerText()).replace(/\s+/g, '');
+  check('5', '未公開の価格未定メニューを表示しない',
+    /価格未定メニュー|未公開の試験カラー/.test(await p.locator('main').innerText()), false);
+  await p.context().close();
+
+  const publishedMenus = {
+    categories: [{ id: 'cat0', name: 'カット', items: [
+      { id: 'sm0', name: '価格未定メニュー', price: null, minutes: 50 },
+      { id: 'sm1', name: 'メンズカット', price: 4000, priceFrom: true, minutes: 50 }
+    ] }],
+    coupons: [
+      { id: 'sc0', title: 'デザインカラー', price: null, listPrice: null, minutes: 180,
+        detail: 'カウンセリングでお見積りします', badge: '全員', tags: [] },
+      { id: 'sc1', title: '縮毛矯正コース', price: 22000, listPrice: null, minutes: 180,
+        detail: '', badge: '全員', tags: [] }
+    ]
+  };
+  const published = await newPhone('5公開後', { publishedMenus });
+  await published.goto(B + '/menu.html'); await published.waitForTimeout(1800);
+  const rowPrice = (await published.locator('#menu-list .menu-row-price').first().innerText()).trim();
+  const cpPrice = (await published.locator('#coupon-list .price-now').first().innerText()).replace(/\s+/g, '');
   check('5', '価格未定の単品メニューは「お見積り」', rowPrice, 'お見積り');
   check('5', '「ご相談」など別の言葉が混ざらない', /ご相談|要相談|0円|¥0/.test(rowPrice), false);
   check('5', '価格未定のおすすめメニューは「お見積り」と読める', /お見積り/.test(cpPrice), true);
   check('5', 'おすすめメニューにも「¥0」が出ない', /¥0/.test(cpPrice), false);
-
-  /* 予約ページ・予約確認ページも同じ言い方であること（担当は別だが、
-     ここがずれるとお客様は同じメニューを別物だと思う） */
-  await p.goto(B + '/reserve.html'); await p.waitForTimeout(1800);
-  const reserveText = await p.locator('#coupon-choices').innerText();
-  check('5', '予約ページでも「お見積り」で揃っている', /お見積り/.test(reserveText), true);
-  check('5', '予約ページに「ご相談」が出ない', /ご相談/.test(reserveText), false);
-
-  /* 値引きしていないのに「通常 ¥…」の取り消し線を出さない（有利誤認になる） */
-  await p.goto(B + '/menu.html'); await p.waitForTimeout(1600);
   check('5', '通常価格を入れていないのに取り消し線を出さない',
-    await p.locator('#coupon-list .price-list').count(), 0);
-
-  /* 説明・条件が空の行で「※」だけが残らないか。
-     書きかけのメニューを出しているように見える。 */
-  const card = await p.locator('#coupon-list .coupon').nth(1).innerText();
+    await published.locator('#coupon-list .price-list').count(), 0);
+  const card = await published.locator('#coupon-list .coupon').nth(1).innerText();
   check('5', '条件が空のときに「※」だけを残さない', /※\s*$|※\s*\n/.test(card + '\n'), false);
   check('5', '説明が空でも中身のある表示になっている', /縮毛矯正コース/.test(card), true);
-  await p.context().close();
+  await published.context().close();
 }
 
 /* ============================================================
@@ -306,9 +306,9 @@ console.log('\n【6】1人の店の「指名」まわり');
 }
 
 /* ============================================================
-   【7】店が管理ページから変えたことが、ちゃんと反映されるか
+   【7】管理データは公開手順を経るまで自動で変わらない
    ============================================================ */
-console.log('\n【7】管理ページからの変更の反映');
+console.log('\n【7】管理データと公開データの境界');
 {
   await saveSheet('styles', [
     { タイトル: '差し替えスタイル', 分類: 'ショート', タグ: 'ショート', 画像: '/mock-image.svg?seed=n1', 表示: '○' },
@@ -320,72 +320,70 @@ console.log('\n【7】管理ページからの変更の反映');
             'お知らせ': '8月20日は出張のためお休みします。' } });
 
   const p = await newPhone('7');
-  /* 掲載中のメイン写真（assets/hero.jpg）が置いてある状態を作る。
-     置いてあるときにだけ起きる不具合があるため、ここは読める形で返す。 */
-  await p.context().route('**/assets/hero.jpg', r => r.fulfill({ status: 200,
-    contentType: 'image/svg+xml',
-    body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#333"/></svg>' }));
-
   await p.goto(B + '/index.html'); await p.waitForTimeout(2200);
-  /* 描き直しのたびに写真を足していると、古い写真が上に重なって残り、
-     店が差し替えたつもりでも画面は変わらない。 */
-  check('7', 'メイン写真が二重に出ていない', await p.locator('.hero-photo').count(), 1);
-  /* 重なっているときは、あとに置かれたほう（＝古い写真）が上に見える。
-     店から見ると「差し替えたのに変わらない」画面になる。 */
-  check('7', '差し替えた写真のほうが出ている',
-    await p.locator('.hero-photo').last().getAttribute('src'), '/mock-image.svg?seed=hero');
-  check('7', 'お知らせを入れると帯が出る', await p.locator('#shop-notice').isVisible(), true);
-  check('7', 'お知らせの文章が出ている',
-    (await p.locator('#shop-notice-text').innerText()).trim(), '8月20日は出張のためお休みします。');
-
+  check('7', '管理シートだけで公開写真を差し替えない',
+    await p.locator('.hero-photo').first().getAttribute('src'), 'assets/shop2.jpg');
+  check('7', '管理シートだけで公開お知らせを追加しない', await p.locator('#shop-notice').isVisible(), false);
   await p.goto(B + '/gallery.html'); await p.waitForTimeout(1800);
-  check('7', '追加したスタイルが出る',
-    (await p.locator('#style-list .style-title').allInnerTexts()).join('/'), '差し替えスタイル');
-  check('7', '「表示×」のスタイルは出ない',
-    (await p.locator('#style-list').innerText()).includes('非表示にした写真'), false);
-  check('7', '分類がそのまま絞り込みタブになる',
-    (await p.locator('#style-tabs .tab').allInnerTexts()).join('/'), 'すべて/ショート');
-
-  await p.locator('#style-tabs .tab').nth(1).click(); await p.waitForTimeout(400);
-  check('7', '分類で絞り込める', await p.locator('#style-list .style-card').count(), 1);
-
-  // お知らせを空に戻すと帯も消える（入れても出ない／消しても残る、のどちらも困る）
-  const mid = await post({ type: 'adminData', password: PW });
-  await post({ type: 'adminSave', password: PW, target: 'settings', stamp: mid.stamps.settings,
-    rows: { ...mid.settings, 'お知らせ': '' } });
-  await p.goto(B + '/index.html'); await p.waitForTimeout(2000);
-  check('7', 'お知らせを消すと帯も消える', await p.locator('#shop-notice').isVisible(), false);
+  check('7', '管理シートだけで公開スタイルを差し替えない',
+    await p.locator('#style-list .style-card').count(), 12);
+  check('7', '未公開のスタイル名を表示しない',
+    /差し替えスタイル|非表示にした写真/.test(await p.locator('#style-list').innerText()), false);
   await p.context().close();
+
+  const publishedData = {
+    heroImage: '/mock-image.svg?seed=hero',
+    notice: '8月20日は出張のためお休みします。',
+    styles: [{ id: 'sy-new', title: '差し替えスタイル', length: 'ショート',
+      tags: ['ショート'], image: '/mock-image.svg?seed=n1', staffId: 'st01' }]
+  };
+  const published = await newPhone('7公開後', { publishedData });
+  await published.goto(B + '/index.html'); await published.waitForTimeout(2200);
+  check('7', '公開後もメイン写真は二重にならない', await published.locator('.hero-photo').count(), 1);
+  check('7', '公開後は指定した写真を出す',
+    await published.locator('.hero-photo').first().getAttribute('src'), publishedData.heroImage);
+  check('7', '公開したお知らせの帯が出る', await published.locator('#shop-notice').isVisible(), true);
+  check('7', '公開したお知らせの本文が出る',
+    (await published.locator('#shop-notice-text').innerText()).trim(), publishedData.notice);
+  await published.goto(B + '/gallery.html'); await published.waitForTimeout(1800);
+  check('7', '公開したスタイルに入れ替わる',
+    (await published.locator('#style-list .style-title').allInnerTexts()).join('/'), '差し替えスタイル');
+  check('7', '公開した分類で絞れる',
+    (await published.locator('#style-tabs .tab').allInnerTexts()).join('/'), 'すべて/ショート');
+  await published.locator('#style-tabs .tab').nth(1).click(); await published.waitForTimeout(400);
+  check('7', '絞った後も1件見える', await published.locator('#style-list .style-card').count(), 1);
+  await published.context().close();
+
+  const cleared = await newPhone('7お知らせ解除', { publishedData: { notice: '' } });
+  await cleared.goto(B + '/index.html'); await cleared.waitForTimeout(1600);
+  check('7', '公開お知らせを消した後は帯が消える', await cleared.locator('#shop-notice').isVisible(), false);
+  await cleared.context().close();
 }
 
 /* ============================================================
-   【8】長い文字（メニュー名・タグ・口コミ本文）で崩れないか
+   【8】公開された長いメニュー名・スタイル名で崩れないか
    ============================================================ */
 console.log('\n【8】長い文字（390px）');
 {
   const LONG = 'ロングネームのメニューをここに入れて折り返しを確認するための非常に長い名前です';
-  await saveSheet('menus', [
-    { 区分: 'とてもながい区分名をここに入れてみる', メニュー名: LONG, 価格: 12000, '所要(分)': 60,
-      説明: '説明もかなり長めに書いてみたときにどうなるかを確認します', 画像: '', 表示: '○' }
-  ]);
-  await saveSheet('coupons', [
-    { 'メニュー名': LONG, 価格: 19800, 通常価格: 24000, '所要(分)': 150,
-      説明: '説明も長めに書いてみます', 条件: '長い条件の文章をここに入れて折り返しを見ます',
-      対象: '全員', 画像: '', 表示: '○' }
-  ]);
-  await saveSheet('styles', [
-    { タイトル: LONG, 分類: 'とてもながい分類名', タグ: 'ながいタグをいれてみる,' + LONG, 画像: '', 表示: '○' }
-  ]);
-  await saveSheet('reviews', [
-    { 投稿日: '2026-08-12', 予約番号: 'LM-TEST3', ニックネーム: 'とてもながいニックネームのかた',
-      年代: '40代', 性別: '男性', 評価: 5, タイトル: 'とても長いタイトルをここに入れてみるとどうなるか',
-      本文: 'あ'.repeat(400) + ' https://example.com/very/long/path/that/never/breaks',
-      担当: 'MATTEO', メニュー: LONG, 状態: '掲載中' }
-  ]);
-
-  const p = await newPhone('8');
+  const publishedMenus = {
+    categories: [{ id: 'cat-long', name: 'とてもながい区分名をここに入れてみる', items: [
+      { id: 'sm-long', name: LONG, price: 12000, minutes: 60,
+        note: '説明もかなり長めに書いてみたときにどうなるかを確認します' }
+    ] }],
+    coupons: [{ id: 'sc-long', title: LONG, price: 19800, listPrice: 24000, minutes: 150,
+      detail: '説明も長めに書いてみます', terms: '長い条件の文章をここに入れて折り返しを見ます',
+      badge: '全員', tags: [LONG] }]
+  };
+  const publishedData = { styles: [{ id: 'sy-long', title: LONG, length: 'とてもながい分類名',
+    tags: ['ながいタグをいれてみる', LONG], image: '', staffId: 'st01' }] };
+  const p = await newPhone('8', { publishedMenus, publishedData });
   for (const page of ['index.html', 'gallery.html', 'menu.html', 'reviews.html']) {
     await p.goto(B + '/' + page); await p.waitForTimeout(1800);
+    if (page === 'gallery.html') check('8', '公開した長いスタイル名が出る',
+      (await p.locator('#style-list').innerText()).includes(LONG), true);
+    if (page === 'menu.html') check('8', '公開した長いメニュー名が出る',
+      (await p.locator('#menu-list').innerText()).includes(LONG), true);
     const r = await p.evaluate(() => ({
       scrollW: document.documentElement.scrollWidth,
       // main の中身が画面の右端をはみ出していないか（意匠のストライプは枠外まで敷くので除く）
@@ -408,7 +406,6 @@ console.log('\n【8】長い文字（390px）');
     return bad;
   }), 0);
   await p.context().close();
-  await saveSheet('reviews', []);
 }
 
 /* ============================================================
@@ -563,38 +560,30 @@ console.log('\n【11】トップの最初の1画面');
 }
 
 /* ============================================================
-   【12】口コミ0件の行き止まりを作らないか
-
-   0件なのに「口コミをすべて見る」と書いてあると、押した先には
-   「まだ届いていません」の一文しかありません。
-   架空の口コミは作らないと決めている以上、必ず通る道です。
+   【12】Google口コミへの入口は受け口や旧データで変わらないか
    ============================================================ */
-console.log('\n【12】口コミ0件のときの行き先');
+console.log('\n【12】Google口コミへの行き先');
 {
-  // 受信先がまだ無い（＝投稿フォームも出していない）とき
   const p = await newPhone('12', { noEndpoint: true });
   await p.goto(B + '/index.html'); await p.waitForTimeout(1600);
-  /* 押した先が「まだ届いていません」の一文だけ、という道を作らない */
-  check('12', '0件のとき「すべて見る」と書かない',
+  check('12', '受け口なしでも「すべて見る」と書かない',
     /口コミをすべて見る/.test(await p.locator('#home-reviews').locator('xpath=../..').innerText()), false);
-  /* 書ける場所が無いのに「ご感想を」と誘っても、また行き止まりになる */
-  check('12', '投稿できないあいだはボタンごと出さない',
-    await p.locator('#home-review-link').isVisible(), false);
+  check('12', '受け口なしでもGoogle口コミへの入口を出す',
+    (await p.locator('#home-review-link').innerText()).trim(), 'Googleの口コミを見る・書く');
+  check('12', '口コミ案内ページへ進む',
+    await p.locator('#home-review-link').getAttribute('href'), 'reviews.html');
   await p.context().close();
 }
 {
-  // 受信先を入れたあと。0件でも、書ける場所へは行ける
   const p = await newPhone('12b');
   await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
-  check('12', '投稿できるときは書ける場所へ誘う',
-    (await p.locator('#home-review-link').innerText()).trim(), 'ご感想をお寄せください');
-  check('12', '行き先が投稿フォームになっている',
-    /reviews\.html#write$/.test(await p.locator('#home-review-link').getAttribute('href')), true);
+  check('12', '受け口を入れてもGoogle口コミへの入口は同じ',
+    (await p.locator('#home-review-link').innerText()).trim(), 'Googleの口コミを見る・書く');
+  check('12', '旧自社投稿フォームへは送らない',
+    /#write$/.test(await p.locator('#home-review-link').getAttribute('href')), false);
   await p.context().close();
 }
 {
-  /* 口コミが届いたら「すべて見る」に戻る。片道だけ直すと、
-     せっかく集まった口コミへの入口が一生出ない（【3】と同じ落とし穴）。 */
   await saveSheet('reviews', [
     { 投稿日: '2026-08-10', 予約番号: 'LM-TEST9', ニックネーム: 'K.I', 年代: '40代', 性別: '',
       評価: 5, タイトル: '', 本文: '丁寧に切ってもらえました。', 担当: 'MATTEO',
@@ -602,10 +591,12 @@ console.log('\n【12】口コミ0件のときの行き先');
   ]);
   const p = await newPhone('12c');
   await p.goto(B + '/index.html'); await p.waitForTimeout(2000);
-  check('12', '口コミが届いたら「すべて見る」に戻る',
-    (await p.locator('#home-review-link').innerText()).trim(), '口コミをすべて見る');
-  check('12', '行き先も口コミページに戻る',
+  check('12', '旧口コミが残っていてもGoogle案内のまま',
+    (await p.locator('#home-review-link').innerText()).trim(), 'Googleの口コミを見る・書く');
+  check('12', '旧口コミが残っていても案内ページへ進む',
     await p.locator('#home-review-link').getAttribute('href'), 'reviews.html');
+  check('12', '旧口コミ本文を表示しない',
+    (await p.locator('main').innerText()).includes('丁寧に切ってもらえました。'), false);
   await p.context().close();
   await saveSheet('reviews', []);
 }
@@ -671,8 +662,6 @@ console.log('\n【13】一覧の見渡しやすさ（390px）');
   await p.context().close();
 }
 {
-  /* 店がシートでおすすめメニューを管理すると、タグの欄がありません。
-     絞る材料が無いのにタブだけ出ていると、押しても何も起きない箱になります。 */
   await saveSheet('coupons', [
     { 'メニュー名': 'カット＋カラー', 価格: 14500, 通常価格: '', '所要(分)': 120,
       説明: '', 条件: '', 対象: '全員', 画像: '', 表示: '○' },
@@ -681,10 +670,21 @@ console.log('\n【13】一覧の見渡しやすさ（390px）');
   ]);
   const p = await newPhone('13b');
   await p.goto(B + '/menu.html'); await p.waitForTimeout(2200);
-  check('13', 'タグが無いおすすめメニューでは絞り込みを出さない',
-    await p.locator('#coupon-tabs').isVisible(), false);
-  check('13', 'それでもおすすめメニューは並ぶ', await p.locator('#coupon-list .coupon').count(), 2);
+  check('13', 'シート変更だけでは公開14件を上書きしない',
+    await p.locator('#coupon-list .coupon').count(), 14);
   await p.context().close();
+
+  const publishedMenus = { categories: [], coupons: [
+    { id: 'sc0', title: 'カット＋カラー', price: 14500, minutes: 120, badge: '全員', tags: [] },
+    { id: 'sc1', title: 'カット＋パーマ', price: 14900, minutes: 130, badge: '全員', tags: [] }
+  ] };
+  const published = await newPhone('13b公開後', { publishedMenus });
+  await published.goto(B + '/menu.html'); await published.waitForTimeout(2200);
+  check('13', '公開データにタグが無ければ絞り込みを出さない',
+    await published.locator('#coupon-tabs').isVisible(), false);
+  check('13', '絞り込みなしでも公開した2件が並ぶ',
+    await published.locator('#coupon-list .coupon').count(), 2);
+  await published.context().close();
 }
 
 /* ============================================================
@@ -704,7 +704,7 @@ console.log('\n【13c】ボタンの文言と、トップのスタイル節');
   check('13c', 'カードごとに予約のボタンがある',
     await p.locator('#style-list .style-book').count(), 12);
   const label = (await p.locator('#style-list .style-book').first().innerText()).replace(/\s+/g, '');
-  check('13c', 'ボタンが「このスタイル」を指している', label, 'このスタイルで予約');
+  check('13c', '準備中は予約成立を示唆しない', label, '予約について');
   /* 幅171pxのカードに入ります。語の途中で折り返すと「このスタイルで予／約」になります。 */
   check('13c', 'ボタンの文字が語の途中で折り返さない', await p.evaluate(() => {
     const a = document.querySelector('#style-list .style-book');
@@ -840,35 +840,29 @@ console.log('\n【14】文字の濃さと、指の届く大きさ');
     return { 薄い: [...new Set(薄い)], 小さい: [...new Set(小さい)] };
   };
 
-  /* 3つの状態で見ます。
-       写真0枚 … 写真が届く前の状態。この形でも公開に耐えること
-       掲載の写真あり … いまの実態（assets に25枚入っています）
-       シート反映後 … 店が管理ページから入れ替えたあと。口コミや条件の行は
-                      ここでしか画面に出ません */
+  const changedMenus = {
+    categories: [{ id: 'cat0', name: 'カット', items: [
+      { id: 'sm0', name: '試験カット', price: 7000, minutes: 60 }
+    ] }],
+    coupons: [{ id: 'sc0', title: 'カット＋カラー', price: 14500, minutes: 120,
+      detail: '説明の行です', terms: '他のメニューとの併用はできません', badge: '全員', tags: [] }]
+  };
   for (const [label, opt] of [['写真0枚', { noPhoto: true, noEndpoint: true }],
                               ['掲載の写真あり', { noEndpoint: true }],
-                              ['シート反映後', {}]]) {
-    if (!opt.noEndpoint) {
-      await saveSheet('reviews', [
-        { 投稿日: '2026-08-10', 予約番号: 'LM-TEST8', ニックネーム: 'T.K', 年代: '30代', 性別: '男性',
-          評価: 5, タイトル: '清潔感が続きます', 本文: '仕上がりに満足しています。', 担当: 'MATTEO',
-          メニュー: 'カットコース', 状態: '掲載中' }
-      ]);
-      await saveSheet('coupons', [
-        { 'メニュー名': 'カット＋カラー', 価格: 14500, 通常価格: '', '所要(分)': 120,
-          説明: '説明の行です', 条件: '他のメニューとの併用はできません', 対象: '全員', 画像: '', 表示: '○' }
-      ]);
-    }
+                              ['公開内容の更新後', { publishedMenus: changedMenus }]]) {
     const p = await newPhone('14', opt);
     for (const page of ['index.html', 'gallery.html', 'staff.html', 'menu.html', 'reviews.html']) {
       await p.goto(B + '/' + page); await p.waitForTimeout(2200);
+      if (label === '公開内容の更新後' && page === 'menu.html') {
+        check('14', '公開した条件文が画面に出る',
+          (await p.locator('#coupon-list').innerText()).includes('他のメニューとの併用はできません'), true);
+      }
       const r = await p.evaluate(measure);
       check('14', `${label} ${page}: 4.5:1 に足りない文字が無い`, r.薄い.join(',') || 'なし', 'なし');
       check('14', `${label} ${page}: 44pxに足りないタップ対象が無い`, r.小さい.join(',') || 'なし', 'なし');
     }
     await p.context().close();
   }
-  await saveSheet('reviews', []);
 }
 
 /* 店がメイン写真を入れたときのトップ。
@@ -880,10 +874,17 @@ console.log('\n【14b】メイン写真を入れたときのトップ');
   await post({ type: 'adminSave', password: PW, target: 'settings', stamp: before.stamps.settings,
     rows: { ...before.settings, 'メイン写真': '/mock-image.svg?seed=hero' } });
 
-  const p = await newPhone('14b');
+  const unchanged = await newPhone('14b変更前');
+  await unchanged.goto(B + '/index.html'); await unchanged.waitForTimeout(1800);
+  check('14b', 'シートの写真変更だけでは公開写真を置き換えない',
+    await unchanged.locator('.hero-photo').first().getAttribute('src'), 'assets/shop2.jpg');
+  await unchanged.context().close();
+
+  const p = await newPhone('14b公開後', { publishedData: { heroImage: '/mock-image.svg?seed=hero' } });
   await p.goto(B + '/index.html'); await p.waitForTimeout(2400);
   check('14b', '写真が読めたときだけ暗い膜をかける',
     await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
+  check('14b', '公開した写真が1枚だけ出る', await p.locator('.hero-photo').count(), 1);
   /* 暗い地の上に置くものは、すべて明るい側（--on-ink 系）に寄っていること。
      1つでも取り残されると、そこだけ読めない行になる。 */
   check('14b', '暗い地の上の文字が明るい側にそろっている', await p.evaluate(() => {
@@ -898,9 +899,6 @@ console.log('\n【14b】メイン写真を入れたときのトップ');
       .join(',') || 'なし';
   }), 'なし');
 
-  const mid = await post({ type: 'adminData', password: PW });
-  await post({ type: 'adminSave', password: PW, target: 'settings', stamp: mid.stamps.settings,
-    rows: { ...mid.settings, 'メイン写真': '' } });
   await p.context().close();
 }
 

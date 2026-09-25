@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 const root = fileURLToPath(new URL('../', import.meta.url));
+let sheetDraft = '出さない';
 const server = http.createServer((request, reply) => {
   if (request.method === 'POST' && request.url === '/exec') {
     let body = '';
@@ -15,7 +16,8 @@ const server = http.createServer((request, reply) => {
       const type = JSON.parse(body).type;
       assert.ok(['menu', 'availability'].includes(type), '閲覧中に予約の送信をしない');
       reply.writeHead(200, { 'Content-Type': 'application/json' });
-      reply.end(JSON.stringify({ ok: true, settings: { '準備中の帯': '出さない' }, booked: [] }));
+      reply.end(JSON.stringify({ ok: true, categories: [], coupons: [], closedDates: [],
+        settings: sheetDraft === null ? {} : { '準備中の帯': sheetDraft }, booked: [] }));
     });
     return;
   }
@@ -55,7 +57,7 @@ try {
       });
     }
     const errors = [];
-    for (const name of ['index.html', 'menu.html', 'staff.html', 'gallery.html']) {
+    for (const name of ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html']) {
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${base}/${name}`, { waitUntil: 'load' });
@@ -75,6 +77,16 @@ try {
         const coupon = await page.locator('.coupon-price a[href^="reserve.html?menu="]').first().innerText();
         assert.equal(coupon, draft ? '予約について' : 'このメニューで予約', `${name}：おすすめメニューの導線`);
       }
+      if (name === 'index.html' && !draft) {
+        const faq = page.locator('.faq-item').filter({ hasText: '予約は必要ですか？' });
+        await faq.locator('.faq-q').click();
+        assert.equal(/24時間.*予約|予約.*24時間/.test(await faq.locator('.faq-a').innerText()), false,
+          '公開FAQもシート側の受付停止後に受付中とは断定しない');
+        assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').innerText(), '空席・予約',
+          '固定予約ボタンも受付中と断定しない');
+        assert.equal(/24時間.*予約|予約.*24時間/.test(await page.locator('body').innerText()), false,
+          '公開ページはシート側の受付停止後も24時間受付中とは断定しない');
+      }
       if (name === 'menu.html') {
         const bottom = await page.locator('main a[href="reserve.html"]').last().innerText();
         assert.equal(bottom, draft ? '予約のご案内を見る' : 'メニューを選んで予約する', 'メニュー末尾の導線');
@@ -90,6 +102,10 @@ try {
         assert.equal(style.replace(/\s+/g, ''), draft ? '予約について' : 'このスタイルで予約', 'スタイルの導線');
         assert.equal(bottom, draft ? '予約のご案内を見る' : 'スタイルを決めずに予約に進む', 'スタイル末尾の導線');
         assert.equal(intro.includes('ご予約に進めます'), !draft, 'スタイルの案内は受付状態と一致');
+      }
+      if (name === 'reviews.html') {
+        const label = await page.locator('main a[href="reserve.html"]').innerText();
+        assert.equal(label, draft ? '予約のご案内を見る' : 'ネット予約へ進む', '口コミページの導線');
       }
       await page.close();
     }
@@ -113,6 +129,36 @@ try {
       await page.close();
     }
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
+    await context.close();
+  }
+  const launchCases = [
+    { approved: true, draft: true, sheet: '出さない', paused: true, label: 'サイトの準備中設定を残した場合' },
+    { approved: false, draft: false, sheet: '出さない', paused: true, label: 'サイトの開始承認がない場合' },
+    { approved: true, draft: false, sheet: '出す', paused: true, label: 'シートが準備中の場合' },
+    { approved: true, draft: false, sheet: null, paused: true, label: 'シートの設定が欠けた場合' },
+    { approved: true, draft: false, sheet: '不明', paused: true, label: 'シートの設定を読めない場合' },
+    { approved: true, draft: false, sheet: '出さない', paused: false, label: '3条件がそろった場合' }
+  ];
+  for (const item of launchCases) {
+    sheetDraft = item.sheet;
+    const context = await browser.newContext();
+    await context.route('**/assets/js/data.js', async route => {
+      const response = await route.fetch();
+      const original = await response.text();
+      assert.ok(original.includes('bookingLaunchApproved: false,') && original.includes('draft: true,'), '受付開始の試験設定がある');
+      const body = original.replace('bookingLaunchApproved: false,', `bookingLaunchApproved: ${item.approved},`)
+        .replace('draft: true,', `draft: ${item.draft},`);
+      await route.fulfill({ response, body });
+    });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${base}/reserve.html`, { waitUntil: 'load' });
+    await page.waitForFunction(() => Catalog.loaded && !document.body.classList.contains('catalog-unverified'));
+    assert.equal(await page.locator('body').evaluate(body => body.classList.contains('booking-paused')),
+      item.paused, item.label);
+    assert.equal(await page.locator('#reserve-layout').isVisible(), !item.paused, `${item.label}：予約フォーム`);
+    assert.deepEqual(errors, [], `${item.label}：JavaScriptエラーなし`);
     await context.close();
   }
   console.log('準備中・受付中の予約導線：両方の表示を確認しました。');

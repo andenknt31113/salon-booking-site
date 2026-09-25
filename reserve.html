@@ -21,7 +21,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
-<body data-page="reserve">
+<body data-page="reserve" class="catalog-unverified">
   <div id="site-header"></div>
 
   <main>
@@ -40,6 +40,7 @@
         <!-- ステップ表示 -->
         <div class="notice" id="change-notice" hidden></div>
         <div class="notice" id="booking-paused-notice" role="status"></div>
+        <div class="notice" id="catalog-status" role="status">最新のメニューと受付条件を確認しています…</div>
         <ol class="steps" id="steps">
           <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
           <li class="step" data-step="2"><b>STEP 2</b><span id="step2-label">スタッフ</span></li>

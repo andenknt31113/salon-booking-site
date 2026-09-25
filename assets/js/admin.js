@@ -10,6 +10,18 @@
 let adminPw = '';          // 入力されたパスワード（この画面を開いている間だけ保持）
 let adminToken = '';       // 「この端末を記憶する」で受け取った合鍵
 let adminData = null;      // 取得した内容
+const PHONE_TIME_STEP_MINUTES = 10;
+const MINUTES_PER_DAY = 24 * 60;
+const PHONE_REQUEST_KEY_PREFIX = 'zer01-phone-request:';
+const PHONE_REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{16,80}$/;
+let phoneRequestId = '';
+let phoneSubmitting = false;
+let phoneUncertain = false;
+let phoneConflict = false;
+let phonePayload = null;
+let phonePresets = [];
+let phonePriceNeedsInput = false;
+let activeChange = null;
 /* 読み込んだ時点のシートの印。保存時に送って、
    そのあいだに別の端末から保存されていないかを見てもらう。 */
 let stamps = {};
@@ -38,6 +50,7 @@ const baseCount = {};
 let settingsBase = '';
 /* 保存できたことを、そのタブの保存バーに残しておくための控え */
 const savedNote = {};
+const pendingSaves = new Set();
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -64,12 +77,12 @@ const STYLE_COLS = ['タイトル', '分類', 'タグ', '説明', '画像', '表
    読み取り側は common.js の applySettings と対になっています。 */
 const SETTING_SECTIONS = [
   {
-    title: 'サイトの公開',
-    note: '「準備中」の帯を出すか出さないかです。ここがこのサイトの公開スイッチです。',
+    title: 'ネット予約の受付',
+    note: '新規ネット予約の受付設定です。「出す」の間は新規予約を断ります。公開ページの帯や文章は別途更新が必要です。',
     fields: [
       { key: '準備中の帯', type: 'choice', choices: ['出す', '出さない'],
         current: () => (SALON.draft ? '出す' : '出さない'),
-        hint: '「出さない」にすると帯が消えて、ふつうのサイトになります。' },
+        hint: '「出さない」を保存すると、新規ネット予約を受け付けます。営業用の準備と動作確認が済むまで変更しないでください。' },
       { key: '準備中の文言', type: 'textarea', blank: 'keep',
         hint: '帯に出る文です。お客様が読みます。店への申し送りは書かないでください。' }
     ]
@@ -206,25 +219,49 @@ const SETTING_KEYS = SETTING_SECTIONS.reduce((all, s) => all.concat(s.fields), [
 const isCancelled = r => r.status === 'キャンセル';
 
 /* ---------- 受信先とのやりとり ---------- */
+function adminTransportError(payload, httpStatus = 0) {
+  const detail = httpStatus ? `（HTTP ${httpStatus}）` : '';
+  let error = httpStatus
+    ? `受け口の応答を確認できません${detail}。登録・保存の結果を確認してください。`
+    : '通信に失敗しました。登録・保存の結果が不明な場合は確認してください。';
+  if (payload.type === 'adminLogin' || payload.type === 'adminData') {
+    const operation = payload.type === 'adminLogin' ? 'ログイン確認' : '管理画面の読み込み';
+    error = `${operation}の応答を確認できません${detail}。パスワードの間違いとは限りません。`
+      + '時間をおいて1回だけ試し、続く場合はこの文面を制作担当者へ伝えてください。';
+  }
+  return { ok: false, transportError: true, httpStatus, error };
+}
+
 async function adminPost(payload) {
   if (!SALON.reservationEndpoint) {
     return { ok: false, error: '受信先（Google Apps Script）が未設定です。' };
   }
+  let httpStatus = 0;
   try {
     const res = await fetch(SALON.reservationEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ ...payload, password: adminPw, token: adminToken })
     });
-    return await res.json();
-  } catch (e) {
-    return { ok: false, error: '通信に失敗しました。' };
+    httpStatus = res.status;
+    if (!res.ok) return adminTransportError(payload, httpStatus);
+    const result = await res.json();
+    if (!result || typeof result.ok !== 'boolean') return adminTransportError(payload, httpStatus);
+    return result;
+  } catch (error) {
+    return adminTransportError(payload, httpStatus);
   }
 }
 
 /* ---------- ログイン ---------- */
+function setLoginBusy(busy, message = '確認中…') {
+  $('#gate-btn').disabled = busy;
+  $('#gate-btn').textContent = busy ? message : 'ログイン';
+}
+
 async function login() {
   const btn = $('#gate-btn');
+  if (btn.disabled) return;
   const err = $('#gate-error');
   adminPw = $('#passcode').value;
   err.style.display = 'none';
@@ -235,24 +272,45 @@ async function login() {
     return;
   }
 
-  btn.disabled = true;
-  btn.textContent = '確認中…';
-  const remember = !!($('#remember-me') || {}).checked;
-  const res = await adminPost({ type: 'adminLogin', remember });
-  btn.disabled = false;
-  btn.textContent = 'ログイン';
-
-  if (!res.ok) {
-    adminPw = '';
-    err.textContent = res.error || 'ログインできませんでした。';
+  setLoginBusy(true);
+  try {
+    const remember = !!($('#remember-me') || {}).checked;
+    const res = await adminPost({ type: 'adminLogin', remember });
+    if (!res.ok) {
+      adminPw = '';
+      err.textContent = res.error || 'ログインできませんでした。';
+      err.style.display = 'block';
+      return;
+    }
+    if (res.token) {
+      adminToken = res.token;
+      try { localStorage.setItem(TOKEN_KEY, res.token); } catch (error) {}
+    }
+    setLoginBusy(true, '予定を読み込み中…');
+    await openDashboard();
+  } catch (error) {
+    err.textContent = '管理画面を開けませんでした。画面を再読み込みし、続く場合は制作担当者へ連絡してください。';
     err.style.display = 'block';
-    return;
+  } finally {
+    setLoginBusy(false);
   }
-  if (res.token) {
-    adminToken = res.token;
-    try { localStorage.setItem(TOKEN_KEY, res.token); } catch (e) { /* 保存できなくても続行 */ }
+}
+
+async function restoreRememberedLogin(saved) {
+  if ($('#gate-btn').disabled) return;
+  adminToken = saved;
+  const message = $('#gate-message').textContent;
+  $('#gate-message').textContent = 'この端末は記憶されています。読み込み中…';
+  setLoginBusy(true, '予定を読み込み中…');
+  try {
+    await openDashboard(true);
+  } catch (error) {
+    $('#gate-error').textContent = '管理画面を開けませんでした。画面を再読み込みし、続く場合は制作担当者へ連絡してください。';
+    $('#gate-error').style.display = 'block';
+  } finally {
+    $('#gate-message').textContent = message;
+    setLoginBusy(false);
   }
-  await openDashboard();
 }
 
 /** 記憶した合鍵を捨てて、もう一度パスワードを聞く状態に戻す */
@@ -268,10 +326,15 @@ function forgetDevice() {
   location.reload();
 }
 
-async function openDashboard() {
+async function openDashboard(remembered = false) {
   const res = await adminPost({ type: 'adminData' });
   if (!res.ok) {
-    const message = res.error || '読み込みに失敗しました。';
+    let message = res.error || '読み込みに失敗しました。';
+    if (remembered && !res.transportError && res.error === 'パスワードが違います。') {
+      adminToken = '';
+      try { localStorage.removeItem(TOKEN_KEY); } catch (error) {}
+      message = 'この端末の記憶でログインできませんでした。もう一度パスワードを入力してください。';
+    }
     /* 開いたあとの読み直し（キャンセルの反映など）で失敗したときは、
        ログイン画面のエラー欄は隠れたままで誰も読めません。
        黙って古い予定を出しておくと、キャンセルが通ったのかどうか
@@ -287,6 +350,7 @@ async function openDashboard() {
   }
   adminData = res;
   edits.closed = (res.closedDates || []).map(r => ({ ...r }));
+  showReservationFreshness();
   edits.menus = (res.menus || []).map(r => ({ ...r }));
   edits.coupons = (res.coupons || []).map(r => ({ ...r }));
   edits.styles = (res.styles || []).map(r => ({ ...r }));
@@ -317,6 +381,8 @@ async function openDashboard() {
   renderReviews();
   renderSettings();
   updateDirty();
+  AdminNotifications.start(res.reservations || []);
+  await restorePhoneBooking();
   return true;
 }
 
@@ -375,8 +441,17 @@ function closedAllDay(date) {
    本日にたどり着くまで指を動かし続けることになります。
    この画面の主な使い方は、朝いちばんに「今日は何時から何件か」を見ることです。 */
 let showPast = false;
+let renderedReservationFilters = {};
+let renderedCustomerFilters = {};
 
 function renderReservations() {
+  reconcilePhoneResult();
+  renderMailAlert();
+  if (!guardNoteFilters(renderedReservationFilters)) return;
+  renderedReservationFilters = {
+    '#filter-date': $('#filter-date').value,
+    '#filter-status': $('#filter-status').value
+  };
   const list = filteredReservations();
 
   /* 来店日ごとにまとめ、早い順に並べます。
@@ -475,6 +550,7 @@ function closedCard(c) {
 
 /* 台帳の列と同じ上限です。ここだけ長くしても、受け口が切ります */
 const NOTE_MAX = 1000;
+const pendingNoteSaves = new Set();
 
 function noteEditorHtml(r) {
   const note = String(r.note || '').trim();
@@ -505,7 +581,9 @@ function noteEditorHtml(r) {
 function applyNoteToScreen(code, note) {
   const has = !!note.trim();
   document.querySelectorAll(`[data-note-box="${CSS.escape(code)}"]`).forEach(box => {
-    box.querySelector('[data-note-input]').value = note;
+    const input = box.querySelector('[data-note-input]');
+    input.value = note;
+    input.defaultValue = note;
     const text = box.querySelector('[data-note-text]');
     text.hidden = !has;
     text.querySelector('span').textContent = note;
@@ -522,18 +600,34 @@ async function saveNote(btn) {
   const box = btn.closest('.note-box');
   const input = box && box.querySelector('[data-note-input]');
   const status = box && box.querySelector('[data-note-status]');
-  if (!input) return;
+  if (!input || pendingNoteSaves.has(code)) return;
 
   const note = input.value;
-  btn.disabled = true;
-  if (status) status.textContent = '保存中…';
-  const res = await adminPost({ type: 'adminNote', code, note });
-  btn.disabled = false;
+  const boxes = $$(`[data-note-box="${CSS.escape(code)}"]`);
+  pendingNoteSaves.add(code);
+  boxes.forEach(noteBox => {
+    noteBox.querySelector('[data-note-input]').disabled = true;
+    noteBox.querySelector('[data-note-save]').disabled = true;
+    noteBox.querySelector('[data-note-status]').textContent = '保存中…';
+  });
+  let res;
+  try {
+    res = await adminPost({ type: 'adminNote', code, note });
+  } catch {
+    res = { ok: false };
+  } finally {
+    pendingNoteSaves.delete(code);
+    boxes.forEach(noteBox => {
+      noteBox.querySelector('[data-note-input]').disabled = false;
+      noteBox.querySelector('[data-note-save]').disabled = false;
+      noteBox.querySelector('[data-note-status]').textContent = '';
+    });
+  }
 
   if (!res.ok) {
     /* 保存できていないのに黙っていると、書いたつもりで閉じられます。
        次のご来店のときに何も出てこず、そのときには理由が分かりません。 */
-    if (status) status.textContent = '';
+    if (status) status.textContent = '未保存です。入力は残っています。';
     alert('メモを保存できませんでした。' + (res.error ? '\n' + res.error : ''));
     return;
   }
@@ -545,6 +639,31 @@ async function saveNote(btn) {
   if (r) r.note = saved;
   applyNoteToScreen(code, saved);
   if (status) status.textContent = '保存しました';
+}
+
+function mailNeedsAttention(r) {
+  return /送信失敗|宛先なし/.test(String(r.shopMailStatus || ''))
+    || /送信失敗/.test(String(r.customerMailStatus || ''));
+}
+
+function renderMailAlert() {
+  const alert = $('#mail-alert');
+  const affected = (adminData.reservations || []).filter(mailNeedsAttention);
+  alert.hidden = !affected.length;
+  if (!affected.length) { alert.innerHTML = ''; return; }
+  alert.innerHTML = `<div><b>メール送信処理を確認してください（${affected.length}件）</b>
+    <p>予約は台帳に残っています。登録し直さず、連絡方法を確認してください。メールは自動再送しません。</p>
+    <details><summary>該当する予約を開く</summary>${affected.map(r =>
+      `<p><button class="btn btn-outline btn-sm" type="button" data-mail-code="${esc(r.code)}">${esc(r.date)} ${esc(r.time)} ${esc(r.name)}様</button></p>`
+    ).join('')}</details></div>`;
+}
+
+function mailStatusHtml(r) {
+  const shop = String(r.shopMailStatus || '');
+  const customer = String(r.customerMailStatus || '');
+  if (!shop && !customer) return '';
+  const needsAttention = mailNeedsAttention(r);
+  return `<p class="${needsAttention ? 'booking-request' : 'booking-detail'}">メール送信処理：店舗 ${esc(shop || '記録なし')}／お客様 ${esc(customer || '記録なし')}<br><small>送信処理の結果です。受信箱への到着は確認していません。</small></p>`;
 }
 
 function reservationCard(r) {
@@ -568,13 +687,161 @@ function reservationCard(r) {
         : '電話番号の控えなし'}
       </p>
       ${r.request ? `<p class="booking-request">ご要望：${esc(r.request)}</p>` : ''}
+      ${mailStatusHtml(r)}
       ${/* キャンセルされた回にも書けるようにしています。
             「来られなかった理由」も、次にお会いするときに知りたいことだからです。 */''}
       ${noteEditorHtml(r)}
-      ${off ? '' : `<div style="margin-top:12px;">
+      ${off ? '' : `<div class="booking-actions" style="margin-top:12px;">
+        ${adminData?.capabilities?.adminChange === true && r.date >= toKey(new Date())
+          ? `<button class="btn btn-ghost btn-sm" type="button" data-admin-change="${esc(r.code)}">日時を変更</button>` : ''}
         <button class="btn btn-ghost btn-sm" type="button" data-admin-cancel="${esc(r.code)}">キャンセルにする</button>
       </div>`}
     </article>`;
+}
+
+function openAdminChange(button) {
+  if (activeChange) {
+    alert('開いている日時変更を閉じてから、別の予約を操作してください。');
+    return;
+  }
+  if (hasUnsavedReservationNotes()) {
+    alert('書きかけの施術メモを保存してから、日時を変更してください。');
+    return;
+  }
+  const reservation = (adminData.reservations || []).find(row => row.code === button.dataset.adminChange);
+  if (!reservation || isCancelled(reservation) || reservation.date < toKey(new Date())) return;
+  const card = button.closest('.booking-card');
+  if (!card) return;
+  activeChange = { code: reservation.code, fromDate: reservation.date, fromTime: reservation.time,
+    date: reservation.date, time: reservation.time, pending: false, uncertain: false };
+  const editor = document.createElement('div');
+  editor.className = 'admin-change-editor';
+  editor.dataset.changeEditor = reservation.code;
+  editor.innerHTML = `
+    <strong>予約番号 ${esc(reservation.code)} の日時変更</strong>
+    <p class="booking-detail">現在：${esc(formatDateJa(reservation.date))} ${esc(reservation.time)}〜${esc(reservation.endTime)}。予約番号と所要時間は変わりません。</p>
+    <div class="add-grid">
+      <label class="form-field"><span>変更後の日付</span><input type="date" data-change-date min="${toKey(new Date())}" value="${esc(reservation.date)}"></label>
+      <label class="form-field"><span>変更後の開始時刻</span><select data-change-time>${phoneTimeOptions()}</select></label>
+    </div>
+    <p class="note">保存時に営業時間・休業日・ほかの予約を再確認します。メール通知は連絡先と送信設定によります。</p>
+    <p class="admin-change-status" data-change-status role="status"></p>
+    <div class="booking-actions">
+      <button class="btn btn-dark btn-sm" type="button" data-change-save>日時を保存</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-change-check hidden>最新の予定を確認</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-change-close>閉じる</button>
+    </div>`;
+  card.appendChild(editor);
+  const time = editor.querySelector('[data-change-time]');
+  if (![...time.options].some(option => option.value === reservation.time)) {
+    time.add(new Option(reservation.time, reservation.time));
+  }
+  time.value = reservation.time;
+  editor.querySelector('[data-change-date]').focus();
+}
+
+function closeAdminChange() {
+  if (!activeChange || activeChange.pending) return;
+  if (activeChange.uncertain && !confirm('保存結果をまだ確認できていません。台帳を確認するまで、同じ予約を登録・変更しないでください。閉じますか？')) return;
+  document.querySelector('[data-change-editor]')?.remove();
+  activeChange = null;
+}
+
+function showChangedReservation(reservation) {
+  const rows = adminData.reservations || [];
+  const index = rows.findIndex(row => row.code === reservation.code);
+  if (index >= 0) rows[index] = reservation;
+  activeChange = null;
+  $('#filter-date').value = reservation.date;
+  $('#filter-status').value = 'all';
+  renderStats();
+  onFilterChange();
+  renderCustomers();
+  renderNumbers();
+  focusBooking(reservation.code);
+}
+
+async function saveAdminChange(button) {
+  if (!activeChange || activeChange.pending || activeChange.uncertain) return;
+  const editor = button.closest('[data-change-editor]');
+  const date = editor.querySelector('[data-change-date]').value;
+  const time = editor.querySelector('[data-change-time]').value;
+  const status = editor.querySelector('[data-change-status]');
+  if (hasUnsavedReservationNotes()) {
+    status.textContent = '書きかけの施術メモを先に保存してください。';
+    return;
+  }
+  if (!date || !time || (date === activeChange.fromDate && time === activeChange.fromTime)) {
+    status.textContent = '変更後の別の日時を選んでください。';
+    return;
+  }
+  if (!confirm(`予約番号 ${activeChange.code}\n${activeChange.fromDate} ${activeChange.fromTime} → ${date} ${time}\nこの日時へ変更しますか？`)) return;
+  activeChange.date = date;
+  activeChange.time = time;
+  activeChange.pending = true;
+  editor.querySelectorAll('input, select, button').forEach(field => { field.disabled = true; });
+  $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = true; });
+  status.textContent = '台帳へ保存しています…';
+  const result = await adminPost({ type: 'adminChange', code: activeChange.code,
+    fromDate: activeChange.fromDate, fromTime: activeChange.fromTime, date, time });
+  activeChange.pending = false;
+  editor.querySelectorAll('input, select, button').forEach(field => { field.disabled = false; });
+  $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = false; });
+  if (result.ok && result.reservation?.code === activeChange.code) {
+    showChangedReservation(result.reservation);
+    const calendarNotice = result.calendarWarning
+      ? ' カレンダー連携は未確認です。予約台帳を正として制作担当者へお知らせください。' : '';
+    $('#reservation-freshness').textContent = '日時を保存しました。ほかの予約は最新の予定を読み込んで確認してください。' + calendarNotice;
+    if (await refreshReservations()) $('#reservation-freshness').textContent = '日時を保存し、最新の予定を読み込みました。' + calendarNotice;
+    return;
+  }
+  if (result.transportError || result.stale || result.ok) {
+    activeChange.uncertain = true;
+    editor.querySelector('[data-change-save]').disabled = true;
+    editor.querySelector('[data-change-check]').hidden = false;
+    status.textContent = result.stale
+      ? '別の画面で日時が変わった可能性があります。保存し直さず、最新の予定を確認してください。'
+      : '保存結果を確認できません。もう一度保存せず、最新の予定を確認してください。';
+    return;
+  }
+  status.textContent = result.error || '変更できませんでした。日時をご確認ください。';
+}
+
+async function checkAdminChange(button) {
+  if (!activeChange || activeChange.pending) return;
+  const editor = button.closest('[data-change-editor]');
+  const status = editor.querySelector('[data-change-status]');
+  if (hasUnsavedReservationNotes()) {
+    status.textContent = '書きかけの施術メモを先に保存してください。';
+    return;
+  }
+  activeChange.pending = true;
+  button.disabled = true;
+  $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = true; });
+  status.textContent = '台帳の最新の日時を確認しています…';
+  const result = await adminPost({ type: 'adminData' });
+  activeChange.pending = false;
+  button.disabled = false;
+  $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = false; });
+  if (!result.ok) {
+    status.textContent = '台帳を確認できませんでした。再送せず、時間をおいて確認してください。';
+    return;
+  }
+  const live = (result.reservations || []).find(row => row.code === activeChange.code);
+  if (!live) {
+    status.textContent = '予約が見つかりません。保存し直さず、制作担当者へご連絡ください。';
+    return;
+  }
+  if (live.date === activeChange.date && live.time === activeChange.time) {
+    adminData.reservations = result.reservations;
+    adminData.closedDates = result.closedDates || [];
+    showChangedReservation(live);
+    $('#reservation-freshness').textContent = '台帳で変更後の日時を確認しました。';
+    return;
+  }
+  status.textContent = live.date === activeChange.fromDate && live.time === activeChange.fromTime
+    ? '台帳は変更前の日時です。再登録せず、電話で状況を確認してから操作してください。'
+    : `台帳は ${live.date} ${live.time} です。別の変更があるため、保存し直さず確認してください。`;
 }
 
 /* ---------- 予約一覧：カレンダー表示 ----------
@@ -778,7 +1045,18 @@ function renderAdminCalendar() {
 }
 
 /** 絞り込みを変えたとき。一覧とカレンダーの両方を合わせる */
+function showTodayReservations() {
+  if (hasUnsavedReservationNotes() || activeChange) {
+    $('#reservation-freshness').textContent = '編集中の予約があります。保存または閉じてから今日の予約へ戻ってください。';
+    return;
+  }
+  $('#filter-date').value = toKey(new Date());
+  $('#filter-status').value = 'all';
+  onFilterChange();
+}
+
 function onFilterChange() {
+  if (!guardNoteFilters(renderedReservationFilters)) return;
   const d = $('#filter-date').value;
   /* 日付で絞り込んだら、カレンダーもその日を含む7日間へ動かします。
      切り替えたときに別の週が出ていると、同じ日をもう一度探すことになります。 */
@@ -805,6 +1083,10 @@ function setReserveView(view) {
    マスの中に電話番号やメニューまで詰めると読めませんし、
    カードと二重に作ると、直すときに片方だけ直すことになります。 */
 function focusBooking(code) {
+  if (hasUnsavedReservationNotes() || activeChange) {
+    alert('編集中の予約を保存または閉じてから、予約の詳細を開いてください。');
+    return;
+  }
   const r = (adminData.reservations || []).find(x => x.code === code);
   if (!r) return;
 
@@ -829,16 +1111,156 @@ function focusBooking(code) {
 /* ---------- 電話・来店で受けた予約を台帳に入れる ----------
    ここが無いと、電話で受けた分が台帳に無いまま残り、
    同じ時間にネット予約が入ります。 */
+function phoneTimeOptions() {
+  const options = ['<option value="">開始時刻を選択</option>'];
+  for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += PHONE_TIME_STEP_MINUTES) {
+    const time = toHHMM(minutes);
+    options.push(`<option value="${time}">${time}</option>`);
+  }
+  return options.join('');
+}
+
 function toggleAddBooking(open) {
+  if (phoneSubmitting) return;
+  if (open && $('#ab-time').options.length === 1) $('#ab-time').innerHTML = phoneTimeOptions();
   $('#add-booking-form').hidden = !open;
   $('#ab-error').style.display = 'none';
   // 前に入れたぶんの結果が残っていると、今入れた結果と読み違えます
   if (open) $('#add-result').hidden = true;
   if (open) {
+    renderPhonePresets();
+    $('#ab-recovery').textContent = phoneRequestId ? '前の電話受付を確認中です。同じ受付として再試行し、別の予約を重ねて登録しないでください。'
+      : supportsPhoneRetry() ? '通信が途切れたときは、同じ受付IDで結果を確認します。受付IDだけをこの端末に保存します。'
+        : 'この接続先は再送防止に未対応です。登録結果が不明な場合は繰り返し登録せず、台帳を確認してください。更新は制作担当者へご依頼ください。';
     // 何も入っていなければ今日を入れておく（毎回打つのは面倒なので）
     if (!$('#ab-date').value) $('#ab-date').value = toKey(new Date());
     $('#ab-name').focus();
   }
+}
+
+function supportsPhoneRetry() { return adminData?.capabilities?.phoneRequestIds === true; }
+function phoneRequestKey() { return PHONE_REQUEST_KEY_PREFIX + SALON.reservationEndpoint; }
+
+function startCustomerBooking(code) {
+  if (!guardNoteFilters({})) return;
+  if (phoneSubmitting || phoneRequestId || phoneUncertain || phoneConflict) {
+    alert('前の電話受付が処理中、または結果未確認です。予約一覧の電話予約フォームで結果を確認してから、次の受付を始めてください。');
+    return;
+  }
+  try {
+    if (localStorage.getItem(phoneRequestKey())) {
+      alert('別の画面で始めた電話受付が未確認です。元の画面で結果を確認してから、次の受付を始めてください。');
+      return;
+    }
+  } catch {
+    alert('前の電話受付の控えを読み取れません。新しく登録せず、制作担当者へご連絡ください。');
+    return;
+  }
+  const reservation = (adminData.reservations || []).find(row => row.code === code);
+  const name = String(reservation?.name || '').trim();
+  const tel = telKey(reservation?.tel || '');
+  if (!name || !tel) {
+    alert('お名前と電話番号を確認できません。最新の予定を読み込んでから、もう一度お試しください。');
+    return;
+  }
+  const draft = ['#ab-name', '#ab-tel', '#ab-menu', '#ab-memo', '#ab-price', '#ab-time'].some(selector => $(selector).value)
+    || ($('#ab-date').value && $('#ab-date').value !== toKey(new Date()))
+    || $('#ab-minutes').value !== $('#ab-minutes').defaultValue;
+  if (draft && !confirm('入力中の電話予約を破棄して、' + name + ' 様の新しい電話予約を入力しますか？日時・メニュー・金額・メモは引き継ぎません。')) return;
+
+  $$('input, select', $('#ab-fields')).forEach(field => { field.value = ''; });
+  phonePayload = null;
+  phonePriceNeedsInput = false;
+  $('#ab-menu-hint').textContent = '今回のメニューを選ぶか、所要時間・金額を入力してください。';
+  $('#ab-name').value = name;
+  $('#ab-tel').value = tel;
+  $('#admin-tabs [data-pane="reserve"]').click();
+  toggleAddBooking(true);
+  const notice = $('#ab-customer');
+  notice.textContent = name + ' 様（' + tel + '）のお名前・電話番号を名簿から入力しました。まだ予約は登録していません。今回の日時・施術内容をご確認ください。';
+  notice.hidden = false;
+  notice.focus({ preventScroll: true });
+  notice.scrollIntoView({ block: 'start' });
+}
+
+function renderPhonePresets() {
+  phonePresets = ['coupons', 'menus'].flatMap(target => (adminData[target] || [])
+    .filter(row => String(row['メニュー名'] || '').trim() && !/^(×|✕|false|off|0|非表示)$/i.test(String(row['表示'] ?? '').trim()))
+    .map(row => ({ ...row, group: target === 'coupons' ? 'おすすめ' : '単品' })));
+  $('#ab-menu-preset').innerHTML = '<option value="">メニュー・時間・金額を手入力</option>'
+    + phonePresets.map((row, index) => `<option value="${index}">${esc(row.group)}：${esc(row['メニュー名'])}／${esc(minutesText(row['所要(分)']))}／${esc(priceText(row['価格']))}</option>`).join('');
+}
+
+function applyPhonePreset() {
+  const choice = $('#ab-menu-preset').value;
+  if (choice === '') return;
+  const row = phonePresets[Number(choice)];
+  if (!row) return;
+  if (($('#ab-menu').value || $('#ab-price').value)
+      && !confirm('入力中のメニュー・所要時間・金額を、選んだメニューで置き換えますか？')) {
+    $('#ab-menu-preset').value = '';
+    return;
+  }
+  $('#ab-menu').value = row['メニュー名'];
+  const minutes = numberOf(row['所要(分)'], NaN);
+  $('#ab-minutes').value = Number.isInteger(minutes) && minutes >= 15 && minutes <= 480 ? String(minutes) : '';
+  const price = numberOf(row['価格'], NaN);
+  phonePriceNeedsInput = !Number.isFinite(price) || price < 0;
+  $('#ab-price').value = phonePriceNeedsInput ? '' : String(price);
+  $('#ab-menu-hint').textContent = phonePriceNeedsInput
+    ? '下限料金・見積り・未設定のメニューです。お客様と確認した今回の金額を入力してください。'
+    : '登録済みの時間と金額を入力しました。今回の施術内容に合わせて確認してください。';
+}
+
+function setPhoneBusy(busy) {
+  phoneSubmitting = busy;
+  $('#ab-fields').disabled = busy || phoneUncertain || phoneConflict;
+  $('#ab-save').disabled = busy || phoneConflict || (phoneUncertain && (!supportsPhoneRetry() || !phonePayload));
+  $('#ab-save').textContent = busy ? '確認中…' : phoneUncertain ? '同じ受付として再試行' : '台帳に入れる';
+  $('#ab-cancel').disabled = busy;
+  $('#ab-check').hidden = !phoneRequestId;
+  $('#ab-check').disabled = busy || !supportsPhoneRetry();
+}
+
+async function restorePhoneBooking() {
+  try {
+    const stored = localStorage.getItem(phoneRequestKey());
+    if (!stored) return;
+    if (!PHONE_REQUEST_ID_PATTERN.test(stored)) throw new Error('受付IDを確認できません。');
+    phoneRequestId = stored;
+    toggleAddBooking(true);
+    await checkPhoneResult();
+  } catch {
+    toggleAddBooking(true);
+    showAddError('前の電話受付の控えを読み取れません。新しく登録せず、制作担当者へご連絡ください。');
+    phoneUncertain = true;
+    setPhoneBusy(false);
+  }
+}
+
+async function checkPhoneResult() {
+  if (phoneSubmitting || !phoneRequestId) return;
+  if (!supportsPhoneRetry()) {
+    phoneUncertain = true;
+    setPhoneBusy(false);
+    showAddError('前の電話受付が未確認です。この接続先では結果確認ができないため、制作担当者に更新をご依頼ください。');
+    return;
+  }
+  setPhoneBusy(true);
+  try {
+    const result = await adminPost({ type: 'adminAddStatus', requestId: phoneRequestId });
+    if (!result.ok || result.requestId !== phoneRequestId) {
+      phoneUncertain = true;
+      showAddError('登録結果をまだ確認できません。同じ受付のまま、通信が戻ってから確認してください。');
+    } else if (result.found) {
+      if (phoneConflict && !confirm('以前の受付が登録済みです。今回入力した別の内容は登録されていません。入力欄を閉じ、以前の受付結果を確認しますか？')) return;
+      finishPhoneBooking(result);
+    } else {
+      phoneUncertain = false;
+      phoneConflict = false;
+      $('#ab-recovery').textContent = 'まだ登録を確認できません。再試行は同じ受付IDで行います。入力欄が空なら、前の電話受付の内容を入力し直してください。';
+    }
+  } finally { setPhoneBusy(false); }
 }
 
 /* 数字の欄に打たれた「４５００」「4,500円」「90分」を数にします。
@@ -853,13 +1275,16 @@ function numberOf(value, fallback) {
 }
 
 async function saveAddBooking(force = false) {
+  if (phoneSubmitting || phoneConflict) return;
+  if (phoneUncertain && (!supportsPhoneRetry() || !phonePayload)) {
+    showAddError('前の電話受付の結果を先に確認してください。'); return;
+  }
   const err = $('#ab-error');
-  const btn = $('#ab-save');
   err.style.display = 'none';
 
-  const minutes = numberOf($('#ab-minutes').value, 60);
+  const minutes = numberOf($('#ab-minutes').value, NaN);
   const price = numberOf($('#ab-price').value, 0);
-  const payload = {
+  const payload = phoneUncertain && phonePayload ? { ...phonePayload } : {
     type: 'adminAdd', force,
     date: $('#ab-date').value,
     time: $('#ab-time').value,
@@ -876,10 +1301,12 @@ async function saveAddBooking(force = false) {
   if (!payload.name) { showAddError('お名前をご入力ください。'); return; }
   /* 所要が0や負だと、終わりの時刻が始まりより前になります。
      押さえた気になっているのに枠が空いたままで、同じ時間にネット予約が入ります。 */
-  if (!(minutes >= 15 && minutes <= 480)) {
+  if (!Number.isInteger(payload.minutes) || !(payload.minutes >= 15 && payload.minutes <= 480)) {
     showAddError('所要（分）は15〜480の数字でご入力ください。'); return;
   }
   if (!(price >= 0)) { showAddError('金額は数字でご入力ください（空欄でもかまいません）。'); return; }
+  if (toMinutes(payload.time) + payload.minutes >= MINUTES_PER_DAY) { showAddError('日をまたがない終了時刻になるようにご確認ください。'); return; }
+  if (phonePriceNeedsInput && !$('#ab-price').value.trim()) { showAddError('今回の金額をご入力ください。下限料金を確定料金として登録しないでください。'); return; }
   /* スマホの日付は目盛りを回して選ぶので、指がすべると年や月ごと動きます。
      過ぎた日で入れると畳んだ過去側に入って一覧に出ないため、
      入っていないと思ってもう一度入れることになります。 */
@@ -888,38 +1315,84 @@ async function saveAddBooking(force = false) {
     return;
   }
 
-  btn.disabled = true;
-  btn.textContent = '登録中…';
-  const res = await adminPost(payload);
-  btn.disabled = false;
-  btn.textContent = '台帳に入れる';
-
-  /* 重なり・休業日は止めずに確認します。
-     店が承知のうえで入れることがあるためです。 */
-  if (!res.ok && res.confirm) {
-    if (confirm(res.error + '\n\n※ネット予約とは別に、店側の判断で入れられます。')) {
-      return saveAddBooking(true);
-    }
-    return;
+  if (supportsPhoneRetry()) {
+    try {
+      const stored = localStorage.getItem(phoneRequestKey());
+      if (stored && phoneRequestId !== stored) {
+        if (!PHONE_REQUEST_ID_PATTERN.test(stored)) throw new Error();
+        phoneRequestId = stored;
+        phoneConflict = true;
+        await checkPhoneResult();
+        return;
+      }
+      phoneRequestId ||= crypto.randomUUID();
+      localStorage.setItem(phoneRequestKey(), phoneRequestId);
+      if (localStorage.getItem(phoneRequestKey()) !== phoneRequestId) throw new Error();
+      payload.requestId = phoneRequestId;
+    } catch { showAddError('受付IDの控えを端末に保存できません。二重登録を防ぐため、登録を止めました。端末の保存設定を確認してください。'); return; }
   }
-  if (!res.ok) { showAddError(res.error || '登録できませんでした。'); return; }
+  phonePayload = { ...payload };
+  setPhoneBusy(true);
+  try {
+    let res = await adminPost(payload);
+    if (!res.ok && res.confirm) {
+      phoneUncertain = false;
+      if (!confirm(res.error + '\n\n※ネット予約とは別に、店側の判断で入れられます。')) return;
+      phonePayload = { ...payload, force: true };
+      res = await adminPost(phonePayload);
+    }
+    if (!res.ok) {
+      phoneConflict = !!res.requestConflict;
+      phoneUncertain = !!res.transportError || !supportsPhoneRetry();
+      showAddError(res.error || '登録できませんでした。');
+      return;
+    }
+    if (supportsPhoneRetry() && (res.requestId !== phoneRequestId || !res.reservation?.code)) {
+      phoneUncertain = true;
+      showAddError('登録結果を確認できませんでした。新しく登録せず、前の電話受付の結果を確認してください。');
+      return;
+    }
+    finishPhoneBooking(res);
+  } catch {
+    phoneUncertain = true;
+    showAddError('登録結果が不明です。繰り返し新しく登録せず、前の電話受付の結果を確認してください。');
+  } finally { setPhoneBusy(false); }
+}
 
-  // 画面上の一覧にもすぐ足す（読み込み直さなくても見えるように）
-  (adminData.reservations = adminData.reservations || []).push({
+function finishPhoneBooking(res) {
+  const payload = phonePayload || {};
+  const reservation = res.reservation || {
     code: res.code, date: payload.date, time: payload.time, endTime: res.endTime,
     menu: payload.menu || '（電話予約）', staffName: '', price: payload.price,
-    name: payload.name, tel: payload.tel, email: '', visit: '電話・来店',
+    name: payload.name, tel: payload.tel, email: '', visit: '電話・来店', source: '電話・来店',
     request: payload.memo, status: '予約確定'
-  });
+  };
+  if (phoneRequestId) {
+    try {
+      if (localStorage.getItem(phoneRequestKey()) === phoneRequestId) localStorage.removeItem(phoneRequestKey());
+    } catch { phoneUncertain = true; showAddError('予約は登録済みですが、端末の受付控えを消せません。新しい登録をせず制作担当者へご連絡ください。'); return; }
+  }
+  phoneRequestId = '';
+  phonePayload = null;
+  phoneUncertain = false;
+  phoneConflict = false;
+  const reservations = adminData.reservations ||= [];
+  const existing = reservations.findIndex(row => row.code === reservation.code);
+  if (existing < 0) reservations.push(reservation);
+  else reservations[existing] = reservation;
   /* 過ぎた日で入れたときは、過去を開いた状態にします。
      承知のうえで入れた（先週ぶんの記録など）のに一覧から消えると、
      入っていないと思ってもう一度入れることになります。 */
-  if (payload.date < toKey(new Date())) showPast = true;
+  if (reservation.date < toKey(new Date())) showPast = true;
   renderStats();
-  renderReservations();
+  const hasNotes = hasUnsavedReservationNotes();
+  if (!hasNotes) { renderReservations(); renderCustomers(); }
   renderAdminCalendar();
   ['#ab-name', '#ab-tel', '#ab-menu', '#ab-memo', '#ab-price'].forEach(id => { $(id).value = ''; });
-  toggleAddBooking(false);
+  phonePriceNeedsInput = false;
+  $('#ab-menu-hint').textContent = '選んだ内容は、登録前に確認・変更できます。';
+  $('#ab-customer').hidden = true;
+  $('#add-booking-form').hidden = true;
 
   /* 結果は一覧の手前に出して、その場まで画面を送ります。
      ページのいちばん下の保存メッセージは、予約カードの下に隠れていて、
@@ -927,13 +1400,29 @@ async function saveAddBooking(force = false) {
      もう一度押して同じ予約を二重に入れてしまいます。 */
   const note = $('#add-result');
   const filterDate = $('#filter-date').value;
-  const outOfView = (filterDate && filterDate !== payload.date)
+  const outOfView = (filterDate && filterDate !== reservation.date)
     || $('#filter-status').value === 'cancelled';
-  note.textContent = `台帳に入れました（予約番号 ${res.code}）。`
-    + `${formatDateJa(payload.date)} ${payload.time}〜 は、ネット予約から埋まります。`
+  note.textContent = `${res.duplicate ? '前の電話受付の登録結果を確認しました' : '台帳に入れました'}（予約番号 ${res.code}）。`
+    + `${formatDateJa(reservation.date)} ${reservation.time}〜。`
+    + (isCancelled(reservation) ? 'この予約はキャンセル済みです。復活・再登録はしていません。' : 'この時間はネット予約から埋まります。')
+    + (res.calendarWarning ? 'カレンダー連携は未確認です。予約台帳を正として制作担当者へお知らせください。' : '')
+    + (hasNotes ? '書きかけのメモを残しています。保存後に最新の予定を読み込んでください。' : '')
     + (outOfView ? '（いま絞り込み中のため、下の一覧には出ていません）' : '');
+  note.dataset.code = reservation.code;
+  note.dataset.reservationState = phoneResultState(reservation);
   note.hidden = false;
   note.scrollIntoView({ block: 'center' });
+}
+
+const phoneResultState = reservation => JSON.stringify([
+  reservation.date, reservation.time, reservation.endTime, isCancelled(reservation)
+]);
+
+function reconcilePhoneResult() {
+  const note = $('#add-result');
+  if (note.hidden || !note.dataset.code) return;
+  const reservation = (adminData.reservations || []).find(row => row.code === note.dataset.code);
+  if (!reservation || phoneResultState(reservation) !== note.dataset.reservationState) note.hidden = true;
 }
 
 function showAddError(message) {
@@ -971,15 +1460,15 @@ function buildCustomers() {
     const key = telKey(r.tel);
     if (!key) return;                       // 電話番号が無い行はまとめようがない
     if (!map.has(key)) {
-      map.set(key, { tel: r.tel, name: r.name, email: r.email, visits: [] });
+      map.set(key, { tel: r.tel, visits: [] });
     }
     const c = map.get(key);
     c.visits.push(r);
-    // お名前とメールは、いちばん新しい予約のものを採ります
-    if (!c.last || r.date > c.last) { c.last = r.date; c.name = r.name; c.email = r.email; }
   });
   return [...map.values()].map(c => {
     c.visits.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+    c.name = c.visits[0].name;
+    c.email = c.visits[0].email;
     /* 1つの番号を家族で使う店です（固定電話、親子でご来店）。
        いちばん新しいお名前だけ覚えていると、ご主人の履歴が奥様の名前で並び、
        前回のご要望を取り違えます。また、古いほうのお名前で探しても
@@ -991,19 +1480,35 @@ function buildCustomers() {
   });
 }
 
+function customerSchedule(visits, now = new Date()) {
+  const current = toKey(now) + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  const live = visits.filter(v => !isCancelled(v));
+  const past = live.filter(v => v.date + ' ' + (v.endTime || v.time) <= current)
+    .sort((left, right) => (right.date + right.time).localeCompare(left.date + left.time));
+  const upcoming = live.filter(v => v.date + ' ' + (v.endTime || v.time) > current)
+    .sort((left, right) => (left.date + left.time).localeCompare(right.date + right.time));
+  return { previous: past[0], next: upcoming[0], past, upcoming,
+    cancelled: visits.filter(isCancelled) };
+}
+
 function renderCustomers() {
+  if (!guardNoteFilters(renderedCustomerFilters)) return;
+  const expanded = $('#customer-rows .customer-record[open]')?.dataset.customerTel;
   const q = ($('#customer-search') || {}).value || '';
   const sort = ($('#customer-sort') || {}).value || 'recent';
+  renderedCustomerFilters = { '#customer-search': q, '#customer-sort': sort };
   const needle = searchKey(q);
   const digits = telKey(q);
 
-  let list = buildCustomers().filter(c => !needle
+  const customers = buildCustomers().map(customer => ({ ...customer, schedule: customerSchedule(customer.visits) }));
+  let list = customers.filter(c => !needle
     || c.names.some(n => searchKey(n).includes(needle))
     || (digits && telKey(c.tel).includes(digits)));
 
-  list.sort((a, b) => sort === 'visits' ? b.done.length - a.done.length
+  list.sort((a, b) => sort === 'visits' ? b.schedule.past.length - a.schedule.past.length
     : sort === 'name' ? String(a.name).localeCompare(String(b.name), 'ja')
-      : String(b.last).localeCompare(String(a.last)));
+      : String(b.schedule.previous?.date || '').localeCompare(String(a.schedule.previous?.date || '')));
+  $('#customer-count').textContent = `${list.length}件を表示 / 名簿 ${customers.length}件（電話番号ごと）`;
 
   if (!list.length) {
     $('#customer-rows').innerHTML = (adminData.reservations || []).length
@@ -1013,43 +1518,64 @@ function renderCustomers() {
   }
 
   $('#customer-rows').innerHTML = list.map(c => {
-    const latest = c.done[0] || c.visits[0];
+    const schedule = c.schedule;
+    const latest = schedule.previous;
     // 家族で番号を分け合っているときだけ、どなたのご来店かを添えます
     const shared = c.names.length > 1;
     const who = v => (shared ? esc(v.name || '（お名前なし）') + '／' : '');
     /* 来店回数は「キャンセルを除いた予約の数」です。
        実際に来られたかどうかまでは分からないので、そう書いておきます。 */
     return `
-      <article class="booking-card">
+      <article class="booking-card customer-card">
+        <details class="customer-record" data-customer-tel="${esc(telKey(c.tel))}"${expanded === telKey(c.tel) ? ' open' : ''}>
+          <summary class="customer-row" data-customer-history>
+            <span class="customer-row-name"><strong>${esc(c.name || '（お名前なし）')}</strong>${shared ? `<small>同じ番号：${esc(c.names.join('・'))}</small>` : ''}</span>
+            <span class="customer-row-tel">${esc(c.tel)}</span>
+            <span class="customer-row-date"><span class="customer-row-label">直近の過去予約</span>${latest ? formatDateJa(latest.date) : '過去予約なし'}</span>
+            <span class="customer-row-date"><span class="customer-row-label">次の予約</span>${schedule.next ? `${formatDateJa(schedule.next.date)} ${esc(schedule.next.time)}` : '次回予約なし'}</span>
+            <span class="customer-row-arrow" aria-hidden="true">›</span>
+          </summary>
+          <div class="customer-profile">
         <div class="booking-head">
-          <span class="customer-name">${esc(c.name || '（お名前なし）')}</span>
-          <span class="status-chip">${c.done.length}回</span>
+          <h3 class="customer-name">${shared ? '同じ電話番号を使う方の予約履歴' : `${esc(c.name || '（お名前なし）')}の予約履歴`}</h3>
+          <span class="status-chip">過去の予約 ${schedule.past.length}件</span>
         </div>
+        <p class="booking-detail">今後・施術中 ${schedule.upcoming.length}件 ／ キャンセル ${schedule.cancelled.length}件</p>
         ${shared ? `<p class="booking-detail">この番号でご予約：${esc(c.names.join('・'))} 様</p>` : ''}
         <p class="booking-detail">
           <a href="tel:${esc(telKey(c.tel))}" style="text-decoration:underline">${esc(c.tel)}</a>
           ${c.email ? `／ ${esc(c.email)}` : ''}
         </p>
-        <p class="booking-detail">ご予約の合計 ${yen(c.spent)}</p>
-        ${latest ? `<p class="booking-detail">前回：${formatDateJa(latest.date)}／${who(latest)}${
-          esc(latest.menu)}${isCancelled(latest) ? '（キャンセル）' : ''}</p>` : ''}
+        <div class="customer-booking-actions">
+          <p class="note">${shared ? '同じ電話番号の履歴です。予約する方を選んでください。' : 'お名前・電話番号を引き継いで、新しい電話予約を入力できます。'}日時・施術内容は今回分を確認します。</p>
+          ${c.names.map(name => `<button class="btn btn-outline btn-sm" type="button" data-customer-booking="${esc(c.visits.find(visit => String(visit.name || '').trim() === name).code)}">${esc(name)} 様の電話予約</button>`).join('')}
+          ${c.names.length ? '' : '<p class="note">お名前の控えがないため、予約一覧の「電話予約を入れる」から入力してください。</p>'}
+        </div>
+        <p class="booking-detail">予約金額の合計 ${yen(c.spent)}（今後の予約を含む・キャンセルを除く）</p>
+        ${latest ? `<p class="booking-detail">直近の過去予約：${formatDateJa(latest.date)}／${who(latest)}${esc(latest.menu)}（来店確認は未記録）</p>` : '<p class="booking-detail">過去の予約はまだありません。</p>'}
         ${/* 申し送りは「いちばん新しいご来店の回」に書きます。
               次にお会いするときに読むものなので、書く相手はその回だからです。
               古い回を直したくなったら、予約一覧のカードから直せます。 */''}
         ${latest ? noteEditorHtml(latest) : ''}
-        <details class="customer-history">
-          <summary>ご来店の履歴（${c.visits.length}件）</summary>
+        ${schedule.next ? `<p class="booking-detail">次の予約（施術中を含む）：${formatDateJa(schedule.next.date)} ${esc(schedule.next.time)}／${who(schedule.next)}${esc(schedule.next.menu)}</p>${noteEditorHtml(schedule.next)}` : '<p class="booking-detail">次の予約はまだありません。</p>'}
+        <details class="customer-history" open>
+          <summary>すべての予約を見る（${c.visits.length}件・キャンセルを含む）</summary>
           <ul>
             ${c.visits.map(v => `
               <li${isCancelled(v) ? ' class="is-cancelled"' : ''}>
                 <span class="hist-date">${formatDateJa(v.date)} ${esc(v.time)}</span>
-                <span class="hist-menu">${who(v)}${esc(v.menu)}${isCancelled(v) ? '（キャンセル）' : ''}</span>
+                <span class="hist-menu">${who(v)}${esc(v.menu)}（${isCancelled(v) ? 'キャンセル' : schedule.past.includes(v) ? '過去の予約' : '今後・施術中'}）</span>
+                <span class="hist-request">予約時のメール：${v.email ? esc(v.email) : '登録なし'}</span>
                 ${v.request ? `<span class="hist-request">ご要望：${esc(v.request)}</span>` : ''}
                 ${/* 過去の回のメモは読むだけにします。ここに入力欄を並べると、
                       履歴を開くたびに欄が何個も出てきて、前回の内容が読めません。 */''}
                 ${v.note ? `<span class="hist-note">メモ：${esc(v.note)}</span>` : ''}
+                <button class="btn btn-outline btn-sm" type="button" data-history-booking="${esc(v.code)}">予約の詳細・施術メモを開く</button>
               </li>`).join('')}
           </ul>
+        </details>
+        <button class="btn btn-outline btn-sm customer-close" type="button" data-customer-close>詳細を閉じて名簿に戻る</button>
+          </div>
         </details>
       </article>`;
   }).join('');
@@ -1562,7 +2088,7 @@ async function handleUpload(input) {
     text.dispatchEvent(new Event('input', { bubbles: true }));
     picker.querySelector('.image-preview').innerHTML = `<img src="${esc(url)}" alt="" />`;
     note.style.color = 'var(--ok)';
-    note.textContent = '写真を登録しました。保存を押すとサイトに出ます。';
+    note.textContent = '写真を登録しました。設定の保存後、公開ページへの反映は別途更新が必要です。';
   } catch (err) {
     note.style.color = 'var(--danger)';
     note.textContent = String(err.message || err);
@@ -1593,18 +2119,19 @@ function fieldFor(col, value, target, index) {
       </label>`;
   }
   // 価格は「4000〜」と書けるようにしたいので number にはしない
-  const type = (col === '通常価格' || col === '所要(分)') ? 'number'
+  const type = col === '通常価格' ? 'number'
     : col === '休業日' ? 'date'
       : (col === '開始' || col === '終了') ? 'time' : 'text';
   /* 休み方は上のラジオで選ばせるようになったので、
      ここで「空欄なら終日」と説明する必要はなくなりました。 */
   const hint = col === '開始' ? '例）14:00'
-    : col === '終了' ? '例）16:00' : '';
+    : col === '終了' ? '例）16:00'
+      : col === '所要(分)' ? '15〜480分の整数' : '';
   return `
     <label class="form-field"${mark} style="margin:0 0 10px;">
       <span style="display:block;font-size:12px;color:var(--muted);margin-bottom:5px;">${esc(col)}${
         hint ? `<small style="margin-left:8px;font-weight:400;">${esc(hint)}</small>` : ''}</span>
-      <input class="input" type="${type}" value="${esc(v)}"
+      <input class="input" type="${type}"${col === '所要(分)' ? ' inputmode="numeric"' : ''} value="${esc(v)}"
              data-target="${target}" data-index="${index}" data-col="${esc(col)}" />
     </label>`;
 }
@@ -1857,8 +2384,21 @@ function priceText(v) {
   return yen(n) + (/[〜~]/.test(half) ? '〜' : '');
 }
 function minutesText(v) {
-  const n = Number(toHalfWidth(String(v ?? '')).replace(/[^0-9]/g, ''));
-  return n ? `${n}分` : '所要未設定';
+  const minutes = bookableMinutes(v);
+  return minutes === null ? '所要時間を確認' : `${minutes}分`;
+}
+function bookableMinutes(value) {
+  const match = toHalfWidth(value).trim().match(/^(\d+)\s*分?$/);
+  const minutes = match ? Number(match[1]) : NaN;
+  return Number.isInteger(minutes) && minutes >= 15 && minutes <= 480 ? minutes : null;
+}
+function firstInvalidBookableMinutes(rows) {
+  return rows.findIndex(row => {
+    if (!String(row['メニュー名'] || '').trim()) return false;
+    const display = toHalfWidth(row['表示']).trim().toLowerCase();
+    if (['×', '✕', '✖', '✗', 'x', '非表示', '非公開', '休止', '停止', 'false', 'no', 'off', '0'].includes(display)) return false;
+    return bookableMinutes(row['所要(分)']) === null;
+  });
 }
 /* 名前が空のままの行。一覧から消すと、消えたと思って同じものを作り直します */
 const rowTitle = (target, row) =>
@@ -2006,6 +2546,9 @@ function updateDirty() {
   /* 店舗情報は見出しで畳んであるので、タブの点だけでは
      どの見出しの中を直したのかが分かりません。 */
   updateSettingSections();
+  const editSummary = $('#site-edit-tabs > summary');
+  const pending = $$('#site-edit-tabs .admin-tab-dirty').length;
+  if (editSummary) editSummary.textContent = pending ? `サイトの編集・設定（未保存 ${pending}項目）` : 'サイトの編集・設定';
 }
 
 /* 追加ボタンで作られる空の行 */
@@ -2197,29 +2740,68 @@ function renderReviews() {
 }
 
 /* ---------- 保存 ---------- */
+function showSaveError(target, message, rowIndex = -1) {
+  const error = $('#save-error');
+  error.textContent = message;
+  error.style.display = 'block';
+  if (rowIndex >= 0 && (target === 'menus' || target === 'coupons')) {
+    openRow[target] = rowIndex;
+    redraw(target);
+  }
+  const note = document.querySelector(`[data-note="${target}"]`);
+  if (note) {
+    note.textContent = message;
+    note.className = 'admin-savebar-note is-error';
+  }
+  if (rowIndex >= 0) {
+    const editor = document.querySelector(`[data-editor="${target}"]`);
+    if (editor) {
+      editor.scrollIntoView({ block: 'start' });
+      const field = editor.querySelector('[data-col="所要(分)"]');
+      if (field) field.focus();
+    }
+  }
+}
+
 async function save(target) {
+  if (pendingSaves.has(target)) return;
   const err = $('#save-error');
   const ok = $('#save-ok');
   err.style.display = 'none';
   ok.style.display = 'none';
 
   const btn = document.querySelector(`[data-save="${target}"]`);
-  btn.disabled = true;
-  btn.textContent = '保存中…';
-
   if (target === 'settings') collectWeekdays();
 
-  const payload = target === 'settings'
-    ? { type: 'adminSave', target, rows: edits.settings, stamp: stamps[target] }
-    : { type: 'adminSave', target, rows: edits[target], stamp: stamps[target] };
+  const submitted = JSON.parse(JSON.stringify(edits[target]));
+  const submittedRows = target === 'settings' ? [] : edits[target].slice();
+  if (target === 'menus' || target === 'coupons') {
+    const invalidIndex = firstInvalidBookableMinutes(submitted);
+    if (invalidIndex >= 0) {
+      showSaveError(target, '予約に出すメニューの' + (invalidIndex + 1)
+        + '件目の所要時間をご確認ください。15〜480分の整数を入力するか、表示を外してください。', invalidIndex);
+      return;
+    }
+  }
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+  const payload = { type: 'adminSave', target, rows: submitted, stamp: stamps[target] };
 
-  const res = await adminPost(payload);
-  btn.disabled = false;
-  btn.textContent = btn.dataset.label;
+  pendingSaves.add(target);
+  let res;
+  try {
+    res = await adminPost(payload);
+  } catch {
+    res = { ok: false, error: '通信に失敗しました。入力を残しています。' };
+  } finally {
+    pendingSaves.delete(target);
+    btn.disabled = false;
+    btn.textContent = btn.dataset.label;
+  }
 
   if (!res.ok) {
-    err.textContent = res.error || '保存に失敗しました。';
-    err.style.display = 'block';
+    showSaveError(target, res.error || '保存に失敗しました。',
+      res.invalidDuration && Number.isInteger(res.invalidRow) ? res.invalidRow : -1);
     // 別の端末で変更されていた場合は、読み込み直す手段をその場に出す
     if (res.stale) {
       err.insertAdjacentHTML('beforeend',
@@ -2229,21 +2811,39 @@ async function save(target) {
     }
     return;
   }
-  if (res.stamps) stamps = { ...res.stamps };
+  if (res.stamps && res.stamps[target] != null) stamps[target] = res.stamps[target];
   /* 休業日は予約一覧にも出しているので、保存したらそちらも描き直します。
      保存したのに予定表が前のままだと、保存できたのか分かりません。 */
   if (target === 'closed') {
-    adminData.closedDates = edits.closed.map(r => ({ ...r }));
+    adminData.closedDates = submitted;
     renderReservations();
+    renderAdminCalendar();
   }
-  ok.textContent = '保存しました。サイトに反映されています。';
+  if (target === 'menus' || target === 'coupons') adminData[target] = submitted.map(row => ({ ...row }));
+  ok.textContent = saveResultMessage(target);
   ok.style.display = 'block';
   /* ここが保存の折り返し地点です。いま画面にある内容を「保存済み」として覚え直し、
      一覧の「未保存」とタブの点を消します。消さないと、保存したのに
      まだ残っているように見えて、同じ内容をもう一度送ることになります。 */
-  markSaved(target);
-  savedNote[target] = '保存しました。サイトに反映されています。';
-  redraw(target);
+  if (target === 'settings') settingsBase = JSON.stringify(submitted);
+  else {
+    submittedRows.forEach((row, index) => rowBase.set(row, JSON.stringify(submitted[index])));
+    baseCount[target] = submittedRows.length;
+  }
+  savedNote[target] = saveResultMessage(target);
+  if (isDirty(target)) {
+    ok.textContent = '送信した内容を保存しました。その後の変更は未保存です。';
+    refreshList(target);
+    updateDirty();
+  } else redraw(target);
+}
+
+function saveResultMessage(target) {
+  if (target === 'closed') return '休業日を保存しました。予約の受付に反映されます。既存の予約は変更されません。';
+  if (target === 'menus' || target === 'coupons') return '予約用メニューを保存しました。公開ページの料金・写真は別途更新が必要です。';
+  if (target === 'settings') return '設定を保存しました。予約の受付条件は反映されます。公開ページの文章・写真は別途更新が必要です。';
+  if (target === 'reviews') return '旧口コミデータを保存しました。公開サイトやGoogle口コミには反映されません。';
+  return '写真の設定を保存しました。公開ページへの反映は別途更新が必要です。';
 }
 
 /* ---------- CSV ---------- */
@@ -2277,8 +2877,82 @@ function exportCsv() {
   URL.revokeObjectURL(url);
 }
 
+function showReservationFreshness() {
+  $('#reservation-freshness').textContent = `最終読込：${new Date().toLocaleString('ja-JP')}（自動更新ではありません）`;
+}
+
+function hasUnsavedReservationNotes() {
+  if (pendingNoteSaves.size) return true;
+  return $$('[data-note-box]').some(box => {
+    const input = box.querySelector('[data-note-input]');
+    return input.value.trim() !== input.defaultValue.trim();
+  });
+}
+
+function guardNoteFilters(previousValues) {
+  if (!hasUnsavedReservationNotes() && !activeChange) return true;
+  Object.entries(previousValues).forEach(([selector, value]) => {
+    const field = $(selector);
+    if (field) field.value = value;
+  });
+  alert(activeChange
+    ? '日時変更の入力中です。保存または閉じてから表示を切り替えてください。'
+    : '書きかけ、または保存中の施術メモがあります。保存を終えてから表示を切り替えてください。');
+  return false;
+}
+
+async function refreshReservations() {
+  const status = $('#reservation-freshness');
+  if (hasUnsavedReservationNotes() || activeChange) {
+    status.textContent = '編集中の予約を保存または閉じてから、予定を読み込んでください。';
+    return;
+  }
+  const button = $('#refresh-reservations');
+  button.disabled = true;
+  status.textContent = '最新の予定を読み込んでいます。';
+  try {
+    const result = await adminPost({ type: 'adminData' });
+    if (!result.ok) throw new Error('読み込み失敗');
+    if (hasUnsavedReservationNotes() || activeChange) {
+      status.textContent = '編集中の予約があるため更新を保留しました。保存後に読み込んでください。';
+      return;
+    }
+    adminData.reservations = result.reservations || [];
+    adminData.closedDates = result.closedDates || [];
+    renderStats();
+    renderReservations();
+    renderAdminCalendar();
+    renderCustomers();
+    renderNumbers();
+    showReservationFreshness();
+    return true;
+  } catch {
+    status.textContent = '最新の予定を取得できませんでした。表示中の予定は古い可能性があります。再度読み込んでください。';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function warnBeforeLeaving(event) {
+  if (!adminData || $('#dashboard').hidden) return;
+  const pending = Object.keys(edits).some(isDirty)
+    || pendingSaves.size || phoneSubmitting || phoneUncertain || phoneRequestId
+    || hasUnsavedReservationNotes() || activeChange || !$('#add-booking-form').hidden;
+  if (!pending) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
 /* ---------- 起動 ---------- */
 document.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('beforeunload', warnBeforeLeaving);
+  const savebarObserver = new ResizeObserver(entries => {
+    entries.forEach(({ target }) => {
+      target.closest('.admin-pane').style.setProperty('--admin-savebar-height', `${target.getBoundingClientRect().height}px`);
+    });
+  });
+  $$('.admin-savebar').forEach(bar => savebarObserver.observe(bar));
+  $('#refresh-reservations').addEventListener('click', refreshReservations);
   /* 受け口が入っていないとき。
      以前はここで入力欄とボタンを disabled にしていましたが、
      設置作業中の人が「文字が入れられない」で止まりました。
@@ -2312,13 +2986,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $$('[data-save]').forEach(b => { b.dataset.label = b.textContent; });
 
-  $('#gate-btn').addEventListener('click', login);
-  $('#passcode').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  if (!window.googleAdminEmbedded) {
+    $('#gate-btn').addEventListener('click', login);
+    $('#passcode').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  }
 
   // タブ切り替え
   $('#admin-tabs').addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
+    const editorTabs = $('#site-edit-tabs');
+    editorTabs.open = editorTabs.contains(tab);
+    document.body.classList.toggle('admin-edit-mode', editorTabs.open);
     $$('.tab', $('#admin-tabs')).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     $$('.admin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab.dataset.pane; });
     /* 数字は、店舗情報タブで入れた手数料率をそのまま使います。
@@ -2330,6 +3009,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // 入力の反映
   document.addEventListener('input', e => {
     const el = e.target;
+    if (el.matches('[data-note-input]')) {
+      const code = el.closest('[data-note-box]').dataset.noteBox;
+      $$(`[data-note-box="${CSS.escape(code)}"]`).forEach(noteBox => {
+        noteBox.querySelector('[data-note-input]').value = el.value;
+        noteBox.querySelector('[data-note-status]').textContent = '';
+      });
+      return;
+    }
     if (el.dataset.setting !== undefined) {
       edits.settings[el.dataset.setting] = el.value;
       updateDirty();
@@ -2398,12 +3085,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 行の追加・削除・保存
   document.addEventListener('click', async e => {
+    const mail = e.target.closest('[data-mail-code]');
+    if (mail) { focusBooking(mail.dataset.mailCode); return; }
     const past = e.target.closest('[data-toggle-past]');
-    if (past) { showPast = !showPast; renderReservations(); return; }
+    if (past) {
+      if (!guardNoteFilters(renderedReservationFilters)) return;
+      showPast = !showPast;
+      renderReservations();
+      return;
+    }
 
     // カレンダーのマス。その1件の詳細（一覧のカード）まで送ります
     const cal = e.target.closest('[data-cal-code]');
     if (cal) { focusBooking(cal.dataset.calCode); return; }
+
+    const customer = e.target.closest('[data-customer-history]');
+    if (customer) {
+      e.preventDefault();
+      const record = customer.closest('.customer-record');
+      if ($('#customer-rows .customer-record[open]') && !guardNoteFilters({})) return;
+      $$('.customer-record[open]').forEach(other => { if (other !== record) other.open = false; });
+      record.open = !record.open;
+      customer.focus({ preventScroll: true });
+      customer.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+
+    const closeCustomer = e.target.closest('[data-customer-close]');
+    if (closeCustomer) {
+      if (!guardNoteFilters({})) return;
+      const record = closeCustomer.closest('.customer-record');
+      record.open = false;
+      const summary = record.querySelector('[data-customer-history]');
+      summary.focus({ preventScroll: true });
+      summary.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+
+    const customerBooking = e.target.closest('[data-customer-booking]');
+    if (customerBooking) { startCustomerBooking(customerBooking.dataset.customerBooking); return; }
+
+    const booking = e.target.closest('[data-history-booking]');
+    if (booking) {
+      if (hasUnsavedReservationNotes()) {
+        alert('書きかけの施術メモを保存してから、予約の詳細を開いてください。');
+        return;
+      }
+      $('#admin-tabs [data-pane="reserve"]').click();
+      focusBooking(booking.dataset.historyBooking);
+      return;
+    }
 
     const cp = e.target.closest('[data-copy-url]');
     if (cp) { await copyUrl(cp); return; }
@@ -2459,7 +3190,7 @@ document.addEventListener('DOMContentLoaded', () => {
       /* 確かめずに消していました。指がすべって消えると、何が入っていたか
          思い出せません（説明や写真は打ち直せません）。 */
       if (!confirm(`${removeLabel(t, row)}\n\nこの行を削除します。よろしいですか？\n`
-          + '※「保存」を押すまで、サイトはまだ変わりません。')) return;
+          + '※削除は保存時に確定します。公開ページへの反映は別途更新が必要です。')) return;
       edits[t].splice(i, 1);
       if (openRow[t] !== undefined) openRow[t] = -1;
       redraw(t);
@@ -2472,8 +3203,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const nt = e.target.closest('[data-note-save]');
     if (nt) { await saveNote(nt); return; }
 
+    const change = e.target.closest('[data-admin-change]');
+    if (change) { openAdminChange(change); return; }
+    const changeSave = e.target.closest('[data-change-save]');
+    if (changeSave) { await saveAdminChange(changeSave); return; }
+    const changeCheck = e.target.closest('[data-change-check]');
+    if (changeCheck) { await checkAdminChange(changeCheck); return; }
+    if (e.target.closest('[data-change-close]')) { closeAdminChange(); return; }
+
     const cx = e.target.closest('[data-admin-cancel]');
     if (cx) {
+      if (activeChange) {
+        alert('日時変更の入力を閉じてからキャンセルしてください。');
+        return;
+      }
       const code = cx.dataset.adminCancel;
       if (!confirm(`予約番号 ${code} をキャンセル扱いにします。よろしいですか？`)) return;
       cx.disabled = true;
@@ -2489,12 +3232,20 @@ document.addEventListener('DOMContentLoaded', () => {
            何をすれば枠が空くのか分かりません。 */
         alert(res.deadline
           ? `予約番号 ${code} は、受付期限を過ぎているとして断られました。\n\n`
-            + '台帳（スプレッドシート）の「状態」欄をキャンセルにすると、この枠は空きます。\n'
-            + '※お客様へのキャンセルのお知らせは送られません。'
+            + 'キャンセルは完了していません。予約の受け口が古い可能性があります。制作担当者へご連絡ください。'
           : 'キャンセルできませんでした。' + (res.error ? '\n' + res.error : ''));
         return;
       }
-      await openDashboard();
+      r.status = 'キャンセル';
+      reconcilePhoneResult();
+      cx.textContent = 'キャンセル済み';
+      cx.closest('.booking-card').classList.add('is-cancelled');
+      renderStats();
+      renderAdminCalendar();
+      if (res.calendarWarning) {
+        alert('キャンセルは予約台帳に反映しましたが、カレンダー連携は未確認です。予約台帳を正として制作担当者へお知らせください。');
+      }
+      await refreshReservations();
     }
   });
 
@@ -2542,7 +3293,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const note = picker.querySelector('.image-picker-note');
     note.hidden = false;
     note.style.color = 'var(--ok)';
-    note.textContent = '既定の写真に戻しました。保存を押すとサイトに出ます。';
+    note.textContent = '既定の写真に戻しました。設定の保存後、公開ページへの反映は別途更新が必要です。';
   });
 
   document.addEventListener('click', e => {
@@ -2578,12 +3329,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#filter-date').addEventListener('change', onFilterChange);
+  $('#filter-today').addEventListener('click', showTodayReservations);
   $('#filter-status').addEventListener('change', onFilterChange);
   $('#customer-search').addEventListener('input', renderCustomers);
   $('#customer-sort').addEventListener('change', renderCustomers);
   $('#add-booking').addEventListener('click', () => toggleAddBooking($('#add-booking-form').hidden));
   $('#ab-cancel').addEventListener('click', () => toggleAddBooking(false));
   $('#ab-save').addEventListener('click', () => saveAddBooking(false));
+  $('#ab-check').addEventListener('click', checkPhoneResult);
+  $('#ab-menu-preset').addEventListener('change', applyPhonePreset);
   $('#filter-reset').addEventListener('click', () => {
     $('#filter-date').value = '';
     $('#filter-status').value = 'all';
@@ -2595,18 +3349,5 @@ document.addEventListener('DOMContentLoaded', () => {
      合鍵が期限切れ・失効していれば、いつもどおりパスワードを聞く画面のままにする。 */
   let saved = '';
   try { saved = localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { /* noop */ }
-  if (saved) {
-    adminToken = saved;
-    const message = $('#gate-message').textContent;
-    $('#gate-message').textContent = 'この端末は記憶されています。読み込み中…';
-    openDashboard().then(ok => {
-      if (ok) return;
-      // 合鍵が切れていた。捨てて、いつものパスワード入力に戻す
-      adminToken = '';
-      try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* noop */ }
-      $('#gate-message').textContent = message;
-      $('#gate-error').textContent = '記憶した端末の有効期限が切れました。もう一度パスワードを入力してください。';
-      $('#gate-error').style.display = 'block';
-    }).catch(() => { $('#gate-message').textContent = message; });
-  }
+  if (saved && !window.googleAdminEmbedded) restoreRememberedLogin(saved);
 });

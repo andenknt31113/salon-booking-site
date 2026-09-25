@@ -13,9 +13,11 @@ const create = page => {
     SALON: salon,
     fetch: async (_, options) => {
       calls.push(JSON.parse(options.body).type);
-      return { json: async () => ({ settings: { 店名: '管理画面の店名' }, closedDates: ['2026-09-08'] }) };
+      return { ok: true, json: async () => ({ ok: true, categories: [], coupons: [],
+        settings: { 店名: '管理画面の店名' }, closedDates: ['2026-09-08'] }) };
     },
     applySettings: settings => { salon.name = settings.店名; },
+    normalizeItem: item => item,
     Availability: { _blocks: new Map() },
     CustomEvent: class {},
     renderHeader() {}, renderFooter() {}, wireImageFallbacks() {},

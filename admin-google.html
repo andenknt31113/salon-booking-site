@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>店舗の管理 | ZER01</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/css/admin-portal.css" />
+  <script src="assets/js/data.js"></script>
+  <script type="module" src="assets/js/admin-portal.js"></script>
+</head>
+<body>
+  <main id="login-view">
+    <p class="eyebrow">ZER01 barber/lounge</p>
+    <h1>店舗の管理</h1>
+    <p>店主と制作担当者は、それぞれ自分のGoogleアカウントでログインしてください。</p>
+    <section class="panel" aria-labelledby="login-heading">
+      <h2 id="login-heading">Googleでログイン</h2>
+      <p id="login-status" role="status">接続を確認しています。</p>
+      <p id="login-error" role="alert" hidden></p>
+      <button id="google-login" type="button" disabled>Googleでログイン</button>
+      <p class="hint">管理権限のあるアカウントだけが台帳を開けます。お客様の予約にはGoogleログインは不要です。</p>
+    </section>
+    <p><a href="index.html">お客様向けサイトへ戻る</a></p>
+  </main>
+  <main id="management-view" hidden>
+    <header class="workspace-bar">
+      <strong>ZER01 店舗の管理</strong>
+      <div><span id="account-label"></span><button id="google-logout" type="button">ログアウト</button></div>
+    </header>
+    <iframe id="admin-frame" title="店舗の管理画面" sandbox="allow-scripts allow-same-origin allow-modals allow-downloads"></iframe>
+  </main>
+</body>
+</html>

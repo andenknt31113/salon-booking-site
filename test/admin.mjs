@@ -10,6 +10,7 @@
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const B = process.env.BASE || 'http://127.0.0.1:8820';
+const ADMIN_PATH = '/admin.html' + (process.env.ADMIN_DESIGN === 'a' ? '?design=a' : '');
 const PW = process.env.ADMIN_PW || 'test1234';
 const post = b => fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b) }).then(r => r.json());
 
@@ -58,13 +59,17 @@ async function newPhone(label) {
 const lastDialog = p => p.__dialogs[p.__dialogs.length - 1] || '';
 
 async function login(p) {
-  await p.goto(B + '/admin.html'); await p.waitForTimeout(900);
+  await p.goto(B + ADMIN_PATH); await p.waitForTimeout(900);
   await p.fill('#passcode', PW);
   await p.locator('#remember-me').setChecked(false);
   await p.click('#gate-btn'); await p.waitForTimeout(1500);
 }
 
-const tab = (p, name) => p.locator('#admin-tabs .tab', { hasText: name }).first().click();
+const tab = async (p, name) => {
+  const button = p.locator('#admin-tabs .tab', { hasText: name }).first();
+  if (!await button.isVisible()) await p.locator('#site-edit-tabs > summary').click();
+  await button.click();
+};
 
 /* 店舗情報タブは、34項目を見出しで畳んであります。
    店主も試験も、まず見出しを押して開くところから始めます。 */
@@ -135,6 +140,19 @@ await post({ type: 'cancel', password: PW, code: off1.code });
 
 const p = await newPhone('管理');
 await login(p);
+
+await group('【日常導線】別の日から今日へ戻る', async () => {
+  await p.fill('#filter-date', key(5));
+  await p.selectOption('#filter-status', 'cancelled');
+  await p.click('#filter-today');
+  check('日常導線', '今日の日付へ戻る', await p.inputValue('#filter-date'), key(0));
+  check('日常導線', 'すべての状態で確認する', await p.inputValue('#filter-status'), 'all');
+  check('日常導線', '今日のお客様が見える', (await p.locator('#admin-rows').innerText()).includes('本日 太郎'), true);
+  check('日常導線', '別の日のお客様は含まない', (await p.locator('#admin-rows').innerText()).includes('明日 次郎'), false);
+  await p.click('#filter-reset');
+  check('日常導線', '全日へ戻せる', await p.inputValue('#filter-date'), '');
+  await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+});
 
 /* ============================================================
    【管1】朝いちばんに開いて、今日の予定を読む
@@ -233,8 +251,10 @@ await group('【管4】同じ電話番号のご家族', async () => {
     /田中 太郎/.test(card) && /田中 花子/.test(card), true);
 
   const summary = p.locator('#customer-rows .customer-history summary').first();
-  if (await summary.count()) { await summary.click(); await p.waitForTimeout(300); }
+  await p.locator('[data-customer-history]').first().click();
+  check('管4', '名前を押すと予約履歴が開く', await summary.evaluate(el => el.parentElement.open), true);
   const hist = await textOf(p.locator('#customer-rows .customer-history').first());
+  check('管4', 'メール未登録の予約は未登録と分かる', /予約時のメール：登録なし/.test(hist), true);
   check('管4', '履歴のどれが誰のご来店か分かる',
     /田中 太郎/.test(hist) && /田中 花子/.test(hist), true);
   await p.fill('#customer-search', ''); await p.waitForTimeout(300);
@@ -247,7 +267,13 @@ await group('【管5】電話で受けたご予約を入れる', async () => {
   await tab(p, '予約一覧'); await p.waitForTimeout(300);
   await p.click('#add-booking'); await p.waitForTimeout(300);
   await p.fill('#ab-date', key(12));
-  await p.fill('#ab-time', '10:00');
+  await p.selectOption('#ab-time', '10:00');
+  const times = await p.locator('#ab-time option').evaluateAll(options => options.map(option => option.value).filter(Boolean));
+  check('管5', '開始時刻は1日分の10分刻み', times.length, 144);
+  check('管5', '1分刻みの候補が混じっていない', times.every(time => Number(time.split(':')[1]) % 10 === 0), true);
+  await p.selectOption('#ab-time', '10:10');
+  check('管5', '10分単位の時刻を選択できる', await p.inputValue('#ab-time'), '10:10');
+  await p.selectOption('#ab-time', '10:00');
   await p.fill('#ab-name', '電話 花子');
   check('管5', '電話番号を全角で打てる', await fillLoose(p, '#ab-tel', '０９０５５５５６６６６'), true);
   check('管5', '金額を全角で打てる', await fillLoose(p, '#ab-price', '４５００'), true);
@@ -270,7 +296,7 @@ await group('【管6】電話予約の打ち間違い', async () => {
   // 日付をスマホの目盛りで回して、去年に飛んでしまった
   await p.click('#add-booking'); await p.waitForTimeout(300);
   await p.fill('#ab-date', key(-40));
-  await p.fill('#ab-time', '10:00');
+  await p.selectOption('#ab-time', '10:00');
   await p.fill('#ab-name', '打ち間違い 太郎');
   p.__answer = 'dismiss';
   await p.click('#ab-save'); await p.waitForTimeout(1000);
@@ -307,7 +333,7 @@ await group('【管6】電話予約の打ち間違い', async () => {
   await p.fill('#filter-date', key(0)); await p.waitForTimeout(300);
   await p.click('#add-booking'); await p.waitForTimeout(300);
   await p.fill('#ab-date', key(14));
-  await p.fill('#ab-time', '10:00');
+  await p.selectOption('#ab-time', '10:00');
   await p.fill('#ab-name', '別の日 次郎');
   await p.click('#ab-save'); await p.waitForTimeout(1400);
   const msg = await textOf(p.locator('#add-result'));
@@ -322,10 +348,8 @@ await group('【管7】お客様から当日キャンセルの電話が入る', 
   await p.fill('#filter-date', key(0)); await p.waitForTimeout(400);
   p.__answer = 'accept';
   await p.locator('[data-admin-cancel]').first().click(); await p.waitForTimeout(1400);
-  const told = lastDialog(p);
-  console.log('   お知らせ:', told.replace(/\n/g, ' '));
-  check('管7', '断られたとき、店として何をすればよいか分かる',
-    /台帳|スプレッドシート|状態/.test(told), true);
+  check('管7', '店は当日でもキャンセルできる',
+    await p.locator('#admin-rows .status-chip.is-cancelled').count(), 1);
 
   // 先の予約は、店からキャンセルできる
   await p.fill('#filter-date', key(7)); await p.waitForTimeout(400);
@@ -348,7 +372,9 @@ await group('【管8】キャンセルは通ったが、読み直しで通信が
   p.__answer = 'accept';
   await p.locator('[data-admin-cancel]').first().click(); await p.waitForTimeout(1600);
   check('管8', '読み直せなかったことを黙っていない',
-    p.__dialogs.length >= 2 && /読み込|通信/.test(lastDialog(p)), true);
+    /取得できませんでした.*古い可能性/.test(await textOf(p.locator('#reservation-freshness'))), true);
+  check('管8', '読み直し失敗でも確定したキャンセルは表示する',
+    /キャンセル済み/.test(await textOf(p.locator('[data-admin-cancel]').first())), true);
   await p.unroute('**/exec');
   await p.click('#filter-reset'); await p.waitForTimeout(300);
 });
@@ -393,6 +419,7 @@ await group('【管10】片手のスマホで押せるか', async () => {
   await tab(p, '予約一覧'); await p.waitForTimeout(200);
   p.__dialogs.length = 0;
   p.__answer = 'dismiss';
+  await p.locator('#site-edit-tabs > summary').click();
   await p.click('#forget-device'); await p.waitForTimeout(600);
   check('管10', '記憶を消す前に確認する', /記憶|パスワード/.test(lastDialog(p)), true);
   check('管10', 'やめれば画面はそのまま', await p.locator('#dashboard').isVisible(), true);
@@ -807,7 +834,7 @@ await group('管16 受け口が読めていないとき', async () => {
     const body = (await res.text()).replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
     await r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
   });
-  await p.goto(B + '/admin.html'); await p.waitForTimeout(900);
+  await p.goto(B + ADMIN_PATH); await p.waitForTimeout(900);
 
   check('管16', 'パスワード欄は入力できる（理由が分からないまま固まらない）',
     await p.locator('#passcode').isDisabled(), false);
@@ -1013,6 +1040,8 @@ await group('管20 店舗情報タブから、目的の欄にたどり着ける�
    店主には埋められず、永久に空のままになります。
    ============================================================ */
 await group('管21 事業者の情報を店主が埋められる', async () => {
+  const v = await newPhone('管21-お客様');
+  const published = await visitorText(v, 'privacy.html');
   const p = await newPhone('管21');
   await login(p);
   await openSettingGroup(p, '事業者の情報');
@@ -1028,13 +1057,11 @@ await group('管21 事業者の情報を店主が埋められる', async () => {
   check('管21', '事業者名がシートに入る', saved['事業者名'], 'ゼロウーノ理容室');
   check('管21', '制定日がシートに入る', saved['プライバシーポリシー制定日'], '2026年9月1日');
 
-  // お客様が見るページに、実際に出ること
-  const v = await newPhone('管21-お客様');
   const text = await visitorText(v, 'privacy.html');
-  check('管21', 'プライバシーポリシーに事業者名が出る', /ゼロウーノ理容室/.test(text), true);
-  check('管21', '代表者名も出る', /山田 太郎/.test(text), true);
-  check('管21', '問い合わせ先も出る', /info@example\.com/.test(text), true);
-  check('管21', '制定日が「準備中」から変わる', /制定日：2026年9月1日/.test(text), true);
+  check('管21', '保存だけで公開済みのポリシーを差し替えない', text, published);
+  check('管21', '代表者名の保存は維持する', saved['代表者名'], '山田 太郎');
+  check('管21', '問い合わせ先の保存は維持する', saved['問い合わせ先メール'], 'info@example.com');
+  check('管21', '公開ページは別途更新が必要と案内する', /公開ページ.*自動反映されません/.test(await p.locator('main').innerText()), true);
   await v.context().close();
 
   await p.context().close();
@@ -1057,10 +1084,10 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
 
   const p = await newPhone('管22');
   await login(p);
-  await openSettingGroup(p, 'サイトの公開');
+  await openSettingGroup(p, 'ネット予約の受付');
 
   const sw = p.locator('[data-setting="準備中の帯"]');
-  check('管22', '公開スイッチが管理ページにある', await sw.count(), 1);
+  check('管22', 'ネット予約の受付設定が管理ページにある', await sw.count(), 1);
   /* 「はい」「オン」「TRUE」と書かれるたびに読み方が増えるので、打たせない */
   check('管22', '打たせずに選ばせている',
     await sw.evaluate(el => el.tagName.toLowerCase()), 'select');
@@ -1073,15 +1100,31 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
   await p.waitForTimeout(300);
   const saved = await saveSettings(p);
   check('管22', '「出さない」がシートに入る', saved['準備中の帯'], '出さない');
-  check('管22', '帯が消える', /準備中/.test(await visitorText(v, 'mypage.html')), false);
+  check('管22', 'サイト側の承認前は帯が消えない',
+    /準備中/.test(await visitorText(v, 'mypage.html')), true);
+
+  const approved = await newPhone('管22-受付承認後');
+  await approved.context().route('**/assets/js/data.js', async route => {
+    const response = await route.fetch();
+    const original = await response.text();
+    if (!original.includes('bookingLaunchApproved: false,') || !original.includes('draft: true,')) {
+      throw new Error('受付開始の試験設定が見つかりません');
+    }
+    await route.fulfill({ response, body: original
+      .replace('bookingLaunchApproved: false,', 'bookingLaunchApproved: true,')
+      .replace('draft: true,', 'draft: false,') });
+  });
+  check('管22', 'サイト側の承認後に帯が消える',
+    /準備中/.test(await visitorText(approved, 'mypage.html')), false);
 
   // 戻せること。文言も変えられること
   await sw.selectOption('出す');
   await p.locator('[data-setting="準備中の文言"]').fill('9月1日まで改装のためお休みします');
   await saveSettings(p);
-  const back = await visitorText(v, 'mypage.html');
+  const back = await visitorText(approved, 'mypage.html');
   check('管22', '「出す」に戻すと帯も戻る', /改装のためお休み/.test(back), true);
 
+  await approved.context().close();
   await v.context().close();
   await p.context().close();
   await post({ type: 'reset' });
@@ -1116,6 +1159,22 @@ await group('管23 店舗情報とスタッフ紹介を書き換えられる', a
     /テスト条件です/.test(String(saved['こだわり条件'])), true);
 
   const v = await newPhone('管23-お客様');
+  const beforePublication = await visitorText(v, 'index.html');
+  check('管23', '保存だけで公開データを変更しない', /引越しました2-2-2/.test(beforePublication), false);
+  const publication = {
+    address: saved['住所'], access: saved['アクセス'], payment: saved['支払い方法'], seats: saved['席数'],
+    features: String(saved['こだわり条件']).split('\n')
+  };
+  const staffPublication = {
+    years: Number(saved['スタッフの経験年数']), message: saved['スタッフの紹介文'],
+    tags: String(saved['スタッフの得意分野']).split('\n')
+  };
+  await v.route('**/assets/js/data.js', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: await response.text()
+      + `\nObject.assign(SALON, ${JSON.stringify(publication)});`
+      + `\nObject.assign(SALON.staff[0], ${JSON.stringify(staffPublication)});` });
+  });
   const text = await visitorText(v, 'index.html');
   check('管23', '新しい住所がサイトに出る', /引越しました2-2-2/.test(text), true);
   check('管23', '新しいアクセスが出る', /テスト駅から徒歩3分/.test(text), true);
@@ -1128,8 +1187,9 @@ await group('管23 店舗情報とスタッフ紹介を書き換えられる', a
   /* 消したいときは空欄。空欄にできないと、いちど入れた案内を消せません。 */
   await openSettingGroup(p, '店内・お支払い');
   await p.locator('[data-setting="支払い方法"]').fill('');
-  await saveSettings(p);
-  check('管23', '空欄にすれば、その項目はサイトから消える',
+  const cleared = await saveSettings(p);
+  publication.payment = cleared['支払い方法'];
+  check('管23', '空欄を公開データへ反映すれば、その項目はサイトから消える',
     /PayPay/.test(await visitorText(v, 'index.html')), false);
 
   await v.context().close();
@@ -1203,6 +1263,15 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
     await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
 
   const v = await newPhone('管25-お客様');
+  const publishedInput = {
+    description: long, address: noBreak,
+    features: ['<script>alert(1)</script>', '＆＜＞"\'', '★'.repeat(200)]
+  };
+  await v.route('**/assets/js/data.js', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: await response.text()
+      + `\nObject.assign(SALON, ${JSON.stringify(publishedInput)});` });
+  });
   const text = await visitorText(v, 'index.html');
   check('管25', 'お客様の画面が出る', text.length > 200, true);
   check('管25', '全角で打った経験年数も読める', /経験6年/.test(text), true);
@@ -1452,6 +1521,8 @@ await group('管29 施術メモ（次回への申し送り）', async () => {
      片方だけ直ると、タブを切り替えた先に古い中身が残り、
      どちらが本当なのか店主には分かりません。 */
   await tab(p, 'お客様'); await p.waitForTimeout(400);
+  await p.fill('#customer-search', 'メモ 一郎');
+  await p.locator('[data-customer-history]').first().click();
   const ctext = await textOf(p.locator('#customer-rows'));
   check('管29', 'お客様タブでも同じ申し送りが読める', ctext.includes(MEMO), true);
   check('管29', '書いたあとは「直す」に変わる', ctext.includes('申し送りを直す'), true);
@@ -1592,7 +1663,7 @@ await group('管31 休業日を日を押すだけで入り切りする', async (
     /1件/.test(await textOf(p.locator(`[data-ccal="${busy}"]`))), true);
 
   // ---- 空いている日を押す ----
-  const free = key(6);
+  const free = key(5).slice(0, 7) === busy.slice(0, 7) ? key(5) : key(2);
   const before = await p.locator('#closed-rows .booking-card').count();
   await p.locator(`[data-ccal="${free}"]`).click(); await p.waitForTimeout(500);
   check('管31', '押すと終日休みになる',

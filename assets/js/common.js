@@ -6,7 +6,8 @@
 /* ---------- 短縮セレクタ ---------- */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-SALON.draft = SALON.draft || !SALON.bookingLaunchApproved;
+const BOOKING_LAUNCH_READY = SALON.bookingLaunchApproved === true && SALON.draft === false;
+SALON.draft = !BOOKING_LAUNCH_READY;
 
 /* ---------- フォーマット ---------- */
 const yen = n => '¥' + Number(n).toLocaleString('ja-JP');
@@ -645,7 +646,15 @@ const Remote = {
           body: JSON.stringify({ type: 'availability' })
         });
         const data = await res.json();
-        if (!res.ok || !data || data.ok !== true || !Array.isArray(data.booked)) {
+        const validSlot = slot => slot && typeof slot === 'object'
+          && typeof slot.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(slot.date)
+          && !Number.isNaN(Date.parse(`${slot.date}T12:00:00Z`))
+          && new Date(`${slot.date}T12:00:00Z`).toISOString().slice(0, 10) === slot.date
+          && typeof slot.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(slot.time)
+          && Number.isInteger(slot.minutes) && slot.minutes > 0 && slot.minutes <= 24 * 60
+          && (slot.staffId === null || typeof slot.staffId === 'string');
+        if (!res.ok || !data || data.ok !== true || !Array.isArray(data.booked)
+            || !data.booked.every(validSlot)) {
           throw new Error('空席状況の応答を確認できませんでした。');
         }
         this.booked = data.booked;
@@ -726,12 +735,6 @@ const Catalog = {
   loading: null,
   source: 'local',   // 'local' = data.js / 'sheet' = スプレッドシート
 
-  /* 予約ページでは pages.js と reserve.js の両方がこれを呼びます。
-     取得中の呼び出しに 'local' を返してしまうと、負けたほうは
-     「シートではなかった」と判断して描き直しを飛ばします。
-     すると SALON の中身はシート由来なのに、画面には data.js 由来の
-     ボタンが並んだままになり、選んでも合計に入らない状態になります。
-     取得中は同じ約束を返して、全員に同じ結果を渡します。 */
   load() {
     if (STATIC_CATALOG_PAGES.has(document.body.dataset.page)) {
       this.loaded = true;
@@ -756,21 +759,23 @@ const Catalog = {
         body: JSON.stringify({ type: 'menu' })
       });
       const data = await res.json();
+      if (!res.ok || !data || data.ok !== true
+          || !Array.isArray(data.categories) || !Array.isArray(data.coupons)
+          || !Array.isArray(data.closedDates) || !data.settings
+          || typeof data.settings !== 'object' || Array.isArray(data.settings)) {
+        throw new Error('メニューと受付条件の応答を確認できませんでした。');
+      }
 
-      // 中身があるときだけ差し替える（空のシートで消えてしまわないように）
       if (Array.isArray(data.categories)) {
         SALON.menuCategories = data.categories.map(c => ({
           ...c, items: (c.items || []).map(normalizeItem)
         }));
-        this.source = 'sheet';
       }
       if (Array.isArray(data.coupons)) {
         SALON.coupons = data.coupons.map(normalizeItem);
-        this.source = 'sheet';
       }
       if (Array.isArray(data.styles) && data.styles.length) {
         SALON.styles = data.styles.map(x => ({ ...x, image: driveImageUrl(x.image) }));
-        this.source = 'sheet';
       }
       /* 口コミ。評価の数値はここから計算します。
          このサイトに実際に届いた声だけなので、掲載しても問題ありません。
@@ -779,7 +784,6 @@ const Catalog = {
         SALON.reviews = data.reviews;
         SALON.reviewCount = data.reviews.length;
         SALON.rating = data.reviews.reduce((sum, r) => sum + (Number(r.score) || 0), 0) / data.reviews.length;
-        this.source = 'sheet';
       }
       // 休業日はシートを正とする（空なら休みなし、という指定も尊重する）
       if (Array.isArray(data.closedDates)) {
@@ -790,13 +794,6 @@ const Catalog = {
       // ヘッダー・フッターはこれより先に描かれているため、描き直す。
       if (data.settings) {
         applySettings(data.settings);
-        /* 設定シートには、紹介文・住所・こだわり条件・スタッフ紹介まで入っています。
-           これらを描いているのは各ページ側で、描き直すかどうかは、この
-           load() が返す値で決めています。メニューの行が1件も無い店（全部
-           非表示にした、まだ入れていない）では 'local' のままになり、
-           店主が書き換えた住所が画面に出ないままになります。
-           設定が届いた時点で、シートから来たものがあるとみなします。 */
-        this.source = 'sheet';
         renderHeader();
         renderFooter();
         wireImageFallbacks();
@@ -805,8 +802,9 @@ const Catalog = {
            ここから受け取って描き直します（privacy.js）。 */
         document.dispatchEvent(new CustomEvent('salon:settings'));
       }
+      this.source = 'sheet';
     } catch (e) {
-      console.warn('メニューを取得できませんでした。掲載中の内容で表示します。', e);
+      console.warn('メニューと受付条件を確認できませんでした。', e);
     }
     return this.source;
   }
@@ -999,16 +997,18 @@ function applySettings(st) {
   SALON.business.cancelDeadline = rule;
 
   /* ---- 「準備中」の帯 ----
-     サイト側の受付開始承認と設定シートの両方がそろうまで表示する。
-     読めない書き方はそのまま（勝手に公開も、勝手に非公開もしない）。 */
+     サイト側の受付開始承認・準備中解除と設定シートの解除がそろうまで表示する。
+     設定が欠ける・読めない場合は受付を始めない。 */
+  let sheetAllowsBooking = false;
   if (st['準備中の帯'] !== undefined) {
     const v = toHalfWidth(String(st['準備中の帯'])).trim().toLowerCase();
     // 「表示しない」は「表示」で始まるので、出さない側から先に見ます
-    if (/^(出さない|表示しない|しない|いいえ|false|off|no|×|x)/.test(v)) SALON.draft = false;
-    else if (/^(出す|表示|する|はい|true|on|yes|○|o)/.test(v)) SALON.draft = true;
-    else if (v) console.warn(`設定シートの「準備中の帯」は「出す」か「出さない」で入力してください（${v}）。`);
+    if (/^(出さない|表示しない|しない|いいえ|false|off|no|×|x)/.test(v)) sheetAllowsBooking = true;
+    else if (v && !/^(出す|表示|する|はい|true|on|yes|○|o)/.test(v)) {
+      console.warn(`設定シートの「準備中の帯」は「出す」か「出さない」で入力してください（${v}）。`);
+    }
   }
-  if (!SALON.bookingLaunchApproved) SALON.draft = true;
+  SALON.draft = !BOOKING_LAUNCH_READY || !sheetAllowsBooking;
   /* 文言だけを空にしても帯は消えません（消すのは上の「準備中の帯」です）。
      空で上書きすると、店が書いていない当たり障りのない一文が出てしまうので、
      掲載中の文言を残します。 */
@@ -1256,11 +1256,12 @@ function wireImageFallbacks(root = document) {
    毎朝いちばんに見たい「今日の予約」が、そのぶん下に押し出されます。
    店名だけ小さく出して、あとは作業のための場所にします。 */
 function renderAdminHeader(host) {
+  const isDesignA = document.documentElement.dataset.adminDesign === 'a';
   host.innerHTML = `
     <header class="admin-bar">
       <span class="admin-bar-name">${esc(SALON.name)}</span>
       <span class="admin-bar-label">管理ページ</span>
-      <a class="admin-bar-link" href="index.html">サイトを見る</a>
+      <a class="admin-bar-link" href="${isDesignA ? 'design-a.html' : 'index.html'}">${isDesignA ? 'A案のサイトを見る' : 'サイトを見る'}</a>
     </header>`;
 }
 
@@ -1373,7 +1374,7 @@ function stickyCta() {
   return `
     <div class="sp-cta">
       ${SALON.tel ? `<a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>` : ''}
-      <a class="btn btn-primary" href="reserve.html">${SALON.draft ? '予約について' : '24時間ネット予約'}</a>
+      <a class="btn btn-primary" href="reserve.html">${SALON.draft ? '予約について' : '空席・予約'}</a>
     </div>`;
 }
 
@@ -1402,10 +1403,15 @@ function injectStructuredData() {
       addressLocality: '龍ケ崎市',
       streetAddress: SALON.address.replace(/^茨城県龍ケ崎市/, '')
     },
-    openingHours: `Mo-Su ${b.openTime}-${b.closeTime}`,
     url: location.origin + location.pathname.replace(/index\.html$/, ''),
     image: location.origin + location.pathname.replace(/index\.html$/, '') + 'assets/ogp.png'
   };
+
+  if (Array.isArray(b.closedWeekdays) && b.closedWeekdays.length === 0
+      && Array.isArray(b.closedDates) && b.closedDates.length === 0
+      && !String(b.closedNote || '').includes('不定休')) {
+    data.openingHours = `Mo-Su ${b.openTime}-${b.closeTime}`;
+  }
 
   if (SALON.tel) data.telephone = SALON.tel;
   if (prices.length) {

@@ -34,7 +34,8 @@ const props = {};
 
 function makeSheet(rows) {
   const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
-                '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','ご要望','状態','カレンダーID'];
+                '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','予約の入口','ご要望',
+                '状態','カレンダーID','施術メモ','電話受付ID','電話受付内容','店舗メール状態','お客様メール状態'];
   const data = rows.map(r => HEAD.map(h => r[h] !== undefined ? r[h] : ''));
   const all = () => [HEAD.slice()].concat(data);      // 本物と同じで1行目は見出し
   return {
@@ -50,6 +51,7 @@ function makeSheet(rows) {
       setNote: () => {}, setValues: () => {}, clearContent: () => {}
     }),
     setFrozenRows: () => {}, setColumnWidth: () => {},
+    getParent: () => ({ getSheetByName: () => null }),
     _data: data, _HEAD: HEAD
   };
 }
@@ -197,6 +199,9 @@ function inspect(label, messages) {
   const toCustomer = withLine.sent.find(m => m.宛先 === 'v@example.com');
   if (!toCustomer || !toCustomer.本文.includes('https://lin.ee/testtest')) {
     problems.push('6. LINEのURLを入れたのに、確認メールに友だち追加の案内が入っていない');
+  }
+  if (toCustomer && /前日のリマインド|ワンタップ/.test(toCustomer.本文)) {
+    problems.push('6. 友だち追加だけで未実装のLINE通知・予約操作ができると案内している');
   }
 
   const without = run('doReserve_', makeSheet([]), payload);

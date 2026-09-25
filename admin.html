@@ -6,11 +6,35 @@
   <meta name="theme-color" content="#F1ECE0" />
   <meta name="robots" content="noindex, nofollow" />
   <title>管理ページ</title>
+  <script>
+    if (location.protocol === 'https:' && window.top === window) {
+      location.replace(new URL('admin-google.html', location.href));
+    }
+  </script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/admin-design.css" />
+  <script src="assets/js/admin-design.js"></script>
 </head>
 <body data-page="admin">
   <div id="site-header"></div>
+
+  <aside class="admin-design-review" aria-label="管理画面のデザイン比較">
+    <div class="container">
+      <div class="admin-design-choices" role="group" aria-label="管理画面の見た目">
+        <span>管理画面の比較</span>
+        <button type="button" data-admin-design-choice="current" aria-pressed="true">従来版</button>
+        <button type="button" data-admin-design-choice="a" aria-pressed="false">A案</button>
+        <a href="design-a.html">A案のサイトを見る ↗</a>
+      </div>
+      <p>見た目だけを切り替えます。ログイン後の登録・保存は、どちらも同じ台帳に反映されます。</p>
+      <details>
+        <summary>何が変わった？</summary>
+        <p>A案は左に作業メニュー、右に作業内容を配置します。スマホでは作業メニューが上に並びます。名簿は名前の行から履歴を開く形です。お客様の名前や予約データは変更していません。</p>
+        <p>「お客様」→名前の行→「○○様の電話予約」で、選んだ方のお名前・電話番号を入力できます。日時とメニューを確認して「台帳に入れる」を押すまでは登録しません。この機能は従来版でも使えます。</p>
+      </details>
+    </div>
+  </aside>
 
   <main>
     <div class="page-head">
@@ -18,8 +42,15 @@
         <nav class="breadcrumb" aria-label="パンくず">
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>管理ページ</span>
         </nav>
-        <h1>管理ページ</h1>
-        <p>メニュー・写真・休業日・店舗情報を、この画面から変更できます。</p>
+        <h1><span class="admin-current-only">管理ページ</span><span class="admin-a-only">店舗の管理</span></h1>
+        <p>予約・休業日を管理できます。公開ページの更新は制作担当者へご依頼ください。</p>
+        <details class="admin-site-edit">
+          <summary>使う順番・困ったとき</summary>
+          <p>営業前は「最新の予定を読み込む」→「今日の予約」。電話を受けたら「電話予約を入れる」、前回の内容は「お客様」、お休みは「休業日」から確認できます。</p>
+          <p>保存や登録に失敗したように見えても、繰り返し登録せず、最新の台帳に入っているか確認してください。電話予約ではお客様へメールを送りません。</p>
+          <p>予定を読み込めないときは、表示中の空き時間で予約を確約しないでください。希望日時と連絡先を仮受付の控えに残し、台帳を確認できてから確定をお伝えします。</p>
+          <p>ログインできない場合は何度も試さず、制作担当者へ連絡してください。パスワードやお客様の情報を公開ページ・共有画像へ載せないでください。</p>
+        </details>
       </div>
     </div>
 
@@ -33,7 +64,7 @@
         <div class="form-field">
           <label for="passcode">パスワード</label>
           <input class="input" type="password" id="passcode" autocomplete="current-password" />
-          <p class="field-error" id="gate-error"></p>
+          <p class="field-error" id="gate-error" role="alert"></p>
         </div>
         <label class="checkbox-line" style="margin-bottom:14px;">
           <input type="checkbox" id="remember-me" checked />
@@ -51,13 +82,27 @@
     <section class="section" id="dashboard" hidden>
       <div class="container">
 
+        <details id="booking-notifications" class="admin-site-edit" data-poll-ms="60000">
+          <summary><span aria-hidden="true">🔔</span> 予約の通知 <span id="notification-count" role="status">未読0件</span></summary>
+          <p>この画面を開いている間、1分ごとに変更を確認します。予定表と書きかけの内容は自動で書き換えません。通知はこの画面を開いてからの差分で、閉じると消えます。</p>
+          <p id="notification-status" role="status"></p>
+          <button class="btn btn-outline btn-sm" id="notification-check" type="button">今すぐ確認</button>
+          <button class="btn btn-ghost btn-sm" id="notification-read" type="button">すべて確認済みにする</button>
+          <div id="notification-list"></div>
+        </details>
+
         <div class="stat-grid" id="stats"></div>
 
-        <div class="tabs" id="admin-tabs">
+        <div id="admin-tabs">
+          <div class="tabs" aria-label="予約とお客様の管理">
           <button class="tab" type="button" data-pane="reserve" aria-selected="true">予約一覧</button>
           <button class="tab" type="button" data-pane="customers" aria-selected="false">お客様</button>
           <button class="tab" type="button" data-pane="numbers" aria-selected="false">数字</button>
           <button class="tab" type="button" data-pane="closed" aria-selected="false">休業日</button>
+          </div>
+          <details id="site-edit-tabs" class="admin-site-edit">
+            <summary>サイトの編集・設定</summary>
+            <div class="tabs" aria-label="サイトの編集">
           <button class="tab" type="button" data-pane="menus" aria-selected="false">単品メニュー</button>
           <button class="tab" type="button" data-pane="coupons" aria-selected="false">おすすめメニュー</button>
           <button class="tab" type="button" data-pane="styles" aria-selected="false">写真</button>
@@ -65,10 +110,16 @@
           <button class="tab" type="button" data-pane="settings" aria-selected="false">店舗情報</button>
           <button class="btn btn-ghost btn-sm" type="button" id="forget-device"
                   style="margin-left:auto;">この端末の記憶を消す</button>
+            </div>
+          </details>
         </div>
 
         <!-- 予約一覧 -->
         <div class="admin-pane" data-pane="reserve">
+          <h2 class="admin-a-only admin-pane-title">予約一覧</h2>
+          <p id="reservation-freshness" role="status">予定を読み込んでいます。</p>
+          <div class="notice is-warn" id="mail-alert" role="alert" hidden></div>
+          <button class="btn btn-outline btn-sm" type="button" id="refresh-reservations">最新の予定を読み込む</button>
           <!-- 予定の見せ方。既定は一覧です（理由は admin.js の reserveView に書いています） -->
           <div class="view-switch" id="reserve-view" role="group" aria-label="予定の見せ方">
             <button class="tab" type="button" data-view="list" aria-selected="true">一覧</button>
@@ -76,23 +127,33 @@
           </div>
 
           <div class="toolbar">
-            <input class="input" type="date" id="filter-date" />
+            <button class="btn btn-outline btn-sm" type="button" id="filter-today">今日の予約</button>
+            <input class="input" type="date" id="filter-date" aria-label="予約を表示する日" />
             <select class="select" id="filter-status">
               <option value="all">すべての状態</option>
               <option value="reserved">予約確定のみ</option>
               <option value="cancelled">キャンセルのみ</option>
             </select>
-            <button class="btn btn-ghost btn-sm" type="button" id="filter-reset">条件をクリア</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="filter-reset">すべての日・状態に戻す</button>
             <button class="btn btn-outline btn-sm" type="button" id="export-csv">CSVダウンロード</button>
             <button class="btn btn-primary btn-sm" type="button" id="add-booking">＋ 電話予約を入れる</button>
           </div>
 
           <!-- 電話・来店で受けた予約を台帳に入れる。ここに入れないとネット予約と重なります -->
           <div class="booking-card" id="add-booking-form" hidden style="border-left-color:var(--accent);">
+            <p class="notice is-info" id="ab-customer" tabindex="-1" hidden></p>
             <p class="note" style="margin:0 0 14px;">
               電話やご来店で受けたご予約を入れます。<b>ここに入れておかないと、
               同じ時間にネット予約が入ってしまいます。</b>お客様へのメールは送りません。
             </p>
+            <p class="note" id="ab-recovery" role="status"></p>
+            <fieldset id="ab-fields" style="border:0;padding:0;margin:0;min-width:0;">
+            <legend class="sr-only">電話・来店の予約内容</legend>
+            <label class="form-field">
+              <span>登録済みメニューから入力する（任意）</span>
+              <select class="select" id="ab-menu-preset"><option value="">メニュー・時間・金額を手入力</option></select>
+              <span class="note" id="ab-menu-hint">選んだ内容は、登録前に確認・変更できます。</span>
+            </label>
             <div class="add-grid">
               <label class="form-field" style="margin:0;">
                 <span>来店日</span>
@@ -100,7 +161,7 @@
               </label>
               <label class="form-field" style="margin:0;">
                 <span>開始</span>
-                <input class="input" type="time" id="ab-time" step="900" />
+                <select class="select" id="ab-time" aria-label="開始時刻（10分刻み）"><option value="">開始時刻を選択</option></select>
               </label>
               <!-- 数字の欄を type="number" にすると、日本語入力のまま打った全角
                    （「９０」「４５００」）が入らず空欄になります。所要は既定の60分、
@@ -131,7 +192,9 @@
               <span>メモ（任意）</span>
               <input class="input" type="text" id="ab-memo" placeholder="電話で受付。前回より短め希望" />
             </label>
+            </fieldset>
             <p class="field-error" id="ab-error"></p>
+            <button class="btn btn-outline btn-sm" type="button" id="ab-check" hidden>前の電話受付の登録結果を確認</button>
             <div style="display:flex;gap:10px;margin-top:14px;">
               <button class="btn btn-ghost btn-sm" type="button" id="ab-cancel">やめる</button>
               <button class="btn btn-primary btn-sm" type="button" id="ab-save" style="flex:1;">台帳に入れる</button>
@@ -170,18 +233,21 @@
 
         <!-- お客様（予約台帳を電話番号でまとめたもの。新しく溜めているデータではありません） -->
         <div class="admin-pane" data-pane="customers" hidden>
+          <h2 class="admin-a-only admin-pane-title">お客様の名簿</h2>
           <div class="toolbar">
             <input class="input" type="search" id="customer-search"
-                   placeholder="お名前・電話番号で探す" autocomplete="off" />
-            <select class="select" id="customer-sort">
-              <option value="recent">最近ご来店の順</option>
-              <option value="visits">ご来店回数の多い順</option>
+                   placeholder="お名前・電話番号で探す" aria-label="名簿を名前・電話番号で検索" autocomplete="off" />
+            <select class="select" id="customer-sort" aria-label="名簿の並び順">
+              <option value="recent">過去の予約が新しい順</option>
+              <option value="visits">過去の予約が多い順</option>
               <option value="name">お名前の順</option>
             </select>
           </div>
           <p class="note" style="margin:0 0 16px;">
-            予約台帳を電話番号でまとめた一覧です。前回のメニューやご要望をここで確認できます。
+            名前の行を押すと、連絡先・施術メモ・すべての予約履歴が開きます。予約台帳を電話番号でまとめた名簿です。
+            過去の予約件数は、実際の来店回数ではありません。電話番号のない予約は予約一覧から確認してください。
           </p>
+          <p class="note" id="customer-count" role="status"></p>
           <div id="customer-rows"></div>
         </div>
 
@@ -203,6 +269,7 @@
 
         <!-- 休業日 -->
         <div class="admin-pane" data-pane="closed" hidden>
+          <h2 class="admin-a-only admin-pane-title">休業日</h2>
           <p class="note" style="margin:0 0 16px;">
             日付だけ入れると<b>その日は終日お休み</b>になります。<br />
             開始と終了も入れると、<b>その時間帯だけ</b>予約を止められます
@@ -276,11 +343,9 @@
         <!-- 口コミ -->
         <div class="admin-pane" data-pane="reviews" hidden>
           <p class="note" style="margin:0 0 16px;">
-            お客様から届いたご感想です。<b>「掲載中」にした分だけ</b>サイトに出ます。
-            届いた直後は「未承認」なので、確認するまで公開されません。<br />
-            本文は書き換えられないようにしてあります。お客様の言葉を変えて載せると、
-            景品表示法（ステルスマーケティング規制）に触れるおそれがあるためです。
-            掲載したくないものは「非掲載」にするか、行を削除してください。
+            以前の自社口コミ機能で受け取ったデータの管理欄です。
+            <b>現在の公開サイトには掲載しません。</b>「掲載中」は過去の管理状態であり、保存しても公開はされません。<br />
+            Google口コミとは別のデータです。ここで状態を変更・削除しても、Google口コミは変わりません。
           </p>
           <div id="review-rows"></div>
           <div class="admin-savebar">
@@ -302,6 +367,7 @@
           <div class="admin-savebar">
             <p class="admin-savebar-note" data-note="settings"></p>
             <button class="btn btn-primary" type="button" data-save="settings">店舗情報を保存</button>
+            <p class="section-desc">公開ページの文章・写真・料金・プライバシーポリシーには自動反映されません。予約画面の設定は保存内容を使います。料金・営業時間を変えた際は、制作担当者に公開ページの更新も依頼してください。</p>
           </div>
         </div>
 
@@ -316,5 +382,7 @@
   <script src="assets/js/data.js"></script>
   <script src="assets/js/common.js"></script>
   <script src="assets/js/admin.js"></script>
+  <script src="assets/js/admin-notifications.js"></script>
+  <script src="assets/js/admin-google-bridge.js"></script>
 </body>
 </html>

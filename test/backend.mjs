@@ -31,9 +31,9 @@ const STYLE_H  = ['タイトル', '分類', 'タグ', '説明', '画像', '表�
    ここが古いと、足したばかりの列を「無い」ものとして試すことになります。 */
 const HEAD = ['予約番号','受付日時','来店日','開始','終了','所要(分)','メニュー','担当','担当ID',
               '指名料','合計金額','お名前','フリガナ','電話番号','メール','来店回数','予約の入口','ご要望',
-              '状態','カレンダーID','施術メモ'];
+              '状態','カレンダーID','施術メモ','電話受付ID','電話受付内容','店舗メール状態','お客様メール状態'];
 /* 「予約の入口」を足す前の台帳。すでに使っている店のシートはこの並びです */
-const OLD_HEAD = HEAD.filter(h => h !== '予約の入口');
+const OLD_HEAD = HEAD.filter(h => !['予約の入口', '電話受付ID', '電話受付内容', '店舗メール状態', 'お客様メール状態'].includes(h));
 
 /* 本物の台帳と同じで、1行目は見出しです。
    店の人が列を足すこともあるので、見出しの並びを差し替えられるようにしてあります。 */
@@ -63,13 +63,30 @@ function makeSheet(rows = [], head = HEAD) {
 
 /* store を渡すと、その中身がスクリプトプロパティになります。
    「店として通す」試験では ADMIN_PASSWORD を入れて呼びます。 */
-function run(fnName, sheet, payload, store = {}) {
+function run(fnName, sheet, payload, store = {}, nowMinute = null, failMail = false,
+             shopAddress = false, calendarLog = null, lineLog = null) {
   const mails = [];
+  const calendar = {
+    createEvent: () => {
+      if (calendarLog) calendarLog.push({ action: 'create', rows: sheet._data.length });
+      if (calendarLog?.failCreate) throw new Error('試験用の予定作成失敗');
+      return { getId: () => 'ev' };
+    },
+    getEventById: eventId => ({ deleteEvent: () => {
+      if (calendarLog) calendarLog.push({ action: 'delete', eventId });
+      if (calendarLog?.failDelete) throw new Error('試験用の予定削除失敗');
+    } })
+  };
   const ctx = {
     console: { log() {}, warn() {}, error() {} },
-    MailApp: { sendEmail: (to, s, b) => mails.push({ to, s, b }) },
-    UrlFetchApp: { fetch: () => {} },
-    CalendarApp: { getDefaultCalendar: () => ({ createEvent: () => ({ getId: () => 'ev' }) }) },
+    MailApp: { sendEmail: (to, s, b) => {
+      if (failMail) throw new Error('試験用のメール送信失敗');
+      mails.push({ to, s, b });
+    } },
+    UrlFetchApp: { fetch: (_url, options) => {
+      if (lineLog) lineLog.push(JSON.parse(options.payload).messages[0].text);
+    } },
+    CalendarApp: { getDefaultCalendar: () => calendar },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: k => (k in store ? store[k] : null),
       setProperty: (k, v) => { store[k] = v; },
@@ -95,7 +112,14 @@ function run(fnName, sheet, payload, store = {}) {
     }
   };
   vm.createContext(ctx);
-  vm.runInContext(srcLive + `;globalThis.__r = ${fnName};`, ctx);
+  let code = shopAddress
+    ? srcLive.replace("const NOTIFY_EMAIL  = '';", "const NOTIFY_EMAIL  = 'shop@example.test';")
+    : srcLive;
+  if (calendarLog) code = code.replace("const CALENDAR_ID = '';", "const CALENDAR_ID = 'primary';");
+  if (lineLog) code = code.replace("const LINE_TOKEN = '';", "const LINE_TOKEN = 'test-token';")
+    .replace("const LINE_TO    = '';", "const LINE_TO    = 'test-line-user';");
+  vm.runInContext(code + `;globalThis.__r = ${fnName};`, ctx);
+  if (nowMinute !== null) ctx.nowMinJst_ = () => nowMinute;
   return { out: ctx.__r(sheet, payload), mails };
 }
 
@@ -124,6 +148,28 @@ const found = [];
 const note = (t, m) => { found.push(`${t}（${m}）`); console.log(`  ❌ ${t} — ${m}`); };
 const ok = t => console.log(`  ✅ ${t}`);
 const col = n => HEAD.indexOf(n);
+
+{
+  const sheet = makeSheet();
+  const at = day(20);
+  const made = run('doReserve_', sheet, base({ date: at, time: '10:00', endTime: '10:30', totalMinutes: 120 })).out;
+  const overlap = run('doReserve_', sheet, base({ date: at, time: '11:00', endTime: '12:00', totalMinutes: 60 })).out;
+  made.ok && sheet.at(0, '終了') === '12:00' && !overlap.ok
+    ? ok('終了時刻は計算し直し、施術全体の重複を防ぐ')
+    : note('終了時刻の改変', '120分の施術枠が守られていない');
+}
+
+{
+  const sheet = makeSheet();
+  const payload = base({ date: day(20), time: '10:00', endTime: '12:00', totalMinutes: 120 });
+  run('doReserve_', sheet, payload);
+  const moved = run('doChange_', sheet, { code: payload.code, tel: payload.customer.tel,
+    date: day(21), time: '10:00', endTime: '10:30', minutes: 30 }).out;
+  const overlap = run('doReserve_', sheet, base({ date: day(21), time: '11:00', endTime: '12:00', totalMinutes: 60 })).out;
+  moved.ok && sheet.at(0, '終了') === '12:00' && !overlap.ok
+    ? ok('日時変更でも台帳の所要時間を維持する')
+    : note('変更時の所要時間', '送信側で施術枠を短くできる');
+}
 
 function tryOne(label, payload, judge) {
   const sheet = makeSheet();
@@ -200,6 +246,8 @@ tryOne('全角のメール ａ＠ｂ．ｃｏ', base({ customer: { name: 'あ', 
 console.log('\n【本物の Code.gs】受け付けてはいけない入力');
 tryOne('過去の日付', base({ date: '2020-01-01' }),
   (o, row, m, l) => o.ok ? note(l, '台帳に書かれる') : ok(l + 'は断られる'));
+tryOne('存在しない日付', base({ date: '2026-02-31' }),
+  (o, row, m, l) => o.ok ? note(l, '台帳に書かれる') : ok(l + 'は断られる'));
 tryOne('400日後', base({ date: day(400) }),
   (o, row, m, l) => o.ok ? note(l, '台帳に書かれる') : ok(l + 'は断られる'));
 tryOne('深夜3時', base({ time: '03:00', endTime: '04:00' }),
@@ -250,6 +298,94 @@ const row = (over={}) => ({
   メニュー:'カット', 担当:'MATTEO', 担当ID:'st01', 合計金額:6900,
   お名前:'照会 太郎', 電話番号:"'09011112222", メール:'a@b.co', 状態:'予約確定', ...over });
 
+{
+  const fresh = makeSheet();
+  const request = base({ date: day(20), totalMinutes: 60.5 });
+  const created = run('doReserve_', fresh, request);
+  !created.out.ok && fresh._data.length === 0 && created.mails.length === 0
+    ? ok('小数の所要時間で新規予約を作らない')
+    : note('新規予約の小数時間', '時刻が壊れる予約を台帳に作れる');
+
+  const originalDate = day(20);
+  const existing = makeSheet([row({ 来店日: originalDate, 開始: '10:00', 終了: '11:00', '所要(分)': 60.5 })]);
+  const changed = run('doChange_', existing, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(21), time: '14:00' });
+  !changed.out.ok && existing.at(0, '来店日') === originalDate
+    && existing.at(0, '開始') === '10:00' && existing.at(0, '終了') === '11:00'
+    && changed.mails.length === 0
+    ? ok('小数の所要時間が残る台帳行は日時変更しない')
+    : note('既存予約の小数時間', '日時変更で壊れた終了時刻を書き込める');
+}
+
+console.log('\n【メールの送信状態】予約と通知を別々に記録する');
+{
+  const payload = base({ date: day(20) });
+  const sheet = makeSheet();
+  const reserved = run('doReserve_', sheet, payload);
+  reserved.out.ok && sheet.at(0, '店舗メール状態') === '新規予約：宛先なし'
+    && sheet.at(0, 'お客様メール状態') === '新規予約：送信処理受付'
+    ? ok('予約は成立し、店舗の宛先なしとお客様メールの送信処理を区別する')
+    : note('新規予約の通知状態', '台帳に正しい状態が残らない');
+  const lookup = run('doLookup_', sheet, { code: payload.code, tel: payload.customer.tel }).out;
+  lookup.ok && !JSON.stringify(lookup).includes('メール状態') && !JSON.stringify(lookup).includes('送信処理受付')
+    ? ok('店内の送信状態はお客様の照会応答に出さない')
+    : note('照会の通知状態', '店内の情報がお客様へ出た');
+  const duplicate = run('doReserve_', sheet, payload);
+  duplicate.out.duplicate && duplicate.mails.length === 0 && sheet._data.length === 1
+    ? ok('応答不明後の再送は予約もメールも重複しない')
+    : note('予約の再送', '予約またはメールが重複した');
+  const changed = run('doChange_', sheet, { code: payload.code, tel: payload.customer.tel,
+    date: day(21), time: '11:00' });
+  changed.out.ok && sheet.at(0, 'お客様メール状態') === '日時変更：送信処理受付'
+    ? ok('日時変更後は最新のメール送信処理を記録する')
+    : note('日時変更の通知状態', '最新の状態に変わらない');
+  const cancelled = run('doCancel_', sheet, { code: payload.code, tel: payload.customer.tel });
+  cancelled.out.ok && sheet.at(0, 'お客様メール状態') === 'キャンセル：送信処理受付'
+    ? ok('キャンセル後は最新のメール送信処理を記録する')
+    : note('キャンセルの通知状態', '最新の状態に変わらない');
+}
+{
+  const noEmail = makeSheet();
+  const reserved = run('doReserve_', noEmail, base({ customer: { name: 'メールなし', tel: '09011112222' } }));
+  reserved.out.ok && noEmail.at(0, 'お客様メール状態') === '新規予約：宛先なし'
+    && reserved.mails.length === 0
+    ? ok('メールは任意のままにし、宛先なしを送信済みとしない')
+    : note('宛先なしの通知状態', '予約かメールの扱いが変わった');
+  const failed = makeSheet();
+  const failure = run('doReserve_', failed, base({}), {}, null, true);
+  failure.out.ok && failed._data.length === 1
+    && failed.at(0, 'お客様メール状態') === '新規予約：送信失敗'
+    ? ok('メール送信が失敗しても予約を保ち、失敗を台帳へ残す')
+    : note('メール送信失敗', '予約か状態が正しく残らない');
+  const shopReady = makeSheet();
+  const sent = run('doReserve_', shopReady, base({}), {}, null, false, true);
+  sent.out.ok && sent.mails.length === 2
+    && shopReady.at(0, '店舗メール状態') === '新規予約：送信処理受付'
+    && shopReady.at(0, 'お客様メール状態') === '新規予約：送信処理受付'
+    ? ok('通知先があると店舗とお客様の送信処理を個別に記録する')
+    : note('店舗通知先あり', 'メールの送信状態が正しくない');
+  const bothFailed = makeSheet();
+  const failedResult = run('doReserve_', bothFailed, base({}), {}, null, true, true);
+  failedResult.out.ok && failedResult.mails.length === 0
+    && bothFailed.at(0, '店舗メール状態') === '新規予約：送信失敗'
+    && bothFailed.at(0, 'お客様メール状態') === '新規予約：送信失敗'
+    ? ok('両方のメールに失敗しても予約を保ち、各失敗を記録する')
+    : note('店舗とお客様の送信失敗', '状態が正しく残らない');
+  const statusWriteFailure = makeSheet();
+  const readRange = statusWriteFailure.getRange;
+  statusWriteFailure.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = readRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === col('店舗メール状態') + 1
+      ? { ...range, setValue: () => { throw new Error('試験用の通知状態保存失敗'); } }
+      : range;
+  };
+  const saved = run('doReserve_', statusWriteFailure, base({}));
+  saved.out.ok && statusWriteFailure._data.length === 1
+    && !statusWriteFailure.at(0, '店舗メール状態')
+    ? ok('通知状態の保存に失敗しても予約の成立を取り消さず、未確認のままにする')
+    : note('通知状態の保存失敗', '予約が取り消されたか、送信結果を作ってしまった');
+}
+
 /* ============================================================
    席は1つ
 
@@ -257,6 +393,210 @@ const row = (over={}) => ({
    以前は担当が違えば別の予約として扱っていたので、同じ時間に
    電話予約とサイトからの予約が2件入りました。席は1つです。
    ============================================================ */
+console.log('\n【カレンダー連携】予約の保存と予定の順番');
+{
+  const payload = base({ date: day(10), time: '15:00' });
+
+  const failedSheet = makeSheet();
+  failedSheet.appendRow = () => { throw new Error('試験用の台帳保存失敗'); };
+  const failedLog = [];
+  let saveFailed = false;
+  try { run('doReserve_', failedSheet, payload, {}, null, false, false, failedLog); }
+  catch (error) { saveFailed = /試験用の台帳保存失敗/.test(String(error)); }
+  saveFailed && failedSheet._data.length === 0 && failedLog.length === 0
+    ? ok('台帳へ保存できなければ、カレンダー予定を作らない')
+    : note('保存失敗とカレンダー', '台帳に無い予定だけが残り得る');
+
+  const savedSheet = makeSheet();
+  const savedLog = [];
+  const saved = run('doReserve_', savedSheet, payload, {}, null, false, false, savedLog).out;
+  saved.ok && savedLog.length === 1 && savedLog[0].action === 'create'
+    && savedLog[0].rows === 1 && savedSheet.at(0, 'カレンダーID') === 'ev'
+    && saved.calendarWarning === false
+    ? ok('台帳の保存後に予定を作り、予定IDを台帳に残す')
+    : note('予約とカレンダーの順番', '台帳保存前に予定が作られた');
+  const savedRetry = run('doReserve_', savedSheet, payload,
+    {}, null, false, false, savedLog);
+  savedRetry.out.ok && savedRetry.out.duplicate && savedRetry.out.calendarWarning === false
+    && savedRetry.mails.length === 0 && savedLog.length === 1
+    ? ok('予定IDが残る予約の再送は、通知を増やさず連携警告も作らない')
+    : note('連携済み予約の再送', '不要な警告か予定の二重作成が起きた');
+
+  const disabledSheet = makeSheet();
+  const disabled = run('doReserve_', disabledSheet, payload, {}, null, false, true);
+  disabled.out.ok && disabled.out.calendarWarning === false
+    && !disabled.mails.find(mail => mail.to === 'shop@example.test')?.b.includes('カレンダー連携は未確認')
+    ? ok('カレンダーを使わない設定では連携警告を出さない')
+    : note('カレンダー無効時の予約', '存在しない連携障害を案内した');
+
+  const calendarFailureSheet = makeSheet();
+  const calendarFailureLog = [];
+  calendarFailureLog.failCreate = true;
+  const lineLog = [];
+  const calendarFailure = run('doReserve_', calendarFailureSheet, payload,
+    {}, null, false, true, calendarFailureLog, lineLog);
+  const warningText = 'カレンダー連携は未確認です。予約台帳を確認してください。';
+  const shopMail = calendarFailure.mails.find(mail => mail.to === 'shop@example.test');
+  calendarFailure.out.ok && calendarFailure.out.calendarWarning
+    && calendarFailureSheet._data.length === 1
+    && calendarFailureSheet.at(0, 'カレンダーID') === ''
+    && shopMail?.b.includes(warningText) && lineLog[0]?.includes(warningText)
+    ? ok('予定作成に失敗しても予約は成立し、店へのメールとLINEに未確認を伝える')
+    : note('新規予約の予定作成失敗', '店へのカレンダー警告が抜けた');
+  const failureRetry = run('doReserve_', calendarFailureSheet, payload,
+    {}, null, false, true, calendarFailureLog, lineLog);
+  failureRetry.out.ok && failureRetry.out.duplicate && failureRetry.out.calendarWarning
+    && failureRetry.mails.length === 0 && calendarFailureLog.length === 1 && lineLog.length === 1
+    ? ok('予定作成失敗後の再送は警告を残し、予定と通知を増やさない')
+    : note('予定作成失敗後の再送', '警告が消えるか通知が重複した');
+
+  const idSheet = makeSheet();
+  const getRange = idSheet.getRange;
+  idSheet.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = getRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === col('カレンダーID') + 1
+      ? { ...range, setValue: () => { throw new Error('試験用の予定ID保存失敗'); } }
+      : range;
+  };
+  const idLog = [];
+  const idResult = run('doReserve_', idSheet, payload, {}, null, false, true, idLog);
+  const idMail = idResult.mails.find(mail => mail.to === 'shop@example.test');
+  idResult.out.ok && idResult.out.calendarWarning
+    && idMail?.b.includes(warningText)
+    && idSheet._data.length === 1 && idSheet.at(0, 'カレンダーID') === ''
+    && idLog.map(item => item.action).join('/') === 'create/delete'
+    ? ok('予定IDを書けなければ予定を消し、成立済みの予約は維持する')
+    : note('予定IDの保存失敗', '予約結果の誤案内または孤立予定が残る');
+}
+
+console.log('\n【カレンダー連携】日時変更時に予定IDを書けない場合');
+{
+  const previousDate = day(10);
+  const nextDate = day(11);
+  const sheet = makeSheet([row({ 来店日: previousDate, カレンダーID: 'old-ev' })]);
+  const getRange = sheet.getRange;
+  sheet.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = getRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === col('カレンダーID') + 1
+      ? { ...range, setValue: value => {
+          if (value === 'ev') throw new Error('試験用の新しい予定ID保存失敗');
+          range.setValue(value);
+        } }
+      : range;
+  };
+  const calendarLog = [];
+  let changed;
+  try {
+    changed = run('doChange_', sheet, { code: 'LM-AAAAA', tel: '09011112222',
+      date: nextDate, time: '14:00' }, {}, null, false, false, calendarLog).out;
+  } catch (error) {
+    changed = { ok: false };
+  }
+  changed.ok && changed.calendarWarning && sheet.at(0, '来店日') === nextDate && sheet.at(0, '開始') === '14:00'
+    && sheet.at(0, 'カレンダーID') === ''
+    && calendarLog.map(item => item.action + (item.eventId || '')).join('/') === 'deleteold-ev/create/deleteev'
+    ? ok('日時変更の予定ID保存に失敗しても、変更を保ち新しい予定を消す')
+    : note('日時変更と予定ID保存失敗', '変更の失敗誤表示か、古いID・孤立した予定が残る');
+}
+
+console.log('\n【カレンダー連携】電話予約の予定IDを書けない場合');
+{
+  const sheet = makeSheet();
+  const getRange = sheet.getRange;
+  sheet.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = getRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === col('カレンダーID') + 1
+      ? { ...range, setValue: () => { throw new Error('試験用の電話予約予定ID保存失敗'); } }
+      : range;
+  };
+  const calendarLog = [];
+  const payload = { password: 'himitsu', force: true, requestId: 'calendar-id-failure-request-01',
+    date: day(10), time: '13:00', minutes: 60, price: 6900,
+    name: '電話予約の試験客', tel: '09011112222', menu: 'カット' };
+  const store = { ADMIN_PASSWORD: 'himitsu' };
+  const first = run('doAdminAdd_', sheet, payload, store, null, false, false, calendarLog).out;
+  const status = run('doAdminAddStatus_', sheet,
+    { password: 'himitsu', requestId: payload.requestId }, store, null, false, false, calendarLog).out;
+  first.ok && first.calendarWarning && sheet._data.length === 1
+    && sheet.at(0, 'カレンダーID') === ''
+    && calendarLog.map(item => item.action + (item.eventId || '')).join('/') === 'create/deleteev'
+    && status.found && status.duplicate && status.code === first.code && status.calendarWarning
+    && calendarLog.length === 2
+    ? ok('電話予約の予定IDを保存できなければ予定を消し、再確認でも増やさない')
+    : note('電話予約の予定ID保存失敗', '予約結果の誤案内または孤立予定・再確認時の重複が残る');
+}
+{
+  const sheet = makeSheet([row({ 来店日: day(10), カレンダーID: 'old-ev' })]);
+  const changed = run('doChange_', sheet, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(11), time: '14:00' }).out;
+  changed.ok && changed.calendarWarning && sheet.at(0, 'カレンダーID') === 'old-ev'
+    ? ok('カレンダー連携が無効なら、既存の予定IDを消さず同期の未確認を伝える')
+    : note('連携無効の予定ID', '削除できない予定のIDを失った');
+}
+{
+  const sheet = makeSheet([row({ 来店日: day(10), カレンダーID: 'old-ev' })]);
+  const calendarLog = [];
+  calendarLog.failCreate = true;
+  const changed = run('doChange_', sheet, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(11), time: '14:00' }, {}, null, false, false, calendarLog).out;
+  changed.ok && changed.calendarWarning && sheet.at(0, 'カレンダーID') === ''
+    && calendarLog.map(item => item.action + (item.eventId || '')).join('/') === 'deleteold-ev/create'
+    ? ok('新しい予定を作れない場合は古い予定IDを残さない')
+    : note('日時変更と予定作成失敗', '変更先と違う古い予定IDが残る');
+}
+{
+  const sheet = makeSheet([row({ 来店日: day(10), カレンダーID: 'old-ev' })]);
+  const calendarLog = [];
+  calendarLog.failDelete = true;
+  const changed = run('doChange_', sheet, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(11), time: '14:00' }, {}, null, false, true, calendarLog);
+  const shopMail = changed.mails.find(mail => mail.to === 'shop@example.test');
+  changed.out.ok && changed.out.calendarWarning && sheet.at(0, 'カレンダーID') === 'old-ev'
+    && calendarLog.map(item => item.action).join('/') === 'delete'
+    && /カレンダー連携は未確認/.test(shopMail?.b || '')
+    ? ok('古い予定を消せなければIDを保ち、新しい予定を増やさず店へ警告する')
+    : note('古い予定の削除失敗', '追跡用IDの消失または警告なしの予定不一致');
+}
+{
+  const sheet = makeSheet([row({ 来店日: day(10), カレンダーID: 'old-ev' })]);
+  const getRange = sheet.getRange;
+  sheet.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = getRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === col('カレンダーID') + 1
+      ? { ...range, setValue: () => { throw new Error('試験用の旧予定ID消去失敗'); } }
+      : range;
+  };
+  const calendarLog = [];
+  const changed = run('doChange_', sheet, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(11), time: '14:00' }, {}, null, false, false, calendarLog).out;
+  changed.ok && changed.calendarWarning && sheet.at(0, 'カレンダーID') === 'old-ev'
+    && calendarLog.map(item => item.action).join('/') === 'delete'
+    ? ok('古い予定IDを消せなければ新しい予定を増やさず警告する')
+    : note('古い予定IDの消去失敗', '変更の誤表示または重複した予定が残る');
+}
+{
+  const sheet = makeSheet([row({ 来店日: day(10), カレンダーID: 'old-ev' })]);
+  const calendarLog = [];
+  const changed = run('doChange_', sheet, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(11), time: '14:00' }, {}, null, false, false, calendarLog).out;
+  changed.ok && !changed.calendarWarning && sheet.at(0, 'カレンダーID') === 'ev'
+    && calendarLog.map(item => item.action + (item.eventId || '')).join('/') === 'deleteold-ev/create'
+    ? ok('日時変更の予定入れ替えに成功したら新しいIDを残す')
+    : note('日時変更の予定入れ替え', '成功時の新しい予定IDが記録されない');
+}
+{
+  const previousDate = day(10);
+  const sheet = makeSheet([row({ 来店日: previousDate, カレンダーID: 'old-ev' })]);
+  const calendarLog = [];
+  calendarLog.failCreate = true;
+  const changed = run('doAdminChange_', sheet, { code: 'LM-AAAAA', password: 'himitsu',
+    fromDate: previousDate, fromTime: '10:00', date: day(11), time: '14:00' },
+  { ADMIN_PASSWORD: 'himitsu' }, null, false, false, calendarLog).out;
+  changed.ok && changed.calendarWarning && changed.reservation.date === day(11)
+    ? ok('店側の日時変更でも、カレンダーの未確認を管理画面へ返す')
+    : note('店側のカレンダー警告', '予定の不一致を管理画面へ伝えられない');
+}
+
 console.log('\n【二重予約】席は1つしかない');
 {
   const at = day(12);
@@ -277,6 +617,13 @@ console.log('\n【二重予約】席は1つしかない');
     ? note('二重予約', '担当IDを変えれば、埋まっている時間に入れる')
     : ok('担当IDを変えても、埋まっている時間には入れない');
 
+  const legacy = makeSheet([row({ 来店日: at, 開始: '11:00', 終了: '12:00', 予約番号: '' })]);
+  const phone = run('doAdminAdd_', legacy, { password: 'himitsu', date: at, time: '11:00',
+    minutes: 60, name: '電話の試験客', tel: '09044446666' }, { ADMIN_PASSWORD: 'himitsu' }).out;
+  !phone.ok && phone.confirm && legacy._data.length === 1
+    ? ok('古い台帳に番号の無い予約があっても、電話受付で席の重複を知らせる')
+    : note('番号の無い予約', '電話受付で席の重複を見落とした');
+
   /* 重なっていなければ、続けて受けられます */
   const sheet = makeSheet([row({ 来店日: at, 開始: '11:00', 終了: '12:00', '所要(分)': 60, 予約番号: 'LM-SEAT2' })]);
   run('doReserve_', sheet, base({ date: at, time: '12:00', endTime: '13:00', totalMinutes: 60 })).out.ok
@@ -285,6 +632,74 @@ console.log('\n【二重予約】席は1つしかない');
   const cancelled = makeSheet([row({ 来店日: at, 開始: '11:00', 終了: '12:00', 状態: 'キャンセル', 予約番号: 'LM-SEAT3' })]);
   run('doReserve_', cancelled, base({ date: at, time: '11:00', endTime: '12:00', totalMinutes: 60 })).out.ok
     ? ok('キャンセルされた枠は取れる') : note('キャンセル済みの枠', 'が空きに戻らない');
+}
+
+console.log('\n【台帳の終了時刻】所要時間より短く読まない');
+{
+  const at = day(12);
+  for (const [label, storedEnd, minutes, nextTime, freeTime] of [
+    ['終了が空欄の', '', '120分', '11:30', '12:00'],
+    ['終了が短すぎる', '10:30', 120, '11:30', '12:00'],
+    ['終了が長い', '12:30', 60, '12:00', '12:30']
+  ]) {
+    const sheet = makeSheet([row({ 来店日: at, 開始: '10:00', 終了: storedEnd,
+      '所要(分)': minutes, 予約番号: 'LM-OLD01' })]);
+    const result = run('doReserve_', sheet, base({ date: at, time: nextTime,
+      totalMinutes: 30 })).out;
+    !result.ok && result.taken && sheet._data.length === 1
+      ? ok(`${label}場合も、台帳にある施術時間を席の判定に使う`)
+      : note(`${label}場合の二重予約`, '台帳の施術中に新しい予約が入った');
+    const after = run('doReserve_', sheet, base({ date: at, time: freeTime,
+      totalMinutes: 30 })).out;
+    after.ok && sheet._data.length === 2
+      ? ok(`${label}場合も、施術が終わった時刻から予約できる`)
+      : note(`${label}場合の空き枠`, '施術後も予約できない');
+  }
+
+  const sheet = makeSheet([row({ 来店日: at, 開始: '10:00', 終了: '',
+    '所要(分)': 120, 予約番号: 'LM-OLD02' })]);
+  const phone = run('doAdminAdd_', sheet, { password: 'himitsu', date: at, time: '11:30',
+    minutes: 30, name: '電話の試験客', tel: '09044446666' }, { ADMIN_PASSWORD: 'himitsu' }).out;
+  !phone.ok && phone.confirm && sheet._data.length === 1
+    ? ok('電話受付でも、終了が空欄なら重複の確認を求める')
+    : note('電話受付の二重予約', '終了が空欄の施術中に警告なく登録した');
+}
+
+console.log('\n【空席表示】台帳の長い終了時刻と読めない時間を空席にしない');
+{
+  const at = day(12);
+  const longEnd = makeSheet([row({ 来店日: at, 開始: '10:00', 終了: '12:30', '所要(分)': 60 })]);
+  const longBooked = run('doAvailability_', longEnd, {}).out.booked[0];
+  longBooked && longBooked.time === '10:00' && longBooked.minutes === 150
+    ? ok('台帳の終了が施術時間より長ければ、空席表示も長い方を使う')
+    : note('長い終了時刻の空席表示', '台帳上は埋まっている時間を短く表示した');
+
+  for (const [label, start, end, minutes] of [
+    ['開始が空欄', '', '11:00', 60],
+    ['開始が不正', '25:00', '11:00', 60],
+    ['終了と所要時間が空欄', '10:00', '', '']
+  ]) {
+    const sheet = makeSheet([row({ 来店日: at, 開始: start, 終了: end, '所要(分)': minutes })]);
+    const booked = run('doAvailability_', sheet, {}).out.booked[0];
+    booked && booked.date === at && booked.time === '00:00' && booked.minutes === 1440
+      ? ok(`${label}なら、その日を空席として表示しない`)
+      : note(`${label}の空席表示`, '時間が読めない予約のある日を空席として表示した');
+    const reserved = run('doReserve_', sheet, base({ date: at, time: '13:00', totalMinutes: 30 })).out;
+    !reserved.ok && reserved.taken && sheet._data.length === 1
+      ? ok(`${label}なら、新しいネット予約を断る`)
+      : note(`${label}の二重予約`, '予約のある日を空席と判断して登録した');
+    const phone = run('doAdminAdd_', sheet, { password: 'himitsu', date: at, time: '13:00',
+      minutes: 30, name: '電話の試験客' }, { ADMIN_PASSWORD: 'himitsu' }).out;
+    !phone.ok && phone.confirm && sheet._data.length === 1
+      ? ok(`${label}なら、電話受付でも重複確認を求める`)
+      : note(`${label}の電話受付`, '時間が読めない予約に気づかず電話予約を登録した');
+  }
+
+  const cancelled = makeSheet([row({ 来店日: at, 開始: '', 終了: '', '所要(分)': '', 状態: 'キャンセル' })]);
+  const open = run('doAvailability_', cancelled, {}).out.booked;
+  open.length === 0 && run('doReserve_', cancelled, base({ date: at, time: '13:00' })).out.ok
+    ? ok('取消済みの壊れた行は空席を塞がない')
+    : note('取消済みの壊れた行', '不要に空席を塞いだ');
 }
 
 /* ============================================================
@@ -352,6 +767,12 @@ console.log('\n【送り直し】同じ予約がもう一度届いたら');
   sheet._data.length === 1 ? ok('台帳は1件のまま') : note('送り直し', `で台帳が${sheet._data.length}件になる`);
   again.duplicate ? ok('同じ予約だと分かっている') : note('送り直し', 'が同じ予約だと分かっていない');
 
+  const altered = run('doReserve_', sheet, { ...payload, totalMinutes: 90, totalPrice: 6900,
+    menus: [{ name: '別の施術' }] });
+  !altered.out.ok && altered.mails.length === 0 && sheet._data.length === 1
+    ? ok('同じ予約番号でも施術内容が違えば、成功と見せず確認を促す')
+    : note('内容が違う再送', '元の予約と異なる施術を成功扱いした');
+
   /* 番号がたまたま他のお客様とぶつかった場合は、番号を振り直します */
   const other = run('doReserve_', sheet, base({ code: payload.code, date: at, time: '18:00', endTime: '19:00',
     totalMinutes: 60, customer: { name: '別人 花子', tel: '09066667777' } })).out;
@@ -359,6 +780,50 @@ console.log('\n【送り直し】同じ予約がもう一度届いたら');
   (other.code && other.code !== payload.code)
     ? ok(`番号を振り直して返す（${other.code}）`) : note('番号のぶつかり', 'で同じ番号のまま');
   sheet._data.length === 2 ? ok('台帳は2件になる') : note('台帳', `が${sheet._data.length}件`);
+
+  sheet._data[0][col('状態')] = 'キャンセル';
+  const cancelledRetry = run('doReserve_', sheet, payload);
+  !cancelledRetry.out.ok && /キャンセル済み/.test(cancelledRetry.out.error)
+    && cancelledRetry.mails.length === 0 && sheet._data.length === 2
+    ? ok('取消済みの予約番号を再送しても、予約があると見せない')
+    : note('取消済み予約の再送', 'キャンセル済みを成功扱いした');
+}
+
+{
+  const at = day(14);
+  const sheet = makeSheet();
+  const first = base({ code: 'LM-HIT11', date: at, time: '11:00', totalMinutes: 60,
+    customer: { name: '最初の方', tel: '09022224444' } });
+  const second = base({ code: first.code, date: at, time: first.time, totalMinutes: 60,
+    customer: { name: '次の方', tel: '09033335555' } });
+  const reserved = run('doReserve_', sheet, first).out;
+  const collided = run('doReserve_', sheet, second);
+  reserved.ok && !collided.out.ok && collided.mails.length === 0 && sheet._data.length === 1
+    ? ok('別のお客様と予約番号・時間が重なっても、番号振り直し後に二重予約を断る')
+    : note('予約番号と時間の衝突', '二重予約または誤った通知が起きた');
+}
+
+{
+  const sheet = makeSheet();
+  const payload = base({ code: 'LM-NOTEL', date: day(15) });
+  const first = run('doReserve_', sheet, payload).out;
+  sheet._data[0][col('電話番号')] = '';
+  const blankPhone = run('doReserve_', sheet,
+    { ...payload, customer: { ...payload.customer, tel: '' } }).out;
+  first.ok && !blankPhone.ok && sheet._data.length === 1
+    ? ok('古い台帳の電話番号が空でも、番号だけでは既存予約の再送に成功しない')
+    : note('電話番号のない再送', '本人確認なしで予約成功を返した');
+}
+
+{
+  const sheet = makeSheet();
+  const payload = base({ code: '', date: day(14) });
+  const made = run('doReserve_', sheet, payload).out;
+  made.ok && /^LM-[A-Z2-9]{5}$/.test(made.code)
+    && sheet.at(0, '予約番号') === made.code
+    && run('doLookup_', sheet, { code: made.code, tel: payload.customer.tel }).out.ok
+    ? ok('端末の予約番号が空でも、受け口が照会できる番号を発行する')
+    : note('予約番号なしの受付', '番号のない予約が台帳へ入った');
 }
 
 console.log('\n【日時変更】変更したら、元の時間は空くか');
@@ -372,6 +837,76 @@ console.log('\n【日時変更】変更したら、元の時間は空くか');
     ? ok('元の時間は空きに戻る') : note('元の時間', 'が空かない（誰も取れない時間が残ります）');
   run('doReserve_', sheet, base({ date: to, time: '14:00', endTime: '15:00', totalMinutes: 60 })).out.ok
     ? note('変更先', 'が空いたままになっている（二重予約になります）') : ok('変更先は埋まっている');
+}
+
+console.log('\n【店側の日時変更】古い表示で上書きせず、予約番号と所要時間を保つか');
+{
+  const password = { ADMIN_PASSWORD: 'himitsu' };
+  const fromDate = day(20), date = day(21);
+  const payload = { code: 'LM-ADMIN1', password: 'himitsu', fromDate, fromTime: '10:00', date, time: '14:00',
+    minutes: 15, endTime: '14:15' };
+  const sheet = makeSheet([row({ 予約番号: payload.code, 来店日: fromDate, 開始: '10:00', 終了: '11:00', '所要(分)': 60 })]);
+  let denied = false;
+  try { run('doAdminChange_', sheet, { ...payload, password: '' }, password); }
+  catch { denied = true; }
+  denied && sheet.at(0, '来店日') === fromDate
+    ? ok('合言葉がなければ台帳を変更しない') : note('店側の日時変更', '合言葉なしで更新できた');
+
+  const changed = run('doAdminChange_', sheet, payload, password);
+  changed.out.ok && changed.out.reservation.code === payload.code
+    && sheet.at(0, '来店日') === date && sheet.at(0, '開始') === '14:00'
+    && sheet.at(0, '終了') === '15:00' && sheet.at(0, '所要(分)') === 60
+    ? ok('同じ予約番号で変更し、台帳の所要時間で終了時刻を計算する')
+    : note('店側の日時変更', '予約番号・日時・所要時間のどれかが変わった');
+  changed.mails.length === 1 ? ok('変更成功時だけお客様への案内を送る')
+    : note('店側の通知', `変更成功時のメールが${changed.mails.length}件`);
+
+  const repeated = run('doAdminChange_', sheet, payload, password);
+  !repeated.out.ok && repeated.out.stale && repeated.mails.length === 0
+    && sheet.at(0, '来店日') === date
+    ? ok('応答不明で同じ操作を再送しても二度目の変更・通知をしない')
+    : note('店側の再送', '古い表示から再変更できた');
+
+  const mailSheet = makeSheet([row({ 予約番号: payload.code, 来店日: fromDate })]);
+  const mailFailure = run('doAdminChange_', mailSheet, payload, password, null, true);
+  mailFailure.out.ok && mailSheet.at(0, '来店日') === date && mailFailure.mails.length === 0
+    ? ok('メールが送れなくても台帳の変更は確定し、送信済みとは言わない')
+    : note('店側のメール失敗', '台帳の変更結果まで失われた');
+
+  const invalid = (label, booking, values) => {
+    const target = makeSheet([booking]);
+    const before = target.at(0, '来店日') + target.at(0, '開始');
+    const result = run('doAdminChange_', target, { ...payload, ...values }, password);
+    !result.out.ok && target.at(0, '来店日') + target.at(0, '開始') === before && result.mails.length === 0
+      ? ok(label + 'は断り、元の予約を保つ') : note(label, '断れないか、元の予約が変わった');
+  };
+  const original = row({ 予約番号: payload.code, 来店日: fromDate, 開始: '10:00', 終了: '11:00' });
+  invalid('変更前の日時が欠けた操作', original, { fromTime: '' });
+  invalid('キャンセル済み', { ...original, 状態: 'キャンセル' }, {});
+  invalid('過去の予約', { ...original, 来店日: day(-1) }, { fromDate: day(-1) });
+  invalid('営業時間外', original, { time: '03:00' });
+  invalid('過去の日付', original, { date: day(-1) });
+  invalid('存在しない日付', original, { date: '2026-02-31' });
+  invalid('変更前と同じ日時', original, { date: fromDate, time: '10:00' });
+  const occupied = makeSheet([original, row({ 予約番号: 'LM-OTHER1', 来店日: date,
+    開始: '14:30', 終了: '15:30' })]);
+  const conflict = run('doAdminChange_', occupied, payload, password);
+  !conflict.out.ok && occupied.at(0, '来店日') === fromDate && conflict.mails.length === 0
+    ? ok('ほかの予約と重なる変更は断る') : note('店側の重複', '席の重複を許した');
+  const customerSheet = makeSheet([original]);
+  const customerInvalid = run('doChange_', customerSheet, { code: payload.code, tel: '09011112222',
+    date: '2026-02-31', time: '10:00' });
+  !customerInvalid.out.ok && customerSheet.at(0, '来店日') === fromDate && customerInvalid.mails.length === 0
+    ? ok('お客様の日時変更でも存在しない日付は断る') : note('お客様の日時変更', '存在しない日付へ動いた');
+
+  const todaySheet = makeSheet([row({ 予約番号: payload.code, 来店日: day(0), 開始: '18:00', 終了: '19:00' })]);
+  const todayMove = { ...payload, fromDate: day(0), fromTime: '18:00', date: day(0), time: '19:00' };
+  run('doAdminChange_', todaySheet, todayMove, password, 12 * 60).out.ok
+    ? ok('店は当日の電話による変更を記録できる') : note('店側の当日変更', '店も断られた');
+  const pastTimeSheet = makeSheet([row({ 予約番号: payload.code, 来店日: day(0), 開始: '18:00', 終了: '19:00' })]);
+  const pastTime = run('doAdminChange_', pastTimeSheet, { ...todayMove, time: '11:00' }, password, 12 * 60);
+  !pastTime.out.ok && pastTimeSheet.at(0, '開始') === '18:00'
+    ? ok('店側でも過ぎた時刻への変更は断る') : note('店側の当日変更', '過ぎた時刻に動いた');
 }
 
 /* ============================================================
@@ -403,6 +938,48 @@ console.log('\n【受付期限】店は、当日でもキャンセル・変更�
   /* 合言葉が違えば、もちろん店として扱いません */
   const fake = run('doCancel_', late(), { code: 'LM-TODAY1', password: 'chigau' }, shopPw).out;
   fake.ok ? note('でたらめな合言葉', 'でも店として通ってしまう') : ok('でたらめな合言葉では店として通らない');
+}
+
+console.log('\n【受付期限】台帳の来店日を読めない場合は店に確認する');
+{
+  const unknownDates = ['', day(20).slice(0, 7) + '-99'];
+  for (const oldDate of unknownDates) {
+    const label = oldDate || '空欄';
+    const booking = row({ 来店日: oldDate });
+    const changeSheet = makeSheet([booking]);
+    const changed = run('doChange_', changeSheet, { code: 'LM-AAAAA', tel: '09011112222',
+      date: day(21), time: '14:00' });
+    !changed.out.ok && /来店日を確認/.test(changed.out.error || '')
+      && changeSheet.at(0, '来店日') === oldDate && changed.mails.length === 0
+      ? ok(`${label}の既存予約をお客様が日時変更できない`)
+      : note(`${label}の日時変更`, '来店日不明でも予約を動かすか、理由が分からない');
+
+    const cancelSheet = makeSheet([booking]);
+    const cancelled = run('doCancel_', cancelSheet, { code: 'LM-AAAAA', tel: '09011112222' });
+    !cancelled.out.ok && /来店日を確認/.test(cancelled.out.error || '')
+      && cancelSheet.at(0, '状態') === '予約確定' && cancelled.mails.length === 0
+      ? ok(`${label}の既存予約をお客様が取消できない`)
+      : note(`${label}の取消`, '来店日不明でも取消すか、理由が分からない');
+  }
+
+  const adminStore = { ADMIN_PASSWORD: 'himitsu' };
+  const adminCancellation = run('doCancel_', makeSheet([row({ 来店日: '' })]),
+    { code: 'LM-AAAAA', password: 'himitsu' }, adminStore);
+  adminCancellation.out.ok ? ok('店は来店日不明の予約も電話で確認後に取消できる')
+    : note('店による来店日不明の取消', '店まで操作できなくなった');
+  const adminChange = run('doChange_', makeSheet([row({ 来店日: '' })]),
+    { code: 'LM-AAAAA', password: 'himitsu', date: day(21), time: '14:00' }, adminStore);
+  adminChange.out.ok ? ok('店は来店日不明の予約を確認後に正しい日時へ直せる')
+    : note('店による来店日不明の変更', '店まで日時を直せなくなった');
+
+  for (const action of ['doChange_', 'doCancel_']) {
+    const store = { ADMIN_PASSWORD: 'himitsu' };
+    run(action, makeSheet([row()]), { code: 'LM-AAAAA', tel: '09011112222',
+      password: 'chigau', date: day(21), time: '14:00' }, store);
+    Number(JSON.parse(store.ADMIN_FAILS || '{}').n) === 1
+      ? ok(`${action}で誤った管理パスワードを1操作につき1回だけ数える`)
+      : note(`${action}の認証回数`, '1操作を複数回の間違いとして数えた');
+  }
 }
 
 console.log('\n【口コミ】キャンセルした予約からは書けない');
@@ -457,6 +1034,10 @@ console.log('\n【照会】');
   r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA' });
   r.out.ok ? note('照会', '電話番号なしで見える') : ok('電話番号なしでは見えない');
 
+  r = run('doLookup_', makeSheet([row({ 電話番号: '' })]), { code:'LM-AAAAA', tel:'' });
+  r.out.ok ? note('照会', '台帳側も電話番号が空なら番号だけで見える')
+           : ok('台帳側も電話番号が空なら照会できない');
+
   r = run('doLookup_', makeSheet([row()]), { code:'LM-AAAAA', tel:'090-1111-2222' });
   r.out.ok ? ok('ハイフン付きでも照会できる') : note('照会', 'ハイフン付きだと照会できない');
 
@@ -499,7 +1080,195 @@ console.log('\n【キャンセル】');
   r.out.ok ? ok('本人ならキャンセルできる') : note('キャンセル', '本人でもできない: ' + JSON.stringify(r.out));
 }
 
+console.log('\n【キャンセル】台帳を先に確定し、カレンダーの不一致を見逃さない');
+{
+  const payload = { code: 'LM-AAAAA', tel: '09011112222' };
+  const sheet = makeSheet([row({ カレンダーID: 'old-ev' })]);
+  const calendarLog = [];
+  const result = run('doCancel_', sheet, payload, {}, null, false, false, calendarLog).out;
+  const repeated = run('doCancel_', sheet, payload, {}, null, false, false, calendarLog);
+  result.ok && !result.calendarWarning && sheet.at(0, '状態') === 'キャンセル'
+    && sheet.at(0, 'カレンダーID') === ''
+    && calendarLog.map(item => item.action + item.eventId).join('/') === 'deleteold-ev'
+    && repeated.out.alreadyCancelled && !repeated.out.calendarWarning && repeated.mails.length === 0
+    && calendarLog.length === 1
+    ? ok('予定削除後にIDを消し、再送でも通知・削除を繰り返さない')
+    : note('取消後の予定ID', '削除後もIDが残るか、再送で副作用が重なる');
+}
+{
+  const payload = { code: 'LM-AAAAA', tel: '09011112222' };
+  const sheet = makeSheet([row({ カレンダーID: 'old-ev' })]);
+  const calendarLog = [];
+  calendarLog.failDelete = true;
+  const result = run('doCancel_', sheet, payload, {}, null, false, true, calendarLog);
+  const repeated = run('doCancel_', sheet, payload, {}, null, false, true, calendarLog);
+  const shopMail = result.mails.find(mail => mail.to === 'shop@example.test');
+  result.out.ok && result.out.calendarWarning && sheet.at(0, '状態') === 'キャンセル'
+    && sheet.at(0, 'カレンダーID') === 'old-ev'
+    && /カレンダー連携は未確認/.test(shopMail?.b || '')
+    && repeated.out.alreadyCancelled && repeated.out.calendarWarning && repeated.mails.length === 0
+    && calendarLog.length === 1
+    ? ok('予定削除失敗でも取消を保ち、旧IDと警告を残す')
+    : note('取消時の予定削除失敗', '予約状態・追跡用ID・店舗警告のいずれかを失う');
+}
+{
+  const sheet = makeSheet([row({ カレンダーID: 'old-ev' })]);
+  const result = run('doCancel_', sheet, { code: 'LM-AAAAA', tel: '09011112222' }).out;
+  result.ok && result.calendarWarning && sheet.at(0, 'カレンダーID') === 'old-ev'
+    ? ok('連携無効の取消では、削除できない予定のIDを残して警告する')
+    : note('連携無効の取消', '旧予定の追跡情報または警告がない');
+}
+{
+  const sheet = makeSheet([row({ カレンダーID: 'old-ev' })]);
+  const getRange = sheet.getRange;
+  sheet.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = getRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === col('カレンダーID') + 1
+      ? { ...range, setValue: () => { throw new Error('試験用の予定ID消去失敗'); } }
+      : range;
+  };
+  const calendarLog = [];
+  const result = run('doCancel_', sheet, { code: 'LM-AAAAA', tel: '09011112222' },
+    {}, null, false, false, calendarLog).out;
+  result.ok && result.calendarWarning && sheet.at(0, '状態') === 'キャンセル'
+    && sheet.at(0, 'カレンダーID') === 'old-ev'
+    && calendarLog.map(item => item.action).join('/') === 'delete'
+    ? ok('予定削除後にIDを消せなくても取消を保ち、警告する')
+    : note('予定ID消去失敗', '成立済みの取消が失敗に見えるか警告がない');
+}
+{
+  const sheet = makeSheet([row({ カレンダーID: 'old-ev' })]);
+  const getRange = sheet.getRange;
+  sheet.getRange = (rowNumber, columnNumber, ...rest) => {
+    const range = getRange(rowNumber, columnNumber, ...rest);
+    return rowNumber > 1 && columnNumber === 1 && rest.length > 0
+      ? { ...range, setFontLine: () => { throw new Error('試験用の表示書式失敗'); } }
+      : range;
+  };
+  const calendarLog = [];
+  let result;
+  try { result = run('doCancel_', sheet, { code: 'LM-AAAAA', tel: '09011112222' },
+    {}, null, false, false, calendarLog); }
+  catch { result = { out: { ok: false }, mails: [] }; }
+  result.out.ok && sheet.at(0, '状態') === 'キャンセル'
+    && calendarLog.map(item => item.action).join('/') === 'delete'
+    && result.mails.length === 1
+    ? ok('取消行の表示書式を変えられなくても、予定削除と通知まで進める')
+    : note('取消行の表示書式失敗', '台帳だけ取消済みで予定・通知が残る');
+}
+
 console.log('\n【日時変更】');
+{
+  const originalDate = day(20);
+  const firstDate = day(21);
+  const latestDate = day(22);
+  const sheet = makeSheet([row({ 来店日: originalDate, 開始: '10:00', 終了: '11:00' })]);
+  const first = { code: 'LM-AAAAA', tel: '09011112222',
+    fromDate: originalDate, fromTime: '10:00', date: firstDate, time: '14:00' };
+  const second = { ...first, fromDate: firstDate, fromTime: '14:00', date: latestDate, time: '15:00' };
+  const moved = run('doChange_', sheet, first);
+  const repeated = run('doChange_', sheet, first);
+  const movedAgain = run('doChange_', sheet, second);
+  const late = run('doChange_', sheet, first);
+  moved.out.ok && repeated.out.ok && repeated.out.unchanged && movedAgain.out.ok
+    && !late.out.ok && late.out.stale && late.mails.length === 0
+    && sheet.at(0, '来店日') === latestDate && sheet.at(0, '開始') === '15:00'
+    ? ok('古い日時変更の遅延再送は、新しい変更を上書きしない')
+    : note('日時変更の遅延再送', '後から確定した日時を古い要求で上書きできる');
+  const incomplete = run('doChange_', sheet, { ...second, fromTime: '', date: day(23) });
+  !incomplete.out.ok && sheet.at(0, '来店日') === latestDate
+    ? ok('変更前の日時を片方だけ送った要求は断る')
+    : note('変更前の日時が不完全', '片方だけの条件で予約を動かせる');
+  const legacy = run('doChange_', sheet, { code: first.code, tel: first.tel, date: day(23), time: '16:00' });
+  legacy.out.ok && sheet.at(0, '来店日') === day(23)
+    ? ok('変更前の日時を送らない旧画面の互換性を保つ')
+    : note('旧画面の日時変更', '従来の要求まで拒否している');
+}
+{
+  const originalDate = day(20);
+  const changedDate = day(21);
+  const sheet = makeSheet([row({ 来店日: originalDate, 'カレンダーID': 'old-ev' })]);
+  const calendarLog = [];
+  const request = { code: 'LM-AAAAA', tel: '09011112222', date: changedDate, time: '14:00' };
+  const first = run('doChange_', sheet, request, {}, null, false, false, calendarLog);
+  first.out.ok && first.mails.length === 1 && calendarLog.length === 2
+    ? ok('最初の日時変更は台帳・通知・カレンダーへ反映する')
+    : note('最初の日時変更', '必要な反映が揃わない');
+  const eventCount = calendarLog.length;
+  const repeated = run('doChange_', sheet, request, {}, null, false, false, calendarLog);
+  repeated.out.ok && repeated.out.unchanged === true
+    && repeated.mails.length === 0 && calendarLog.length === eventCount
+    && sheet.at(0, '来店日') === changedDate && sheet.at(0, '開始') === '14:00'
+    ? ok('同じ日時の再送は成立済みと返し、通知も予定も増やさない')
+    : note('日時変更の再送', '同じ予約を重ねて通知・予定更新した');
+  const stranger = run('doChange_', sheet, { ...request, tel: '09099999999' });
+  !stranger.out.ok && stranger.mails.length === 0
+    ? ok('同じ日時でも電話番号が違えば成立済みと教えない')
+    : note('再送の本人確認', '他人に予約状態を知らせた');
+  const cancelled = run('doChange_', makeSheet([row({ 来店日: changedDate, 開始: '14:00', 状態: 'キャンセル' })]), request);
+  !cancelled.out.ok && cancelled.mails.length === 0
+    ? ok('取消済みを同じ日時の再送として成功にしない')
+    : note('取消後の日時変更再送', '取消済みを成功にした');
+  const expired = run('doChange_', makeSheet([row({ 来店日: day(0) })]),
+    { ...request, date: day(0), time: '10:00' });
+  !expired.out.ok && expired.out.deadline === true
+    ? ok('同じ日時でも受付期限を過ぎれば従来どおり断る')
+    : note('再送の受付期限', '期限を回避できてしまう');
+  const disabledCalendar = run('doChange_', makeSheet([row({ 'カレンダーID': 'old-ev' })]),
+    { code: 'LM-AAAAA', tel: '09011112222', date: day(20), time: '10:00' });
+  disabledCalendar.out.ok && disabledCalendar.out.unchanged
+    && disabledCalendar.out.calendarWarning && disabledCalendar.mails.length === 0
+    ? ok('連携停止中に古い予定IDがあれば、再送でも未確認を伝える')
+    : note('連携停止中の日時変更再送', '古い予定IDの警告が消えた');
+  const missingEvent = run('doChange_', makeSheet([row()]),
+    { code: 'LM-AAAAA', tel: '09011112222', date: day(20), time: '10:00' },
+    {}, null, false, false, []);
+  missingEvent.out.ok && missingEvent.out.unchanged && missingEvent.out.calendarWarning
+    && missingEvent.mails.length === 0
+    ? ok('連携中に予定IDが無ければ、再送でも未確認を伝える')
+    : note('連携中の日時変更再送', '予定ID欠落の警告が消えた');
+  const failedRemovalSheet = makeSheet([row({ 'カレンダーID': 'old-ev' })]);
+  const failedRemovalLog = [];
+  failedRemovalLog.failDelete = true;
+  const failedRequest = { code: 'LM-AAAAA', tel: '09011112222', date: day(21), time: '14:00' };
+  const failedRemoval = run('doChange_', failedRemovalSheet, failedRequest,
+    {}, null, false, false, failedRemovalLog);
+  const repeatedFailure = run('doChange_', failedRemovalSheet, failedRequest,
+    {}, null, false, false, failedRemovalLog);
+  failedRemoval.out.ok && failedRemoval.out.calendarWarning
+    && repeatedFailure.out.ok && repeatedFailure.out.unchanged && repeatedFailure.out.calendarWarning
+    && repeatedFailure.mails.length === 0
+    ? ok('古い予定の削除失敗は、同じ日時の再送で警告を消さない')
+    : note('予定削除失敗後の再送', '未確認の予定が成功扱いになった');
+}
+{
+  const currentMinute = 12 * 60;
+  const saved = row({ 来店日: day(7), 開始: '10:00', 終了: '11:00', '所要(分)': 60 });
+  const attempt = (time, password) => {
+    const sheet = makeSheet([saved]);
+    const result = run('doChange_', sheet, {
+      code: saved['予約番号'], tel: '09011112222', date: day(0), time, password
+    }, { ADMIN_PASSWORD: 'test-change-password' }, currentMinute);
+    return { ...result, sheet };
+  };
+  for (const time of ['11:30', '12:30', '13:44']) {
+    const result = attempt(time);
+    !result.out.ok && /時間前/.test(result.out.error)
+      ? ok(`変更先${time}は受付期限前のため断る`)
+      : note(`変更先${time}`, '直前または過去の時刻へ動かせてしまう');
+    result.sheet.at(0, '来店日') === saved['来店日'] && result.sheet.at(0, '開始') === saved['開始']
+      ? ok(`変更先${time}を断っても元の予約を維持する`)
+      : note(`変更先${time}`, '断った予約の日時を書き換えてしまう');
+    result.mails.length === 0 ? ok(`変更先${time}を断った場合は通知しない`)
+      : note(`変更先${time}`, '断った変更を通知してしまう');
+  }
+  attempt('13:45').out.ok ? ok('変更先も新規予約と同じ猶予込みの境界で受け付ける')
+    : note('変更の受付境界', '許可される時刻を断ってしまう');
+  attempt('12:30', 'test-change-password').out.ok ? ok('認証された店側の直前変更は維持する')
+    : note('店側の直前変更', '認証済みの操作を断ってしまう');
+  !attempt('12:30', 'wrong-password').out.ok ? ok('間違った合言葉では直前変更を免除しない')
+    : note('直前変更の認証', '誤った合言葉で制限を回避できる');
+}
 {
   let r = run('doChange_', makeSheet([row()]), { code:'LM-AAAAA', tel:'09099999999', date: day(21), time:'10:00', minutes:60 });
   r.out.ok ? note('日時変更', '他人の電話番号でも変更できる') : ok('電話番号が違えば変更できない');
@@ -531,6 +1300,12 @@ console.log('\n【口コミ】');
   const past = row({ 来店日: day(-3), 予約番号:'LM-RV001' });
   let r = run('doReview_', makeSheet([past]), { code:'LM-RV001', tel:'09099999999', body:'よかった', score:5 });
   r.out.ok ? note('口コミ', '他人の電話番号でも投稿できる') : ok('電話番号が違えば投稿できない');
+
+  r = run('doReview_', makeSheet([row({ ...past, 電話番号: '' })]),
+    { code:'LM-RV001', tel:'', body:'番号だけの投稿', score:5 });
+  /ご予約が確認/.test(r.out.error || '')
+    ? ok('台帳側の電話番号が空なら、番号だけで口コミを投稿できない')
+    : note('口コミの本人確認', '電話番号が双方空でも一致と扱った');
 
   r = run('doReview_', makeSheet([past]), { code:'LM-RV001', tel:'09011112222', body:'', score:5 });
   r.out.ok ? note('口コミ', '本文が空でも投稿できる') : ok('本文が空だと投稿できない');
@@ -634,6 +1409,99 @@ console.log('\n【シート】受けない時間帯の書き方');
   allDay[0] === '2026-09-01' ? ok('時間を空けておけば終日休みになる') : note('終日休み', 'にならない');
 }
 
+console.log('\n【シート】不正な休業時間は予約を止める');
+{
+  const date = '2026-09-01';
+  const closedAt = (start, end, time) => readSheets({ '休業日': [[date, start, end]] },
+    `ss => hitsClosed_({ getParent: () => ss }, '${date}', '${time}', 60)`);
+  for (const [label, start, end] of [
+    ['開始が24時以降', '25:00', '26:00'],
+    ['終了が24時以降', '09:00', '25:00'],
+    ['分が60以上', '09:60', '12:00'],
+    ['終了が開始より前', '14:00', '12:00']
+  ]) {
+    const rows = readSheets({ '休業日': [[date, start, end]] }, 'readClosedSheet_');
+    rows[0] === date && closedAt(start, end, '10:00') && closedAt(start, end, '15:00')
+      ? ok(`${label}の休業日は終日止める`)
+      : note(`${label}の休業日`, `予約が通り得る（${JSON.stringify(rows)}）`);
+  }
+  !closedAt('14:00', '16:00', '10:00') && closedAt('14:00', '16:00', '15:00')
+    ? ok('正しい時間帯は指定した時間だけ止める')
+      : note('正しい休業時間帯', '終日または時間外まで止めている');
+}
+
+console.log('\n【シート】休業日を読めない間は予約を動かさない');
+{
+  const attempt = (name, sheet, payload) => {
+    try { return run(name, sheet, payload).out; }
+    catch (error) { return { ok: false, error: String(error.message) }; }
+  };
+  for (const [label, parent, expected] of [
+    ['親シートの取得失敗', () => { throw new Error('試験用の読取失敗'); }, /営業時間・定休日の設定を確認できません/],
+    ['親シートが空', () => null, /営業時間・定休日の設定を確認できません/],
+    ['休業日シートの読取失敗', () => ({ getSheetByName(name) {
+      if (name === '休業日') throw new Error('試験用の読取失敗');
+      return null;
+    } }), /休業日の設定を確認できません/]
+  ]) {
+    const date = day(20);
+    const fresh = makeSheet();
+    fresh.getParent = parent;
+    const created = attempt('doReserve_', fresh, base({ date, time: '14:00' }));
+    !created.ok && expected.test(created.error)
+      && fresh._data.length === 0
+      ? ok(`${label}では新規予約を作らない`)
+      : note(`${label}の新規予約`, '休業日を確認せず台帳に書き込める');
+    const closed = attempt('hitsClosed_', fresh, date);
+    !closed.ok && /休業日の設定を確認できません/.test(closed.error)
+      ? ok(`${label}で休業日の読取失敗を見逃さない`)
+      : note(`${label}の休業日判定`, '設定の読取失敗を空き扱いにした');
+
+    const existing = makeSheet([row({ 来店日: date, 開始: '10:00', 終了: '11:00' })]);
+    existing.getParent = parent;
+    const changed = attempt('doChange_', existing, { code: 'LM-AAAAA', tel: '09011112222',
+      date: day(21), time: '14:00' });
+    !changed.ok && expected.test(changed.error)
+      && existing.at(0, '来店日') === date && existing.at(0, '開始') === '10:00'
+      ? ok(`${label}では日時変更をしない`)
+      : note(`${label}の日時変更`, '休業日を確認せず予約を動かせる');
+  }
+}
+
+console.log('\n【シート】営業時間と定休日を読めない間は予約を動かさない');
+{
+  const attempt = (name, sheet, payload) => {
+    try { return run(name, sheet, payload).out; }
+    catch (error) { return { ok: false, error: String(error.message) }; }
+  };
+  const date = day(20);
+  const fresh = makeSheet();
+  fresh.getParent = () => ({ getSheetByName(name) {
+    if (name === '設定') throw new Error('試験用の設定読取失敗');
+    return null;
+  } });
+  const created = attempt('doReserve_', fresh, base({ date, time: '14:00' }));
+  !created.ok && /営業時間・定休日の設定を確認できません/.test(created.error)
+    && fresh._data.length === 0
+    ? ok('営業時間を読めなければ新規予約を作らない')
+    : note('営業時間の読取失敗', '既定時間へ戻して予約を受けられる');
+
+  const existing = makeSheet([row({ 来店日: date, 開始: '10:00', 終了: '11:00' })]);
+  let settingsReads = 0;
+  existing.getParent = () => ({ getSheetByName(name) {
+    if (name !== '設定') return null;
+    settingsReads++;
+    if (settingsReads === 2) throw new Error('試験用の設定読取失敗');
+    return null;
+  } });
+  const changed = attempt('doChange_', existing, { code: 'LM-AAAAA', tel: '09011112222',
+    date: day(21), time: '14:00' });
+  !changed.ok && /営業時間・定休日の設定を確認できません/.test(changed.error)
+    && existing.at(0, '来店日') === date && existing.at(0, '開始') === '10:00'
+    ? ok('定休日を読めなければ日時変更をしない')
+    : note('定休日の読取失敗', '定休日なしとして予約を動かせる');
+}
+
 console.log('\n【シート】メニューの価格と所要時間');
 {
   const menu = (price, min) => ({ 'メニュー': [['カット', 'テスト', price, min, '', '', '○']] });
@@ -651,6 +1519,32 @@ console.log('\n【シート】メニューの価格と所要時間');
     v === 60 ? ok(`所要「${label}」は 60分と読める`)
              : note(`所要「${label}」`, `${v}分と読まれる → 次のお客様と重なります`);
   }
+
+  const invalidDurations = [['空欄', ''], ['ゼロ', 0], ['小数', '3.0'],
+    ['時間表記', '1時間30分'], ['文字列', '未定'], ['上限超過', 600]];
+  const menuRows = invalidDurations.map(([label, cell]) =>
+    ['カット', label, 4000, cell, '', '', '○']);
+  menuRows.push(['カット', '正常', 4000, '90分', '', '', '○']);
+  const menuGroups = readSheets({ 'メニュー': menuRows }, 'readMenuSheet_') || [];
+  const menuNames = menuGroups.flatMap(group => group.items.map(entry => entry.name));
+  for (const [label] of invalidDurations) {
+    !menuNames.includes(label) ? ok(`所要「${label}」の単品メニューは予約に出さない`)
+      : note(`所要「${label}」の単品メニュー`, '所要時間を推測して予約に出した');
+  }
+  menuNames.includes('正常') ? ok('正しい所要時間の単品メニューは残す')
+    : note('正しい単品メニュー', '誤入力の行と一緒に消えた');
+
+  const couponRows = invalidDurations.map(([label, cell]) =>
+    [label, 6900, '', cell, '', '', '全員', '', '', '○']);
+  couponRows.push(['正常', 6900, '', 90, '', '', '全員', '', '', '○']);
+  const coupons = readSheets({ 'おすすめメニュー': couponRows }, 'readCouponSheet_') || [];
+  const couponNames = coupons.map(entry => entry.title);
+  for (const [label] of invalidDurations) {
+    !couponNames.includes(label) ? ok(`所要「${label}」のおすすめメニューは予約に出さない`)
+      : note(`所要「${label}」のおすすめメニュー`, '所要時間を推測して予約に出した');
+  }
+  couponNames.includes('正常') ? ok('正しい所要時間のおすすめメニューは残す')
+    : note('正しいおすすめメニュー', '誤入力の行と一緒に消えた');
 }
 
 /* ============================================================
@@ -942,28 +1836,36 @@ console.log('\n【店側の入口】まちがいが続いたら');
   /* お客様のキャンセルは合言葉を送りません。それを数えてはいけません。 */
   const shop2 = { ADMIN_PASSWORD: 'himitsu' };
   for (let i = 0; i < 12; i++) {
-    run('doCancel_', makeSheet([row()]), { code: 'LM-AAAAA', tel: '09011112222' });
+    run('doCancel_', makeSheet([row()]), { code: 'LM-AAAAA', tel: '09011112222' }, shop2);
   }
-  admin('doAdminData_', { password: 'himitsu' }, shop2).out.ok
+  !shop2.ADMIN_FAILS && admin('doAdminData_', { password: 'himitsu' }, shop2).out.ok
     ? ok('お客様のキャンセルは、まちがい回数に数えない')
     : note('お客様のキャンセル', 'が回数に数えられ、店が入れなくなる');
 }
 
 console.log('\n【守り】台帳の毎日バックアップ');
 {
-  /* dailyBackup はトリガーで毎日動かす前提の関数です。
-     「同じ曜日の古い写しを捨ててから、新しい写しを置く」ことだけ確かめます。 */
-  const b = admin('doAdminData_', {});
-  const acts = [];
-  b.ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getName: () => '予約台帳', getId: () => 'ssid' }) };
-  b.ctx.DriveApp = {
-    getFilesByName: () => { const f = [{ setTrashed: () => acts.push('捨てた') }]; return { hasNext: () => f.length > 0, next: () => f.shift() }; },
-    getFileById: () => ({ makeCopy: () => acts.push('写した') })
-  };
-  vm.runInContext('dailyBackup()', b.ctx);
-  acts.join('→') === '捨てた→写した'
-    ? ok('同じ曜日の古い写しを捨ててから、新しい写しを置く')
-    : note('毎日バックアップ', '動きが違う: ' + acts.join('→'));
+  for (const fails of [false, true]) {
+    const b = admin('doAdminData_', {});
+    const acts = [];
+    let attempted = false;
+    b.ctx.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
+    b.ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getName: () => '予約台帳', getId: () => 'ssid' }) };
+    b.ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'old-copy', setProperty: () => acts.push('記録') }) };
+    b.ctx.DriveApp = {
+      getFilesByName: () => { throw new Error('同名の別ファイルを検索してはいけません'); },
+      getFileById: id => id === 'ssid' ? { makeCopy: () => {
+        attempted = true;
+        if (fails) throw new Error('コピー失敗');
+        acts.push('写した'); return { getId: () => 'new-copy' };
+      } } : { setTrashed: () => acts.push('捨てた') }
+    };
+    let failed = false;
+    try { vm.runInContext('dailyBackup()', b.ctx); } catch { failed = true; }
+    const valid = fails ? attempted && failed && acts.length === 0 : !failed && acts.join('→') === '写した→記録→捨てた';
+    const label = fails ? 'コピー失敗時は古い控えを残す' : '新しい控えの作成・記録後に管理対象だけ整理する';
+    valid ? ok(label) : note(label, acts.join('→'));
+  }
 }
 
 console.log('\n【店側の入口】保存');
@@ -988,7 +1890,7 @@ console.log('\n【店側の入口】保存');
    ============================================================ */
 /* シートの中身は、配列そのままなら「見出しの無いシート」、
    { head: [...], rows: [...] } なら「1行目が見出しのシート」として作ります。 */
-function shop(sheetsInit = {}) {
+function shop(sheetsInit = {}, source = srcLive) {
   const store = { ADMIN_PASSWORD: 'himitsu' };
   const sheets = {};
   const mk = (name, init = []) => {
@@ -1048,6 +1950,7 @@ function shop(sheetsInit = {}) {
       },
       getDataRange: () => ({ getValues: () => (head ? [head.slice()] : []).concat(data.map(r => r.slice())) }),
       setFrozenRows() {}, setColumnWidth() {}, clear() {}, deleteRows() {}, _data: data,
+      getParent: () => ss,
       // 見出しがどう変わったかを、試験から見るため
       _head: () => (head ? head.slice() : [])
     };
@@ -1072,7 +1975,7 @@ function shop(sheetsInit = {}) {
       newBlob: () => ({}), base64Decode: () => [], base64Encode: () => '' }
   };
   vm.createContext(ctx);
-  vm.runInContext(srcLive, ctx);
+  vm.runInContext(source, ctx);
   return {
     call: (fn, payload) => {
       vm.runInContext(`globalThis.__w = ${fn};`, ctx);
@@ -1086,6 +1989,138 @@ function shop(sheetsInit = {}) {
     },
     sheets
   };
+}
+
+console.log('\n【受付の停止と復旧】実際の受け口・架空の独立台帳');
+{
+  const worker = shop({
+    '設定': { head: ['項目', '内容'], rows: [['準備中の帯', '出す']] },
+    'メニュー': { head: MENU_H, rows: [['カット', '試験カット', 4000, 60, '', '', '○']] }
+  }, src);
+  const request = (type, values = {}) => JSON.parse(worker.call('doPost', { postData: {
+    contents: JSON.stringify({ type, ...values })
+  } }));
+  const changeSetting = value => {
+    const current = request('adminData', { password: 'himitsu' });
+    if (!current.ok) return current;
+    return request('adminSave', { password: 'himitsu', target: 'settings', stamp: current.stamps.settings,
+      rows: { ...current.settings, '準備中の帯': value } });
+  };
+  const reservation = (time, code) => base({ code, date: day(20), time, totalMinutes: 60,
+    menus: [{ id: 'sm0', name: '試験カット', price: 4000, minutes: 60, priceFrom: false }],
+    totalPrice: 4000 });
+  const first = reservation('10:00', 'TEST-STOP-1');
+  const second = reservation('12:00', 'TEST-STOP-2');
+  const count = () => worker.sheets['予約一覧']?._data.length || 0;
+
+  const initial = request('reserve', first);
+  !initial.ok && initial.draft && count() === 0
+    ? ok('初期状態は受付を止め、台帳に書かない')
+    : note('初期状態', '準備中のまま予約を記録した');
+
+  const opened = changeSetting('出さない');
+  const accepted = request('reserve', first);
+  opened.ok && accepted.ok && count() === 1
+    ? ok('店側で解除すると同じ受け口で予約を記録する')
+    : note('受付開始', `設定=${opened.error || opened.ok} 予約=${accepted.error || accepted.ok} 件数=${count()}`);
+
+  const stopped = changeSetting('出す');
+  const blocked = request('reserve', second);
+  const lookup = request('lookup', { code: first.code, tel: first.customer.tel });
+  const cancelled = request('cancel', { code: first.code, tel: first.customer.tel });
+  stopped.ok && !blocked.ok && blocked.draft && lookup.ok && cancelled.ok && count() === 1
+    ? ok('再停止後は新規予約だけを断り、既存予約は照会・取消できる')
+    : note('再停止', '新規受付か既存予約の照会・取消が想定と異なる');
+
+  const reopened = changeSetting('出さない');
+  const parent = worker.sheets['設定'].getParent();
+  const originalGetSheet = parent.getSheetByName;
+  parent.getSheetByName = name => {
+    if (name === '設定') throw new Error('検証用の設定読取失敗');
+    return originalGetSheet(name);
+  };
+  const unreadable = request('reserve', second);
+  parent.getSheetByName = originalGetSheet;
+  reopened.ok && !unreadable.ok && unreadable.draft && count() === 1
+    ? ok('設定を読めない間は受付を止め、台帳を維持する')
+    : note('設定の読取失敗', '新規予約を断らなかった');
+
+  const blank = changeSetting('');
+  const missing = request('reserve', second);
+  const current = request('adminData', { password: 'himitsu' });
+  const withoutDraftSetting = { ...current.settings };
+  delete withoutDraftSetting['準備中の帯'];
+  const omitted = request('adminSave', { password: 'himitsu', target: 'settings',
+    stamp: current.stamps.settings, rows: withoutDraftSetting });
+  const absent = request('reserve', second);
+  const invalid = changeSetting('不明');
+  const unknown = request('reserve', second);
+  blank.ok && !missing.ok && missing.draft && omitted.ok && !absent.ok && absent.draft
+    && invalid.ok && !unknown.ok && unknown.draft && count() === 1
+    ? ok('設定が空欄・欠落・不明でも新規予約を受けない')
+    : note('設定の欠落・不明値', '新規予約を断らなかった');
+
+  const restored = changeSetting('出さない');
+  const after = request('reserve', second);
+  restored.ok && after.ok && count() === 2
+    ? ok('設定を直した後は既存予約を残して受付を再開する')
+    : note('受付の復旧', '既存予約を保ったまま再開できなかった');
+}
+
+console.log('\n【予約メニュー】所要時間が空欄なら公開受け口でも断る');
+{
+  const worker = shop({
+    'メニュー': { head: MENU_H, rows: [['カット', '単品テスト', 4000, '', '', '', '○']] },
+    'おすすめメニュー': { head: COUPON_H, rows: [['コーステスト', 6900, '', '', '', '', '全員', '', '○']] }
+  });
+  const send = (menuId, name, price) => {
+    const payload = base({ date: day(20), totalPrice: price, totalMinutes: 30,
+      menus: [{ id: menuId, name, price, minutes: 30, priceFrom: false }] });
+    return JSON.parse(worker.call('doPost', { postData: {
+      contents: JSON.stringify({ ...payload, type: 'reserve' })
+    } }));
+  };
+  const menuResult = send('sm0', '単品テスト', 4000);
+  const couponResult = send('sc0', 'コーステスト', 6900);
+  const saved = worker.sheets['予約一覧']?._data.length || 0;
+  !menuResult.ok && menuResult.catalogChanged && !couponResult.ok && couponResult.catalogChanged && saved === 0
+    ? ok('所要時間を確認できない単品・おすすめメニューを直接送っても台帳へ書かない')
+    : note('所要時間が空欄の予約', '公開受け口から30分の予約として記録できた');
+}
+
+console.log('\n【店側の保存】所要時間を確認できない公開メニューは保存しない');
+{
+  const cases = [
+    ['menus', 'メニュー', MENU_H, ['カット', '試験カット', 4000, 60, '', '', '○'],
+      { 区分: 'カット', メニュー名: '試験カット', 価格: 4000, 説明: '', 画像: '', 表示: '○' }],
+    ['coupons', 'おすすめメニュー', COUPON_H,
+      ['試験コース', 6900, '', 90, '', '', '全員', '', '○'],
+      { メニュー名: '試験コース', 価格: 6900, 通常価格: '', 説明: '', 条件: '', 対象: '全員', 画像: '', 表示: '○' }]
+  ];
+  for (const [target, sheetName, head, initial, edit] of cases) {
+    for (const invalid of ['', 0, '3.0', '1時間30分', 600]) {
+      const worker = shop({ [sheetName]: { head, rows: [initial] } });
+      const stamp = worker.call('doAdminData_', { password: 'himitsu' }).stamps[target];
+      const before = JSON.stringify(worker.sheets[sheetName]._data);
+      const result = worker.call('doAdminSave_', { password: 'himitsu', target, stamp,
+        rows: [{ ...edit, '所要(分)': invalid }] });
+      !result.ok && /所要時間/.test(result.error || '')
+        && JSON.stringify(worker.sheets[sheetName]._data) === before
+        ? ok(`${target}の所要「${String(invalid) || '空欄'}」は保存を断り元の行を残す`)
+        : note(`${target}の所要「${String(invalid) || '空欄'}」`, '保存できるか元の行を変更した');
+    }
+    const worker = shop({ [sheetName]: { head, rows: [initial] } });
+    let stamp = worker.call('doAdminData_', { password: 'himitsu' }).stamps[target];
+    const hidden = worker.call('doAdminSave_', { password: 'himitsu', target, stamp,
+      rows: [{ ...edit, '所要(分)': '', 表示: '×' }] });
+    hidden.ok ? ok(`${target}の非表示の下書きは空欄でも保存できる`)
+      : note(`${target}の非表示の下書き`, '公開しない行まで保存できない');
+    stamp = worker.call('doAdminData_', { password: 'himitsu' }).stamps[target];
+    const valid = worker.call('doAdminSave_', { password: 'himitsu', target, stamp,
+      rows: [{ ...edit, '所要(分)': '９０分', 表示: '○' }] });
+    valid.ok ? ok(`${target}の正しい全角・分表記は保存できる`)
+      : note(`${target}の正しい全角・分表記`, '所要時間を読めず保存できない');
+  }
 }
 
 console.log('\n【店側の入口】2台で同時に開いていたら');
@@ -1475,6 +2510,9 @@ console.log('\n【予約の入口】列が無い台帳に、あとから足す')
   head[OLD.length] === '予約の入口'
     ? ok('見出しは右端に足される（空の列を挟まない）')
     : note('足した見出し', `の場所が違う（${JSON.stringify(head.slice(OLD.length - 1))}）`);
+  ['店舗メール状態', 'お客様メール状態'].every(name => head.includes(name))
+    ? ok('旧台帳にも店舗・お客様の通知状態の列が加わる')
+    : note('メール状態の見出し', '旧台帳に加わらない');
   head.slice(0, OLD.length).join('|') === OLD.join('|')
     ? ok('もとの見出しは動かない（店の人が足した「メモ」も残る）')
     : note('もとの見出し', 'が動いた：' + head.slice(0, OLD.length).join('|'));
@@ -1483,6 +2521,9 @@ console.log('\n【予約の入口】列が無い台帳に、あとから足す')
   kept.slice(0, OLD.length).join('|') === before.join('|')
     ? ok('足す前からあった予約の値は、1つも変わらない')
     : note('もとの行', 'が壊れた：' + JSON.stringify(kept));
+  ['店舗メール状態', 'お客様メール状態'].every(name => !kept[head.indexOf(name)])
+    ? ok('過去の予約にメール送信結果を作り足さない')
+    : note('過去の通知状態', '確認していない結果が入った');
 
   const added = w.sheets['予約一覧']._data[1] || [];
   String(added[head.indexOf('予約の入口')] || '') === 'LINE'

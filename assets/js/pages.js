@@ -368,8 +368,6 @@ function initHome() {
     noticeBox.hidden = !text;
   }
 
-  const ratingBox = $('.hero-rating');
-  if (ratingBox) ratingBox.hidden = true;
   /* トップの大きい写真。
      has-photo は「写真が読めたとき」だけ付けます（wireImageFallbacks が付ける）。
      先に付けてしまうと、写真が無いときに暗い膜と白文字だけが残り、
@@ -403,7 +401,6 @@ function initHome() {
   }
   $('#hero-catch').textContent = SALON.catch;
   $('#hero-desc').textContent = SALON.description;
-  $('#lead-hours').textContent = SALON.business.minLeadHours;
 
   $('#hero-meta').innerHTML = [
     SALON.access || SALON.address,

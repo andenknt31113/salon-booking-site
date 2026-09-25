@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 const BASE = process.env.BASE || 'http://127.0.0.1:8820';
+const BASE_ORIGIN = new URL(BASE).origin;
 const OBSERVATION_MS = 8500;
 const WIDTHS = [390, 1280];
 const PAGES = ['index.html', 'menu.html', 'gallery.html', 'staff.html', 'reviews.html', 'privacy.html'];
@@ -12,10 +13,14 @@ try {
   for (const width of WIDTHS) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, locale: 'ja-JP' });
     const requests = [];
+    const externalRequests = [];
     await context.route('**/*', async route => {
       const request = route.request();
       if (request.method() === 'POST') {
         requests.push(request.url());
+        await route.abort();
+      } else if (new URL(request.url()).origin !== BASE_ORIGIN) {
+        externalRequests.push(request.url());
         await route.abort();
       } else {
         await route.continue();
@@ -42,6 +47,19 @@ try {
         `${name} のお客様向けフッターに管理画面への入口を出さない`);
       await page.waitForTimeout(OBSERVATION_MS);
       assert.deepEqual(await snapshot(), initial, `${name} の本文・写真・リンクは8秒後にも同じ`);
+      const logo = page.locator('#site-header .brand .brand-logo');
+      assert.equal(await logo.count(), 1, `${name} の店のロゴがある`);
+      assert.equal(await logo.evaluate(image => image.complete && image.naturalWidth > 0), true,
+        `${name} の店のロゴ画像を読み込める`);
+      assert.equal(await logo.isVisible(), true, `${name} の店のロゴが表示される`);
+      if (name === 'index.html') {
+        const heroPhoto = page.locator('.hero .hero-photo');
+        assert.equal(await heroPhoto.count(), 1, 'トップの店内写真がある');
+        assert.equal(await heroPhoto.evaluate(image => image.complete && image.naturalWidth > 0), true,
+          'トップの店内写真を読み込める');
+        assert.equal(await page.locator('.hero').evaluate(hero => hero.classList.contains('has-photo')), true,
+          'トップの店内写真が表示状態になる');
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${name} は幅${width}で横にはみ出さない`);
       if (name === 'reviews.html') {
         assert.equal(await page.locator('#review-form').count(), 0, '自社投稿フォームを出さない');
@@ -52,6 +70,7 @@ try {
       console.log(`成功：${name} 幅${width}・時間経過による差し替えなし`);
     }));
     assert.deepEqual(requests, [], '公開ページはGASに設定取得を要求しない');
+    assert.deepEqual(externalRequests, [], '公開ページは外部へ自動接続しない');
     const reserve = await context.newPage();
     reserve.on('pageerror', error => errors.push(`reserve.html: ${error.message}`));
     await reserve.goto(`${BASE}/reserve.html`, { waitUntil: 'load' });

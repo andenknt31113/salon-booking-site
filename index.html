@@ -34,13 +34,6 @@
              書き足すのではなく、店がすでに書いているものを先に出すだけです。 -->
         <p class="hero-tagline" id="hero-tagline" hidden></p>
         <p class="hero-label">ESTD 2026 — RYUGASAKI, IBARAKI</p>
-        <div class="hero-rating">
-          <span class="rating-score" id="hero-score"></span>
-          <span>
-            <span class="stars" id="hero-stars"></span>
-            <span class="rating-count" id="hero-count"></span>
-          </span>
-        </div>
         <h1 id="hero-catch"></h1>
         <p class="hero-desc" id="hero-desc"></p>
         <ul class="hero-meta" id="hero-meta"></ul>
@@ -60,7 +53,7 @@
       </div>
       <div class="notice is-info">
         <b>お知らせ</b>
-        <span class="booking-active-only">ネット予約は24時間受付中です。当日のご予約は施術開始<span id="lead-hours"></span>時間前まで承ります。それ以降はお電話でご相談ください。</span>
+        <span class="booking-active-only">ネット予約の受付状況と空席は予約ページでご確認ください。お急ぎの際はお電話でご相談ください。</span>
         <span class="booking-paused-only">ネット予約は準備中です。ご予約については店舗へお問い合わせください。</span>
       </div>
     </section>
@@ -118,10 +111,8 @@
           <h2 class="section-title">お客様の声</h2>
         </div>
         <div class="review-list" id="home-reviews"></div>
-        <!-- 口コミは0件です。「すべて見る」の行き先が空のページになるので、
-             件数に合わせて文言と行き先を pages.js が入れ替えます（renderHomeReviewLink）。 -->
         <p style="text-align:center;margin-top:26px;">
-          <a class="btn btn-outline" id="home-review-link" href="reviews.html">口コミをすべて見る</a>
+          <a class="btn btn-outline" id="home-review-link" href="reviews.html">Googleの口コミを見る・書く</a>
         </p>
       </div>
     </section>
@@ -152,7 +143,7 @@
     <section class="section">
       <div class="container-narrow" style="text-align:center;">
         <h2 class="section-title" style="margin-bottom:14px;">ご予約について</h2>
-        <p class="section-desc booking-active-only" style="margin-bottom:24px;">空席状況を見ながら、24時間いつでもご予約いただけます。</p>
+        <p class="section-desc booking-active-only" style="margin-bottom:24px;">空席状況と予約方法は予約ページでご確認ください。</p>
         <p class="section-desc booking-paused-only">ネット予約は準備中です。ご予約については店舗へお問い合わせください。</p>
         <a class="btn btn-primary btn-lg" href="reserve.html">予約のご案内を見る</a>
       </div>

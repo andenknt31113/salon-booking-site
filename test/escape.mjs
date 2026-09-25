@@ -23,6 +23,16 @@ const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobil
     /* お客様のスマホは日本時間です。この機械の時間帯のままだと、
        当日の締め切りのような「いま何時か」で変わる判定がずれます。 */
     timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
+await ctx.route('**/assets/js/data.js', async route => {
+  const response = await route.fetch();
+  const original = await response.text();
+  if (!original.includes('bookingLaunchApproved: false,') || !original.includes('draft: true,')) {
+    throw new Error('受付開始の試験設定が見つかりません');
+  }
+  await route.fulfill({ response, body: original
+    .replace('bookingLaunchApproved: false,', 'bookingLaunchApproved: true,')
+    .replace('draft: true,', 'draft: false,') });
+});
 const p = await ctx.newPage();
 let alerted = false;
 p.on('dialog', d => { alerted = true; d.dismiss(); });

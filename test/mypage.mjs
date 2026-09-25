@@ -600,6 +600,19 @@ console.log('\n【MP17】幅390pxで、指の腹で押せる大きさか');
 /* ============================================================
    まとめ
    ============================================================ */
+{
+  const p = await newPhone('予約番号が分からない');
+  await p.goto(B + '/mypage.html#reservation-help');
+  await p.waitForTimeout(1400);
+  await p.locator('#reservation-help > summary').click();
+  const help = await p.locator('#reservation-help').innerText();
+  check('案内', '確認前の再予約を止める', help.includes('新しく予約し直さず'), true);
+  check('案内', '番号なしでも伝えられる情報が分かる', help.includes('お名前・予約した日時・お電話番号'), true);
+  check('案内', '店舗への連絡先が表示される', (await p.locator('#reservation-help-contact').innerText()).length > 0, true);
+  check('案内', '案内を開いても横にはみ出さない', await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await p.context().close();
+}
+
 const ng = results.filter(r => !r.ok);
 console.log('\n' + '='.repeat(52));
 console.log(`確認 ${results.length} 項目 / 失敗 ${ng.length} 件`);

@@ -41,7 +41,22 @@ try {
     check('LD', '種類が美容室', ld['@type'], 'HairSalon');
     check('LD', '店名が入っている', !!ld.name, true);
     check('LD', '住所が入っている', !!(ld.address && ld.address.streetAddress), true);
-    check('LD', '営業時間が入っている', /^Mo-Su \d{2}:\d{2}-\d{2}:\d{2}$/.test(ld.openingHours || ''), true);
+    check('LD', '不定休を毎日営業と案内しない', 'openingHours' in ld, false);
+    const fixedHours = await p.evaluate(() => {
+      SALON.business.closedNote = '';
+      injectStructuredData();
+      const tags = document.querySelectorAll('script[type="application/ld+json"]');
+      return JSON.parse(tags[tags.length - 1].textContent).openingHours;
+    });
+    check('LD', '固定の休みが無い場合は営業時間を示す',
+      /^Mo-Su \d{2}:\d{2}-\d{2}:\d{2}$/.test(fixedHours || ''), true);
+    const weekdayClosure = await p.evaluate(() => {
+      SALON.business.closedWeekdays = [2];
+      injectStructuredData();
+      const tags = document.querySelectorAll('script[type="application/ld+json"]');
+      return JSON.parse(tags[tags.length - 1].textContent).openingHours;
+    });
+    check('LD', '固定の定休日がある場合も全曜日営業と案内しない', weekdayClosure, undefined);
     check('LD', 'URLが絶対パス', /^https?:\/\//.test(ld.url || ''), true);
     check('LD', '評価は口コミが無いあいだ出さない', 'aggregateRating' in ld, false);
     check('LD', '価格帯が壊れていない', /^¥[\d,]+〜¥[\d,]+$/.test(ld.priceRange || ''), true);
