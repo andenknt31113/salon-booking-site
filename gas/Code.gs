@@ -556,6 +556,17 @@ function doAdminNote_(sheet, d) {
   if (at < 0) return { ok: false, error: '台帳に「' + NOTE_HEADER + '」の列が作れませんでした。' };
 
   const note = cell_(d.note, LIMITS.note);
+  const compareText = value => String(value == null ? '' : value).replace(/\r\n?/g, '\n').trim();
+  const saved = compareText(noteText_(sheet.getRange(row, at + 1).getValues()[0][0]));
+  const expected = Object.prototype.hasOwnProperty.call(d, 'expectedNote');
+  if (d.googleAdminContext === GOOGLE_ADMIN_CONTEXT && !expected) {
+    return { ok: false, error: 'メモの元の内容を確認できません。画面を読み込み直してください。' };
+  }
+  if (expected && saved !== compareText(d.expectedNote)) {
+    if (saved === compareText(noteText_(note))) return { ok: true, code: String(d.code), note: saved };
+    return { ok: false, conflict: true,
+      error: '別の画面で施術メモが更新されました。入力をコピーしてからページを再読み込みし、最新のメモを確認してください。' };
+  }
   sheet.getRange(row, at + 1).setValue(note);
   // 切り詰めた・頭に ' が付いたときのために、保存した中身をそのまま返します
   return { ok: true, code: String(d.code), note: noteText_(note) };

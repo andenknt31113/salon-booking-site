@@ -42,7 +42,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1';
+  frame.src = 'admin.html?design=a&google=1&v=20260929-note';
 }
 
 async function post(body, signal) {

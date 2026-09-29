@@ -578,16 +578,22 @@ function noteEditorHtml(r) {
 
    予約番号はシートに手で書かれることがあるので、引用符が混ざっていても
    選び方が壊れないよう CSS.escape を通します。 */
-function applyNoteToScreen(code, note) {
+function applyNoteToScreen(code, note, savedBox) {
   const has = !!note.trim();
+  const submittedNote = savedBox.querySelector('[data-note-input]').value.trim();
   document.querySelectorAll(`[data-note-box="${CSS.escape(code)}"]`).forEach(box => {
     const input = box.querySelector('[data-note-input]');
-    input.value = note;
-    input.defaultValue = note;
+    const hasOtherDraft = box !== savedBox && input.value.trim() !== input.defaultValue.trim()
+      && input.value.trim() !== submittedNote;
+    if (!hasOtherDraft) {
+      input.value = note;
+      input.defaultValue = note;
+    }
     const text = box.querySelector('[data-note-text]');
     text.hidden = !has;
     text.querySelector('span').textContent = note;
     box.querySelector('[data-note-summary]').textContent = noteSummaryLabel(has);
+    if (hasOtherDraft) box.querySelector('[data-note-status]').textContent = '別の場所で保存されました。下書きは残っています。';
   });
 }
 
@@ -603,6 +609,7 @@ async function saveNote(btn) {
   if (!input || pendingNoteSaves.has(code)) return;
 
   const note = input.value;
+  const expectedNote = input.defaultValue;
   const boxes = $$(`[data-note-box="${CSS.escape(code)}"]`);
   pendingNoteSaves.add(code);
   boxes.forEach(noteBox => {
@@ -612,9 +619,9 @@ async function saveNote(btn) {
   });
   let res;
   try {
-    res = await adminPost({ type: 'adminNote', code, note });
+    res = await adminPost({ type: 'adminNote', code, note, expectedNote });
   } catch {
-    res = { ok: false };
+    res = { ok: false, transportError: true };
   } finally {
     pendingNoteSaves.delete(code);
     boxes.forEach(noteBox => {
@@ -627,8 +634,12 @@ async function saveNote(btn) {
   if (!res.ok) {
     /* 保存できていないのに黙っていると、書いたつもりで閉じられます。
        次のご来店のときに何も出てこず、そのときには理由が分かりません。 */
-    if (status) status.textContent = '未保存です。入力は残っています。';
-    alert('メモを保存できませんでした。' + (res.error ? '\n' + res.error : ''));
+    if (status) status.textContent = res.conflict
+      ? '別の画面で更新されています。入力は残っています。'
+      : res.transportError ? '保存結果を確認できません。入力は残っています。'
+      : '未保存です。入力は残っています。';
+    alert((res.transportError ? 'メモの保存結果を確認できません。' : 'メモを保存できませんでした。')
+      + (res.error ? '\n' + res.error : ''));
     return;
   }
 
@@ -637,7 +648,7 @@ async function saveNote(btn) {
   const saved = String(res.note == null ? note : res.note);
   const r = (adminData.reservations || []).find(x => x.code === code);
   if (r) r.note = saved;
-  applyNoteToScreen(code, saved);
+  applyNoteToScreen(code, saved, box);
   if (status) status.textContent = '保存しました';
 }
 
