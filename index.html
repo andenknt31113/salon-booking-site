@@ -32,10 +32,10 @@
         <!-- ここまで英字しかなく、何の店なのかが日本語で1つも読めませんでした。
              中身は pages.js が店の掲載名と住所から組みます（heroTaglineParts）。
              書き足すのではなく、店がすでに書いているものを先に出すだけです。 -->
-        <p class="hero-tagline" id="hero-tagline" hidden></p>
+        <p class="hero-tagline" id="hero-tagline"><span>茨城県龍ケ崎市｜</span><span>メンズカット/縮毛矯正 /白髪ぼかし</span></p>
         <p class="hero-label">ESTD 2026 — RYUGASAKI, IBARAKI</p>
-        <h1 id="hero-catch"></h1>
-        <p class="hero-desc" id="hero-desc"></p>
+        <h1 id="hero-catch">イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に</h1>
+        <p class="hero-desc" id="hero-desc">ZER01 は毎日を簡単にカッコよくを基盤にフェードや白髪ぼかし、メンズ縮毛矯正、パーマまで幅広く対応するmen&#39;s専門サロンです。マンツーマン施術でお客様と丁寧に向き合い、年齢やライフスタイルに合わせた&quot;長く似合うスタイル&quot;をご提案。落ち着いた空間で、髪も気持ちも整う時間を提供します。</p>
         <ul class="hero-meta" id="hero-meta"></ul>
         <div class="hero-cta">
           <a class="btn btn-primary btn-lg" href="reserve.html">予約のご案内を見る</a>
@@ -69,7 +69,61 @@
           <h2 class="section-title">おすすめメニュー</h2>
           <p class="section-desc">カットとカラーなど、組み合わせの決まったコースをご紹介します。</p>
         </div>
-        <div class="coupon-list" id="home-coupons"></div>
+        <section class="coupon-list" id="home-coupons" aria-label="おすすめメニュー一覧">
+    <article class="coupon">
+      <img class="coupon-photo ph-photo-opt" src="assets/style11.jpg" alt="" />
+      <div>
+        <span class="coupon-badge is-all">全員</span>
+        <h3>【清潔感と品が続く】men&#39;s骨格補正カット＋眉カット</h3>
+        <ul class="tag-list"><li class="tag">カット</li></ul>
+
+
+      </div>
+      <div class="coupon-price">
+        <div>
+
+          <div class="price-now">¥6,900<small>（税込）</small></div>
+          <div class="price-min">所要 約1時間</div>
+        </div>
+        <a class="btn btn-primary btn-sm" href="reserve.html?menu=sc0">予約について</a>
+      </div>
+    </article>
+    <article class="coupon">
+      <img class="coupon-photo ph-photo-opt" src="assets/style6.jpg" alt="" />
+      <div>
+        <span class="coupon-badge is-all">全員</span>
+        <h3>【全ての身嗜み整える＋最高の体験を】ラグジュアリーカットコース</h3>
+        <ul class="tag-list"><li class="tag">カット</li><li class="tag">トリートメント</li><li class="tag">ヘッドスパ</li></ul>
+
+
+      </div>
+      <div class="coupon-price">
+        <div>
+
+          <div class="price-now">¥10,000<small>（税込）</small></div>
+          <div class="price-min">所要 約1時間</div>
+        </div>
+        <a class="btn btn-primary btn-sm" href="reserve.html?menu=sc1">予約について</a>
+      </div>
+    </article>
+    <article class="coupon">
+      <img class="coupon-photo ph-photo-opt" src="assets/skill4.jpg" alt="" />
+      <div>
+        <span class="coupon-badge is-all">全員</span>
+        <h3>【立体感で格が上がる】伸びても自然！白髪ぼかしホワイトメッシュ　men&#39;s</h3>
+        <ul class="tag-list"><li class="tag">カット</li><li class="tag">カラー</li></ul>
+
+
+      </div>
+      <div class="coupon-price">
+        <div>
+
+          <div class="price-now">¥19,800<small>（税込）</small></div>
+          <div class="price-min">所要 約2時間30分</div>
+        </div>
+        <a class="btn btn-primary btn-sm" href="reserve.html?menu=sc2">予約について</a>
+      </div>
+    </article></section>
         <p style="text-align:center;margin-top:26px;">
           <a class="btn btn-outline" href="menu.html">メニューをすべて見る</a>
         </p>
@@ -99,7 +153,23 @@
           <h2 class="section-title">バーバー紹介</h2>
           <p class="section-desc">指名予約も承ります。得意分野からお選びください。</p>
         </div>
-        <div class="staff-grid" id="home-staff"></div>
+        <section class="staff-grid" id="home-staff" aria-label="バーバー一覧">
+    <article class="staff-card staff-card-solo">
+      <div class="avatar ph" style="--ph-hue:38;">
+        <span class="ph-stripes" aria-hidden="true"></span>
+        <span class="avatar-initial">M</span>
+        <img class="ph-photo" src="assets/staff-matteo.jpg" alt="MATTEO" loading="lazy" />
+      </div>
+      <div class="staff-body">
+        <p class="staff-role">owner</p>
+        <h3 class="staff-name">MATTEO</h3>
+        <p class="staff-kana">マッテオ／経験6年</p>
+        <ul class="tag-list"><li class="tag">メンズカット</li><li class="tag">白髪ぼかし</li><li class="tag">ホワイトメッシュ</li><li class="tag">フェード</li><li class="tag">バーバーヘア</li><li class="tag">海外ヘア</li><li class="tag">曲がる縮毛矯正</li><li class="tag">ダウンパーマ</li><li class="tag">韓国ヘア</li></ul>
+        <div class="staff-message"><p>【men&#39;sヘア全て得意です】イタリア・ミラノでのバーバー技術習得後、東京で経験実績を積んできました！上質な技術でお客様のお悩み改善や理想を一緒に叶えます！似合う髪がわからない、チャレンジしたいけど不安、普段のスタイリングを楽にしたいなどお悩みがある方ぜひ一度お任せください！一緒に見つけていきましょう！</p><p style="margin-top:11px;"><b>得意な技術</b><br />白髪ぼかし、ホワイトメッシュやフェードやバーバーヘアはもちろん、海外ヘアは特に得意です！曲がる縮毛矯正、ダウンパーマなどの韓国ヘアも特化レベルで磨いてますので、ぜひお任せください！！</p><p style="margin-top:11px;"><b>趣味・マイブーム</b><br />仕事が趣味です！髪を切るのもコーヒーも大好きです！毎朝ジムに行ったり仕事をしたり基本的な毎日が趣味です！</p></div>
+        <p class="staff-fee">指名料なし</p>
+        <a class="btn btn-outline btn-sm" href="reserve.html?staff=st01">予約について</a>
+      </div>
+    </article></section>
       </div>
     </section>
 
@@ -124,7 +194,7 @@
           <span class="section-label">SALON INFO</span>
           <h2 class="section-title">サロン情報</h2>
         </div>
-        <table class="info-table"><tbody id="salon-info"></tbody></table>
+        <table class="info-table"><tbody id="salon-info"><tr><th>店名</th><td>ZER01 barber/lounge 「メンズカット/縮毛矯正 /白髪ぼかし」</td></tr><tr><th>電話番号</th><td><a href="tel:08044987036">080-4498-7036</a></td></tr><tr><th>住所</th><td>茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002</td></tr><tr><th>アクセス</th><td>龍ケ崎市駅より車5分・バス10分。「中根台二丁目」バス停から徒歩1分。</td></tr><tr><th>道案内</th><td>◯お車でお越しの方龍ケ崎市中根台の「ロイヤルヤエ」建物内 002号室が当店です。カーナビ・Googleマップには「龍ケ崎市中根台1-1-1 ロイヤルヤエ」と入力してください。※建物の目の前に自社駐車場がございます。◯ 公共機関ご利用の方龍ケ崎市駅から久保台方面行きのバスにご乗車ください。約10分で「中根台二丁目」バス停に到着します。バス停からは徒歩1分で当店です。</td></tr><tr><th>営業時間</th><td>09:00〜22:00（最終受付 21:00）<br />※9:00-22:00で変動 外部仕事などもあるため変動いたします。あらかじめご確認お願い致します。</td></tr><tr><th>定休日</th><td>不定休 都内出張もあるため出勤日数が少なくなる週もございます</td></tr><tr><th>席数</th><td>セット面2席</td></tr><tr><th>スタッフ数</th><td>スタイリスト1名（マンツーマン施術）</td></tr><tr><th>駐車場</th><td>自社駐車場が目の前に2台あります</td></tr><tr><th>支払方法</th><td>Visa／JCB／American Express／Diners Club／現金、カードはタッチ決済のみ</td></tr><tr><th>こだわり条件</th><td>4席以下の小型サロン／駐車場あり／夜19時以降も受付OK／1人のスタイリストが仕上げまで担当／朝10時前でも受付OK／店頭でのカード支払いOK／お子さま同伴OK／ドリンクサービスあり／個室あり／半個室あり／完全予約制</td></tr></tbody></table>
       </div>
     </section>
 

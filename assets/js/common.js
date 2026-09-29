@@ -1435,7 +1435,7 @@ function injectStructuredData() {
 /* ページタイトルを設定ファイルから補完 */
 function applyDocumentTitle() {
   const base = `${SALON.name} ${SALON.nameSub || SALON.branch}`.trim();
-  document.title = document.title ? `${document.title}｜${base}` : base;
+  if (!document.title.includes(base)) document.title = document.title ? `${document.title}｜${base}` : base;
 }
 
 if (typeof PUBLISHED_MENUS !== 'undefined' && PUBLISHED_MENUS) {
