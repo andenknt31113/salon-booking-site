@@ -109,3 +109,9 @@ html[data-admin-design="a"] .admin-savebar { background: var(--panel); box-shado
   html[data-admin-design="a"] #admin-tabs { display: none; }
   html[data-admin-design="a"] .admin-pane { border: 0; padding: 0; }
 }
+.admin-action-dialog { width: min(460px, calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 24px; border: 1px solid var(--line); background: var(--bg, #f7f5ee); color: var(--text, #262b24); overflow: auto; }
+.admin-action-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.admin-action-dialog h2 { margin: 0 0 16px; font-size: 20px; }
+.admin-action-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.admin-action-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.admin-action-buttons .btn { white-space: normal; }

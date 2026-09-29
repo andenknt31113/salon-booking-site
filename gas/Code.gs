@@ -935,9 +935,10 @@ function doReserve_(sheet, d, verifyCatalog) {
 
   /* 金額が決まっていない予約（デザインカラー等）は「0円」と書かない。
      店舗が無料と受け取ってしまうため。 */
+  const priceVaries = (d.menus || []).some(menu => menu.priceFrom || Number(menu.price) === 0);
   const priceLine = d.totalLabel && !Number(d.totalPrice)
     ? d.totalLabel
-    : `${Number(d.totalPrice || 0).toLocaleString()}円（税込）`;
+    : `${Number(d.totalPrice || 0).toLocaleString('ja-JP')}円${priceVaries ? '〜' : ''}（税込）`;
 
   const shopMailStatus = notify_(
     `【新規予約】${d.date} ${d.time} ${or_(c.name, 'お客様')}様`,

@@ -786,7 +786,12 @@ async function saveAdminChange(button) {
     status.textContent = '変更後の別の日時を選んでください。';
     return;
   }
-  if (!confirm(`予約番号 ${activeChange.code}\n${activeChange.fromDate} ${activeChange.fromTime} → ${date} ${time}\nこの日時へ変更しますか？`)) return;
+  const changing = activeChange;
+  changing.pending = true;
+  const confirmed = await confirmReservationAction('予約日時の変更',
+    `予約番号 ${changing.code}\n変更前：${changing.fromDate} ${changing.fromTime}\n変更後：${date} ${time}\n予約番号と所要時間は変わりません。`, 'この日時へ変更する');
+  changing.pending = false;
+  if (!confirmed || activeChange !== changing || !button.isConnected) return;
   activeChange.date = date;
   activeChange.time = time;
   activeChange.pending = true;
@@ -816,6 +821,31 @@ async function saveAdminChange(button) {
     return;
   }
   status.textContent = result.error || '変更できませんでした。日時をご確認ください。';
+}
+
+function confirmReservationAction(title, description, actionLabel) {
+  if (document.querySelector('.admin-action-dialog')) return Promise.resolve(false);
+  const dialog = document.createElement('dialog');
+  if (typeof dialog.showModal !== 'function') return Promise.resolve(confirm(description));
+  dialog.className = 'admin-action-dialog';
+  dialog.setAttribute('aria-labelledby', 'admin-action-title');
+  dialog.setAttribute('aria-describedby', 'admin-action-description');
+  dialog.innerHTML = '<h2 id="admin-action-title"></h2><p id="admin-action-description"></p>'
+    + '<div class="admin-action-buttons"><button type="button" class="btn btn-ghost" value="back" autofocus>戻る</button>'
+    + '<button type="button" class="btn btn-dark" value="confirm"></button></div>';
+  dialog.querySelector('h2').textContent = title;
+  dialog.querySelector('p').textContent = description;
+  dialog.querySelector('[value="confirm"]').textContent = actionLabel;
+  dialog.querySelectorAll('button').forEach(button => button.addEventListener('click', () => dialog.close(button.value)));
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      const confirmed = dialog.returnValue === 'confirm';
+      dialog.remove();
+      resolve(confirmed);
+    }, { once: true });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
 }
 
 async function checkAdminChange(button) {
@@ -3229,9 +3259,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const code = cx.dataset.adminCancel;
-      if (!confirm(`予約番号 ${code} をキャンセル扱いにします。よろしいですか？`)) return;
+      const r = (adminData.reservations || []).find(x => x.code === code);
+      if (!r || cx.disabled) return;
       cx.disabled = true;
-      const r = (adminData.reservations || []).find(x => x.code === code) || {};
+      const confirmed = await confirmReservationAction('予約のキャンセル',
+        `予約番号 ${code}\n${r.name || 'お客様'} 様\n${r.date} ${r.time}${r.endTime ? '〜' + r.endTime : ''}\nこの予約をキャンセル扱いにし、予約枠を空けます。`, 'この予約をキャンセルする');
+      if (!confirmed || !cx.isConnected) { cx.disabled = false; return; }
       /* 店としてのキャンセルなので、パスワード（または記憶した合鍵）を添えます。
          お客様の電話番号を打ち直さずに反映できます。 */
       const res = await adminPost({ type: 'cancel', code, date: r.date, time: r.time, name: r.name });
