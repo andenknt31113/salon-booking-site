@@ -452,6 +452,7 @@ function renderReservations() {
     '#filter-date': $('#filter-date').value,
     '#filter-status': $('#filter-status').value
   };
+  renderReservationFilterSummary();
   const list = filteredReservations();
 
   /* 来店日ごとにまとめ、早い順に並べます。
@@ -493,7 +494,7 @@ function renderReservations() {
        入っているはずの予約を見落とすか、入っていない予約を待つことになります。 */
     const total = (adminData.reservations || []).length;
     const message = (dateFilter || $('#filter-status').value !== 'all')
-      ? 'この条件に合うご予約はありません。上の「条件をクリア」で戻せます。'
+      ? 'この条件に合うご予約はありません。上の「すべての日・状態に戻す」で戻せます。'
       : total ? '本日より先のご予約は、まだありません。'
         : 'まだご予約はありません。電話で受けたご予約は「＋ 電話予約を入れる」から台帳に入れてください。';
     $('#admin-rows').innerHTML = pastButton + `<p class="empty-state">${esc(message)}</p>`;
@@ -1109,9 +1110,27 @@ function onFilterChange() {
   renderAdminCalendar();
 }
 
+function moveReservationDay(offset) {
+  if (!guardNoteFilters(renderedReservationFilters)) return;
+  const date = fromKey($('#filter-date').value || toKey(new Date()));
+  date.setDate(date.getDate() + offset);
+  $('#filter-date').value = toKey(date);
+  onFilterChange();
+}
+
+function renderReservationFilterSummary() {
+  const date = $('#filter-date').value;
+  const status = $('#filter-status').selectedOptions[0].textContent;
+  const period = reserveView === 'calendar' ? 'カレンダーは7日間の予定を表示（日付指定で表示週を移動）'
+    : date ? formatDateJa(date) : showPast ? '全日程（過去の予約を含む）' : '本日以降（過去の予約は折りたたみ）';
+  $('#reservation-filter-summary').textContent = `${period} ／ ${status}`;
+  $('#filter-today').setAttribute('aria-pressed', String(date === toKey(new Date())));
+}
+
 /** 一覧とカレンダーを切り替える */
 function setReserveView(view) {
   reserveView = view === 'calendar' ? 'calendar' : 'list';
+  renderReservationFilterSummary();
   $$('#reserve-view .tab').forEach(b =>
     b.setAttribute('aria-selected', String(b.dataset.view === reserveView)));
   $('#admin-calendar').hidden = reserveView !== 'calendar';
@@ -1173,8 +1192,7 @@ function toggleAddBooking(open) {
     $('#ab-recovery').textContent = phoneRequestId ? '前の電話受付を確認中です。同じ受付として再試行し、別の予約を重ねて登録しないでください。'
       : supportsPhoneRetry() ? '通信が途切れたときは、同じ受付IDで結果を確認します。受付IDだけをこの端末に保存します。'
         : 'この接続先は再送防止に未対応です。登録結果が不明な場合は繰り返し登録せず、台帳を確認してください。更新は制作担当者へご依頼ください。';
-    // 何も入っていなければ今日を入れておく（毎回打つのは面倒なので）
-    if (!$('#ab-date').value) $('#ab-date').value = toKey(new Date());
+    if (!$('#ab-date').value) $('#ab-date').value = $('#filter-date').value || toKey(new Date());
     $('#ab-name').focus();
   }
 }
@@ -1538,6 +1556,7 @@ function renderCustomers() {
   const q = ($('#customer-search') || {}).value || '';
   const sort = ($('#customer-sort') || {}).value || 'recent';
   renderedCustomerFilters = { '#customer-search': q, '#customer-sort': sort };
+  $('#clear-customer-search').disabled = !q;
   const needle = searchKey(q);
   const digits = telKey(q);
 
@@ -3374,9 +3393,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#filter-date').addEventListener('change', onFilterChange);
   $('#filter-today').addEventListener('click', showTodayReservations);
+  $('#filter-previous').addEventListener('click', () => moveReservationDay(-1));
+  $('#filter-next').addEventListener('click', () => moveReservationDay(1));
   $('#filter-status').addEventListener('change', onFilterChange);
   $('#customer-search').addEventListener('input', renderCustomers);
   $('#customer-sort').addEventListener('change', renderCustomers);
+  $('#clear-customer-search').addEventListener('click', () => {
+    if (!guardNoteFilters(renderedCustomerFilters)) return;
+    $('#customer-search').value = '';
+    renderCustomers();
+    $('#customer-search').focus();
+  });
   $('#add-booking').addEventListener('click', () => toggleAddBooking($('#add-booking-form').hidden));
   $('#ab-cancel').addEventListener('click', () => toggleAddBooking(false));
   $('#ab-save').addEventListener('click', () => saveAddBooking(false));

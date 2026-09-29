@@ -40,7 +40,7 @@ html[data-admin-design="a"] .page-head .breadcrumb { display: none; }
 html[data-admin-design="a"] .page-head h1 { font-family: "Yu Mincho", "Hiragino Mincho ProN", serif; font-size: 28px; letter-spacing: .06em; }
 html[data-admin-design="a"] .page-head .admin-site-edit { margin-bottom: 0; }
 html[data-admin-design="a"] #dashboard { padding-top: 12px; }
-html[data-admin-design="a"] #dashboard > .container { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 0 28px; grid-template-areas: "nav notices" "nav stats" "nav workspace" "nav error" "nav result"; align-items: start; }
+html[data-admin-design="a"] #dashboard > .container { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 0 28px; grid-template-areas: "nav notices" "nav workspace" "nav error" "nav result" "nav stats"; align-items: start; }
 html[data-admin-design="a"] #admin-tabs { grid-area: nav; position: sticky; top: 24px; }
 html[data-admin-design="a"] #admin-tabs .tabs { display: flex; flex-direction: column; gap: 4px; }
 html[data-admin-design="a"] #admin-tabs .tab { text-align: left; padding: 13px 16px; min-height: 48px; border-color: transparent; }
@@ -50,7 +50,7 @@ html[data-admin-design="a"] #site-edit-tabs > summary { font-size: 13px; }
 html[data-admin-design="a"] #forget-device { margin-left: 0 !important; text-align: left; }
 html[data-admin-design="a"] #booking-notifications { grid-area: notices; border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 18px; }
 html[data-admin-design="a"] #booking-notifications > summary { padding-top: 0; }
-html[data-admin-design="a"] #stats { grid-area: stats; gap: 0; border-block: 1px solid var(--line); margin-bottom: 24px; }
+html[data-admin-design="a"] #stats { grid-area: stats; gap: 0; border-block: 1px solid var(--line); margin-block: 24px; }
 html[data-admin-design="a"] body:not(:has(#admin-tabs > .tabs [data-pane="reserve"][aria-selected="true"])) #stats { display: none; }
 html[data-admin-design="a"] .stat { padding: 14px 18px; border: 0; background: transparent; }
 html[data-admin-design="a"] .stat strong { color: var(--ink); }
@@ -73,7 +73,7 @@ html[data-admin-design="a"] .admin-savebar { background: var(--panel); box-shado
 
 @media (max-width: 1050px) {
   html[data-admin-design="a"] .container { width: calc(100% - 40px); }
-  html[data-admin-design="a"] #dashboard > .container { grid-template-columns: minmax(0, 1fr); grid-template-areas: "nav" "notices" "stats" "workspace" "error" "result"; }
+  html[data-admin-design="a"] #dashboard > .container { grid-template-columns: minmax(0, 1fr); grid-template-areas: "nav" "notices" "workspace" "error" "result" "stats"; }
   html[data-admin-design="a"] #admin-tabs { position: static; margin-bottom: 20px; }
   html[data-admin-design="a"] #admin-tabs > .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   html[data-admin-design="a"] #admin-tabs > .tabs .tab { text-align: center; padding-inline: 8px; }
@@ -115,3 +115,21 @@ html[data-admin-design="a"] .admin-savebar { background: var(--panel); box-shado
 .admin-action-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .admin-action-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .admin-action-buttons .btn { white-space: normal; }
+.admin-workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.admin-workspace-header .admin-pane-title { margin: 0; }
+.admin-workspace-header .btn { min-height: 44px; }
+.admin-reserve-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-block: 12px 18px; }
+.admin-reserve-controls .view-switch { margin: 0; }
+.admin-day-controls { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.admin-day-controls .btn { min-height: 44px; padding-inline: 10px; flex-shrink: 0; }
+.admin-reservation-filters .admin-day-controls .input { min-width: 0; width: 160px; flex: 1; }
+.admin-filter-summary { padding-block: 10px; margin-bottom: 18px; border-block: 1px solid var(--line); overflow-wrap: anywhere; }
+.admin-customer-help { font-size: 13px; color: var(--text-2); }
+.admin-customer-help summary { cursor: pointer; padding-block: 10px; }
+.admin-customer-help p { margin-block: 8px; }
+@media (max-width: 720px) {
+  .admin-workspace-header #add-booking { width: 100%; }
+  .admin-day-controls { flex: 1 1 250px; }
+  .admin-reserve-controls { gap: 8px; }
+  .admin-reserve-controls .btn, .admin-reserve-controls .tab { padding-inline: 12px; }
+}

@@ -52,7 +52,7 @@ const AdminNotifications = (() => {
     clearTimeout(timer);
     $('#notification-check').disabled = true;
     try {
-      const result = await adminPost({ type: 'adminData' });
+      const result = await adminPost({ type: 'adminData', notificationsOnly: true });
       if (!result.ok || !Array.isArray(result.reservations)) throw new Error('通知を確認できません');
       receive(result.reservations);
       paused = false;

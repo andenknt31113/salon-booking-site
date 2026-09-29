@@ -10,6 +10,7 @@ const loginView = document.querySelector('#login-view');
 const actions = new Set(['adminData', 'adminSave', 'adminUpload', 'adminAdd',
   'adminAddStatus', 'adminNote', 'adminChange', 'cancel']);
 let auth;
+let authReady = false;
 let sdk;
 let user;
 let busy = false;
@@ -32,7 +33,7 @@ function closeAdmin() {
   managementView.hidden = true;
   loginView.hidden = false;
   document.documentElement.classList.remove('is-managing');
-  loginButton.disabled = !auth;
+  loginButton.disabled = !authReady;
 }
 
 function showAdmin(result) {
@@ -42,7 +43,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1&v=20260929-confirm';
+  frame.src = 'admin.html?design=a&google=1&v=20260929-flow';
 }
 
 async function post(body, signal) {
@@ -126,7 +127,7 @@ async function loadAdmin() {
 }
 
 async function signIn() {
-  if (!auth || busy) return;
+  if (!authReady || busy) return;
   busy = true;
   loginButton.disabled = true;
   retryAccessButton.hidden = true;
@@ -135,7 +136,7 @@ async function signIn() {
   loginError.hidden = true;
   loginStatus.textContent = 'Googleでアカウントを選んでください。';
   const waitNotice = setTimeout(() => {
-    if (!user && busy) showError('Googleからログイン結果がまだ戻っていません。白い小窓だけが残る場合は小窓を閉じ、通常のChromeかSafariでこのページを開いてください。');
+    if (!user && busy) loginStatus.textContent = 'Googleの画面でアカウントを選んでください。白い小窓のまま進まない場合は小窓を閉じ、通常のChromeかSafariでお試しください。';
   }, AUTH_SETTINGS.popupWaitNoticeMs);
   try {
     const provider = new sdk.GoogleAuthProvider();
@@ -153,7 +154,7 @@ async function signIn() {
   } finally {
     clearTimeout(waitNotice);
     busy = false;
-    loginButton.disabled = !auth;
+    loginButton.disabled = !authReady;
   }
 }
 
@@ -168,7 +169,7 @@ retryAccessButton.addEventListener('click', async () => {
   finally {
     busy = false;
     retryAccessButton.disabled = false;
-    loginButton.disabled = !auth;
+    loginButton.disabled = !authReady;
   }
 });
 logoutButton.addEventListener('click', async () => {
@@ -189,31 +190,40 @@ logoutButton.addEventListener('click', async () => {
     showError('ログアウトを確認できません。ページを閉じてください。');
   } finally {
     busy = false;
-    loginButton.disabled = !auth;
+    loginButton.disabled = !authReady;
   }
 });
 
 async function setupAuth() {
-  if (busy || auth) return;
+  if (busy || authReady) return;
   busy = true;
   retryConnectionButton.hidden = true;
   loginError.hidden = true;
   loginStatus.textContent = '接続を確認しています。';
   try {
     await withRequestTimeout(async signal => {
-      const result = await post({ type: 'adminAuthConfig' }, signal);
-      if (!result.ok || !result.firebase) throw new Error();
-      const [appSdk, authSdk] = await Promise.all([
-        import('https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js'),
-        import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js')
-      ]);
+      if (!auth) {
+        const result = await post({ type: 'adminAuthConfig' }, signal);
+        if (!result.ok || !result.firebase) throw new Error();
+        const [appSdk, authSdk] = await Promise.all([
+          import('https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js'),
+          import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js')
+        ]);
+        if (signal.aborted) throw Object.assign(new Error(), { name: 'AbortError' });
+        sdk = authSdk;
+        auth = sdk.initializeAuth(appSdk.initializeApp(result.firebase), {
+          persistence: [sdk.browserSessionPersistence, sdk.inMemoryPersistence],
+          popupRedirectResolver: sdk.browserPopupRedirectResolver
+        });
+      }
+      loginStatus.textContent = 'Googleログインの状態を確認しています。';
+      await auth.authStateReady();
       if (signal.aborted) throw Object.assign(new Error(), { name: 'AbortError' });
-      sdk = authSdk;
-      auth = sdk.initializeAuth(appSdk.initializeApp(result.firebase), {
-        persistence: sdk.inMemoryPersistence, popupRedirectResolver: sdk.browserPopupRedirectResolver
-      });
+      authReady = true;
     });
-    loginStatus.textContent = '管理者のGoogleアカウントでログインしてください。';
+    user = auth.currentUser;
+    if (user) await loadAdmin();
+    else loginStatus.textContent = '管理者のGoogleアカウントでログインしてください。';
     loginButton.disabled = false;
   } catch (error) {
     loginStatus.textContent = '管理画面への接続を確認できませんでした。';

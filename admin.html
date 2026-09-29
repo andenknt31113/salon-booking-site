@@ -13,7 +13,7 @@
   </script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/admin-design.css?v=20260929-confirm" />
+  <link rel="stylesheet" href="assets/css/admin-design.css?v=20260929-flow" />
   <script src="assets/js/admin-design.js"></script>
 </head>
 <body data-page="admin">
@@ -91,8 +91,6 @@
           <div id="notification-list"></div>
         </details>
 
-        <div class="stat-grid" id="stats"></div>
-
         <div id="admin-tabs">
           <div class="tabs" aria-label="予約とお客様の管理">
           <button class="tab" type="button" data-pane="reserve" aria-selected="true">予約一覧</button>
@@ -116,28 +114,37 @@
 
         <!-- 予約一覧 -->
         <div class="admin-pane" data-pane="reserve">
-          <h2 class="admin-a-only admin-pane-title">予約一覧</h2>
+          <div class="admin-workspace-header">
+            <h2 class="admin-pane-title">予約一覧</h2>
+            <button class="btn btn-primary" type="button" id="add-booking">＋ 電話予約を入れる</button>
+          </div>
           <p id="reservation-freshness" role="status">予定を読み込んでいます。</p>
           <div class="notice is-warn" id="mail-alert" role="alert" hidden></div>
+          <div class="admin-reserve-controls">
           <button class="btn btn-outline btn-sm" type="button" id="refresh-reservations">最新の予定を読み込む</button>
           <!-- 予定の見せ方。既定は一覧です（理由は admin.js の reserveView に書いています） -->
           <div class="view-switch" id="reserve-view" role="group" aria-label="予定の見せ方">
             <button class="tab" type="button" data-view="list" aria-selected="true">一覧</button>
             <button class="tab" type="button" data-view="calendar" aria-selected="false">カレンダー</button>
           </div>
+          </div>
 
-          <div class="toolbar">
+          <div class="toolbar admin-reservation-filters">
             <button class="btn btn-outline btn-sm" type="button" id="filter-today">今日の予約</button>
-            <input class="input" type="date" id="filter-date" aria-label="予約を表示する日" />
-            <select class="select" id="filter-status">
+            <div class="admin-day-controls" role="group" aria-label="予約を表示する日">
+              <button class="btn btn-ghost btn-sm" type="button" id="filter-previous" aria-label="前日の予約を表示">前日</button>
+              <input class="input" type="date" id="filter-date" aria-label="予約を表示する日" />
+              <button class="btn btn-ghost btn-sm" type="button" id="filter-next" aria-label="翌日の予約を表示">翌日</button>
+            </div>
+            <select class="select" id="filter-status" aria-label="予約の状態で絞り込む">
               <option value="all">すべての状態</option>
               <option value="reserved">予約確定のみ</option>
               <option value="cancelled">キャンセルのみ</option>
             </select>
             <button class="btn btn-ghost btn-sm" type="button" id="filter-reset">すべての日・状態に戻す</button>
-            <button class="btn btn-outline btn-sm" type="button" id="export-csv">CSVダウンロード</button>
-            <button class="btn btn-primary btn-sm" type="button" id="add-booking">＋ 電話予約を入れる</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="export-csv">CSVダウンロード</button>
           </div>
+          <p class="note admin-filter-summary" id="reservation-filter-summary" role="status"></p>
 
           <!-- 電話・来店で受けた予約を台帳に入れる。ここに入れないとネット予約と重なります -->
           <div class="booking-card" id="add-booking-form" hidden style="border-left-color:var(--accent);">
@@ -242,11 +249,13 @@
               <option value="visits">過去の予約が多い順</option>
               <option value="name">お名前の順</option>
             </select>
+            <button class="btn btn-ghost btn-sm" type="button" id="clear-customer-search" disabled>検索をクリア</button>
           </div>
-          <p class="note" style="margin:0 0 16px;">
-            名前の行を押すと、連絡先・施術メモ・すべての予約履歴が開きます。予約台帳を電話番号でまとめた名簿です。
-            過去の予約件数は、実際の来店回数ではありません。電話番号のない予約は予約一覧から確認してください。
-          </p>
+          <details class="admin-customer-help">
+            <summary>名簿の見方</summary>
+            <p class="note">名前の行を押すと、連絡先・施術メモ・すべての予約履歴が開きます。予約台帳を電話番号でまとめた名簿です。
+              過去の予約件数は、実際の来店回数ではありません。電話番号のない予約は予約一覧から確認してください。</p>
+          </details>
           <p class="note" id="customer-count" role="status"></p>
           <div id="customer-rows"></div>
         </div>
@@ -371,6 +380,7 @@
           </div>
         </div>
 
+        <div class="stat-grid" id="stats" aria-label="台帳の集計"></div>
         <p class="field-error" id="save-error" style="margin-top:16px;"></p>
         <p id="save-ok" style="display:none;color:var(--ok);font-weight:700;font-size:13px;margin-top:16px;"></p>
       </div>
@@ -381,8 +391,8 @@
 
   <script src="assets/js/data.js"></script>
   <script src="assets/js/common.js"></script>
-  <script src="assets/js/admin.js?v=20260929-confirm"></script>
-  <script src="assets/js/admin-notifications.js"></script>
+  <script src="assets/js/admin.js?v=20260929-flow"></script>
+  <script src="assets/js/admin-notifications.js?v=20260929-flow"></script>
   <script src="assets/js/admin-google-bridge.js"></script>
 </body>
 </html>

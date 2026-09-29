@@ -57,16 +57,22 @@ function verifyGoogleAdmin_(token) {
   }
   let account;
   let claims;
+  let lookupStatus;
   try {
     const url = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(config.apiKey);
     const response = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json',
       payload: JSON.stringify({ idToken: token }), muteHttpExceptions: true });
-    if (response.getResponseCode() !== 200) throw new Error();
+    lookupStatus = response.getResponseCode();
+    if (lookupStatus !== 200) throw new Error();
     const users = JSON.parse(response.getContentText()).users;
     if (!Array.isArray(users) || users.length !== 1) throw new Error();
     account = users[0];
     claims = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(token.split('.')[1])).getDataAsString());
   } catch (error) {
+    if (lookupStatus === undefined || lookupStatus === 429 || lookupStatus >= 500) {
+      throw Object.assign(new Error('Googleとの通信を確認できません。入力を残したまま、時間をおいて再確認してください。'),
+        { authUnavailable: true });
+    }
     throw new Error('Googleログインを確認できません。もう一度ログインしてください。');
   }
   const now = Math.floor(Date.now() / 1000);
@@ -91,16 +97,21 @@ function doGoogleAdmin_(data) {
     return { ok: false, error: '管理操作の内容をご確認ください。' };
   }
   try { verifyGoogleAdmin_(data.idToken); }
-  catch (error) { return { ok: false, authDenied: true, error: error.message }; }
+  catch (error) {
+    if (error.authUnavailable) return { ok: false, transportError: true, error: error.message };
+    return { ok: false, authDenied: true, error: error.message };
+  }
   const request = Object.assign({}, payload, { type: action, googleAdminContext: GOOGLE_ADMIN_CONTEXT });
-  if (action === 'adminData') return doAdminData_(request);
-  if (action === 'adminSave') return doAdminSave_(request);
-  if (action === 'adminUpload') return doAdminUpload_(request);
-  if (action === 'adminAdd') return doAdminAdd_(getSheet_(), request);
-  if (action === 'adminAddStatus') return doAdminAddStatus_(getSheet_(), request);
-  if (action === 'adminNote') return doAdminNote_(getSheet_(), request);
-  if (action === 'adminChange') return doAdminChange_(getSheet_(), request);
-  return doCancel_(getSheet_(), request);
+  return withLedgerLock_(function () {
+    if (action === 'adminData') return doAdminData_(request);
+    if (action === 'adminSave') return doAdminSave_(request);
+    if (action === 'adminUpload') return doAdminUpload_(request);
+    if (action === 'adminAdd') return doAdminAdd_(getSheet_(), request);
+    if (action === 'adminAddStatus') return doAdminAddStatus_(getSheet_(), request);
+    if (action === 'adminNote') return doAdminNote_(getSheet_(), request);
+    if (action === 'adminChange') return doAdminChange_(getSheet_(), request);
+    return doCancel_(getSheet_(), request);
+  });
 }
 
 /* ---- 合言葉の入れまちがいを数える ----
@@ -363,6 +374,15 @@ const CLOSED_HEADERS = ['休業日', '開始', '終了', 'メモ'];
 /* ============================================================
    受信の入口
    ============================================================ */
+const REQUEST_LOCK_TIMEOUT_MS = 20000;
+
+function withLedgerLock_(operation) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(REQUEST_LOCK_TIMEOUT_MS);
+  try { return operation(); }
+  finally { lock.releaseLock(); }
+}
+
 function doPost(e) {
   let data;
   try {
@@ -372,42 +392,37 @@ function doPost(e) {
   } catch (error) {
     return json_({ ok: false, error: '送信内容を読み取れませんでした。ページを読み込み直してからお試しください。' });
   }
-  const lock = LockService.getScriptLock();
   try {
-    // 同時に予約が来ても行が壊れないよう順番待ちさせる
-    lock.waitLock(20000);
-
-    if (['adminAdd', 'adminAddStatus', 'adminNote', 'adminChange'].indexOf(data.type) >= 0) requireAdmin_(data);
-
     if (data.type === 'adminAuthConfig') {
       const config = googleAdminConfig_();
       return json_(config ? { ok: true, firebase: config }
         : { ok: false, error: 'Google管理者の接続設定が未完了です。' });
     }
     if (data.type === 'googleAdmin')  return json_(doGoogleAdmin_(data));
-    if (data.type === 'menu')         return json_(doMenu_());
-    if (data.type === 'adminLogin')   return json_(doAdminLogin_(data));
-    if (data.type === 'adminData')    return json_(doAdminData_(data));
-    if (data.type === 'adminSave')    return json_(doAdminSave_(data));
-    if (data.type === 'adminUpload')  return json_(doAdminUpload_(data));
-    if (data.type === 'adminAdd')     return json_(doAdminAdd_(getSheet_(), data));
-    if (data.type === 'adminAddStatus') return json_(doAdminAddStatus_(getSheet_(), data));
-    if (data.type === 'adminNote')    return json_(doAdminNote_(getSheet_(), data));
-    if (data.type === 'adminChange')  return json_(doAdminChange_(getSheet_(), data));
-    if (data.type === 'availability') return json_(doAvailability_(getSheet_()));
-    if (data.type === 'lookup')       return json_(doLookup_(getSheet_(), data));
-    if (data.type === 'cancel')       return json_(doCancel_(getSheet_(), data));
-    if (data.type === 'change')       return json_(doChange_(getSheet_(), data));
-    if (data.type === 'review')       return json_(doReview_(getSheet_(), data));
-    return json_(doReserve_(getSheet_(), data, true));
+    return json_(withLedgerLock_(function () {
+      if (['adminAdd', 'adminAddStatus', 'adminNote', 'adminChange'].indexOf(data.type) >= 0) requireAdmin_(data);
+      if (data.type === 'menu')         return doMenu_();
+      if (data.type === 'adminLogin')   return doAdminLogin_(data);
+      if (data.type === 'adminData')    return doAdminData_(data);
+      if (data.type === 'adminSave')    return doAdminSave_(data);
+      if (data.type === 'adminUpload')  return doAdminUpload_(data);
+      if (data.type === 'adminAdd')     return doAdminAdd_(getSheet_(), data);
+      if (data.type === 'adminAddStatus') return doAdminAddStatus_(getSheet_(), data);
+      if (data.type === 'adminNote')    return doAdminNote_(getSheet_(), data);
+      if (data.type === 'adminChange')  return doAdminChange_(getSheet_(), data);
+      if (data.type === 'availability') return doAvailability_(getSheet_());
+      if (data.type === 'lookup')       return doLookup_(getSheet_(), data);
+      if (data.type === 'cancel')       return doCancel_(getSheet_(), data);
+      if (data.type === 'change')       return doChange_(getSheet_(), data);
+      if (data.type === 'review')       return doReview_(getSheet_(), data);
+      return doReserve_(getSheet_(), data, true);
+    }));
 
   } catch (err) {
     console.error(err);
     /* 画面にそのまま出る文字です。「Error: 」が頭に付いたままだと、
        店の人には何のことか分かりません。 */
     return json_({ ok: false, error: String(err && err.message ? err.message : err).replace(/^Error:\s*/, '') });
-  } finally {
-    lock.releaseLock();
   }
 }
 
@@ -1959,6 +1974,7 @@ function doAdminLogin_(d) {
 function doAdminData_(d) {
   requireAdmin_(d);
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (d.notificationsOnly === true) return readAdminNotifications_(ss);
   /* 設定シートに足りない項目があれば、ここで足しておきます。
 
      管理ページは、画面に出ている項目をまとめて保存します。シートに無い項目が
@@ -1990,6 +2006,26 @@ function doAdminData_(d) {
     settings: readSettings_(ss),
     stamps: allStamps_(ss)
   };
+}
+
+function readAdminNotifications_(ss) {
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '通知用の予約台帳を確認できません。' };
+  const headers = sheetHeader_(sheet, []);
+  const fields = { code: '予約番号', name: 'お名前', date: '来店日', time: '開始', endTime: '終了', status: '状態' };
+  if (Object.values(fields).some(header => !headers.includes(header))) {
+    return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
+  }
+  const reservations = readRows_(sheet).map(row => {
+    const result = {};
+    Object.keys(fields).forEach(key => { result[key] = String(row[headers.indexOf(fields[key])] || ''); });
+    result.date = normalizeDate_(row[headers.indexOf(fields.date)]);
+    result.time = normalizeTime_(row[headers.indexOf(fields.time)]);
+    result.endTime = normalizeTime_(row[headers.indexOf(fields.endTime)]);
+    if (isCancelled_(result.status)) result.status = 'キャンセル';
+    return result;
+  });
+  return { ok: true, reservations: reservations };
 }
 
 function adminReservation_(row, col) {
@@ -2047,6 +2083,10 @@ function allStamps_(ss) {
 /** 管理者ページからの保存。シートまるごと書き換える */
 function doAdminSave_(d) {
   requireAdmin_(d);
+  const validRows = d.target === 'settings'
+    ? d.rows && typeof d.rows === 'object' && !Array.isArray(d.rows)
+    : Array.isArray(d.rows);
+  if (!validRows) return { ok: false, error: '保存する内容の形式を確認できません。元の内容は変更していません。' };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   /* 開いてから保存するまでのあいだに、別の端末から保存されていないか。
@@ -2217,6 +2257,17 @@ function readSheetRows_(ss, name, headers) {
     保存のたびに消しては使えたものではありません。
     列の位置も、順番ではなく見出しの名前で探します。 */
 function writeSheetRows_(ss, name, headers, rows) {
+  if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
+    throw new Error('保存する一覧の形式を確認できません。元の内容は変更していません。');
+  }
+  const body = rows.map(row => headers.map(header => {
+    const value = row[header];
+    if (value === undefined || value === null) return '';
+    if (typeof value === 'string' || typeof value === 'boolean'
+        || (typeof value === 'number' && Number.isFinite(value))
+        || (value instanceof Date && Number.isFinite(value.getTime()))) return value;
+    throw new Error('保存する項目の形式を確認できません。元の内容は変更していません。');
+  })).filter(cells => String(cells[0]).trim() !== '');
   const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(headers);
@@ -2229,9 +2280,6 @@ function writeSheetRows_(ss, name, headers, rows) {
   const last = sheet.getLastRow();
   if (last > 1) headers.forEach(h => sheet.getRange(2, at(h), last - 1, 1).clearContent());
 
-  const body = (rows || [])
-    .map(r => headers.map(h => (r[h] === undefined || r[h] === null) ? '' : r[h]))
-    .filter(cells => String(cells[0]).trim() !== '');
   if (!body.length) return;
   headers.forEach((h, i) => {
     sheet.getRange(2, at(h), body.length, 1).setValues(body.map(cells => [cells[i]]));
@@ -2339,7 +2387,10 @@ function readSettings_(ss) {
 }
 
 function writeSettings_(ss, obj) {
-  const rows = Object.keys(obj || {}).map(k => ({ '項目': k, '内容': obj[k] }));
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('保存する設定の形式を確認できません。元の内容は変更していません。');
+  }
+  const rows = Object.keys(obj).map(k => ({ '項目': k, '内容': obj[k] }));
   writeSheetRows_(ss, SETTING_SHEET, ['項目', '内容'], rows);
 }
 
