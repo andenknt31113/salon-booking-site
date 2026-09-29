@@ -172,11 +172,25 @@ retryAccessButton.addEventListener('click', async () => {
   }
 });
 logoutButton.addEventListener('click', async () => {
+  if (busy) return;
   if (frame.contentWindow?.authDemoHasUnsaved?.()
       && !confirm('書きかけの入力があります。ログアウトしてよろしいですか？')) return;
+  busy = true;
   closeAdmin();
   user = null;
-  try { await sdk.signOut(auth); } catch { showError('ログアウトを確認できません。ページを閉じてください。'); }
+  loginButton.disabled = true;
+  loginError.hidden = true;
+  loginStatus.textContent = 'ログアウトしています。';
+  try {
+    await sdk.signOut(auth);
+    loginStatus.textContent = '管理者のGoogleアカウントでログインしてください。';
+  } catch {
+    loginStatus.textContent = '管理画面を閉じました。';
+    showError('ログアウトを確認できません。ページを閉じてください。');
+  } finally {
+    busy = false;
+    loginButton.disabled = !auth;
+  }
 });
 
 async function setupAuth() {
