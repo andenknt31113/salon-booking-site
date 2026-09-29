@@ -7,6 +7,7 @@
 
    使い方は ユースケース.md を参照。
    node test/mock-gas.mjs のあと node test/admin.mjs */
+import { mockBookingState } from './booking-state-fixture.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const B = process.env.BASE || 'http://127.0.0.1:8820';
@@ -92,6 +93,7 @@ async function saveSettings(p) {
 async function visitorText(page, file) {
   await page.goto(B + '/' + file);
   await page.waitForTimeout(1200);
+  if (file === 'index.html') await page.locator('.access-details > summary').click();
   return page.locator('body').innerText();
 }
 
@@ -829,7 +831,7 @@ await group('【管17】カレンダーで、いつ予約が入っているか�
 await group('管16 受け口が読めていないとき', async () => {
   const p = await newPhone('管16');
   /* 設置前、または古い data.js を掴んだ状態を作る */
-  await p.route('**/assets/js/data.js', async r => {
+  await p.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async r => {
     const res = await r.fetch();
     const body = (await res.text()).replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
     await r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
@@ -1093,6 +1095,7 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
     await sw.evaluate(el => el.tagName.toLowerCase()), 'select');
 
   const v = await newPhone('管22-お客様');
+  await mockBookingState(v.context(), { approved: false, draft: true });
   check('管22', 'はじめは帯が出ている',
     /準備中/.test(await visitorText(v, 'mypage.html')), true);
 
@@ -1104,16 +1107,7 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
     /準備中/.test(await visitorText(v, 'mypage.html')), true);
 
   const approved = await newPhone('管22-受付承認後');
-  await approved.context().route('**/assets/js/data.js', async route => {
-    const response = await route.fetch();
-    const original = await response.text();
-    if (!original.includes('bookingLaunchApproved: false,') || !original.includes('draft: true,')) {
-      throw new Error('受付開始の試験設定が見つかりません');
-    }
-    await route.fulfill({ response, body: original
-      .replace('bookingLaunchApproved: false,', 'bookingLaunchApproved: true,')
-      .replace('draft: true,', 'draft: false,') });
-  });
+  await mockBookingState(approved.context());
   check('管22', 'サイト側の承認後に帯が消える',
     /準備中/.test(await visitorText(approved, 'mypage.html')), false);
 
@@ -1169,7 +1163,7 @@ await group('管23 店舗情報とスタッフ紹介を書き換えられる', a
     years: Number(saved['スタッフの経験年数']), message: saved['スタッフの紹介文'],
     tags: String(saved['スタッフの得意分野']).split('\n')
   };
-  await v.route('**/assets/js/data.js', async route => {
+  await v.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: await response.text()
       + `\nObject.assign(SALON, ${JSON.stringify(publication)});`
@@ -1267,7 +1261,7 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
     description: long, address: noBreak,
     features: ['<script>alert(1)</script>', '＆＜＞"\'', '★'.repeat(200)]
   };
-  await v.route('**/assets/js/data.js', async route => {
+  await v.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: await response.text()
       + `\nObject.assign(SALON, ${JSON.stringify(publishedInput)});` });

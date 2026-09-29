@@ -351,7 +351,7 @@ console.log('\n【MP10】オンライン受付の準備が終わっていない�
   /* 照会が使えないうえに連絡先も無いと、この端末に記録が無い方は
      そこで手が止まります。公開直後に必ず通る道です。 */
   const p = await newPhone('MP10');
-  await p.route('**/data.js', async route => {
+  await p.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async route => {
     const r = await route.fetch();
     const body = (await r.text()).replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
     route.fulfill({ status: 200, headers: { 'content-type': 'text/javascript; charset=utf-8' }, body });

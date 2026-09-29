@@ -40,7 +40,7 @@ async function newPhone(label, opt = {}) {
       + '<rect width="1200" height="1000" fill="#ffffff"/></svg>' }));
   /* 受け口を使わない場合と、公開用の静的データを差し替えた場合を再現する。 */
   if (opt.noEndpoint || opt.publishedData) {
-    await ctx.route('**/assets/js/data.js', async r => {
+    await ctx.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async r => {
       const res = await r.fetch();
       const source = await res.text();
       const body = (opt.noEndpoint
@@ -693,7 +693,7 @@ console.log('\n【13】一覧の見渡しやすさ（390px）');
    ============================================================ */
 console.log('\n【13c】ボタンの文言と、トップのスタイル節');
 {
-  const p = await newPhone('13c', { noEndpoint: true });
+  const p = await newPhone('13c', { noEndpoint: true, publishedData: { draft: true, bookingLaunchApproved: false } });
   await p.goto(B + '/gallery.html'); await p.waitForTimeout(2600);
   /* 以前は一覧の下に1つあるだけで、どのスタイルも指していませんでした。
      「このイメージで予約する」は、押した本人にも何を指すのか分からない文言です。 */

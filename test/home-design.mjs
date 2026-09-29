@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mockBookingState } from './booking-state-fixture.mjs';
 import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
@@ -21,10 +22,11 @@ after(async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
-async function openHome(options = {}) {
+async function openHome(options = {}, paused = false) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
   await context.route('**/*', route => new URL(route.request().url()).origin === base
     ? route.continue() : route.abort());
+  if (paused) await mockBookingState(context, { approved: false, draft: true });
   const page = await context.newPage();
   await page.goto(base + '/index.html', { waitUntil: 'load' });
   return { context, page };
@@ -82,7 +84,7 @@ test('JavaScriptなしでも店内・ヘア写真と紹介文を読め、初期�
 });
 
 test('新トップでも予約メニューを引き継ぎ、準備中の予約は始めさせない', async () => {
-  const { context, page } = await openHome();
+  const { context, page } = await openHome({}, true);
   try {
     const link = page.locator('#home-coupons a[href^="reserve.html?"]').first();
     const target = await link.getAttribute('href');

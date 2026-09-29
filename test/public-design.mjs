@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mockBookingState } from './booking-state-fixture.mjs';
 import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
@@ -23,12 +24,13 @@ after(async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
-async function openPage(name, width = 390) {
+async function openPage(name, width = 390, paused = false) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   await context.route('**/*', route => {
     if (isPublicMapFrame(route.request())) return route.fulfill(mapFixture);
     return new URL(route.request().url()).origin === base ? route.continue() : route.abort();
   });
+  if (paused) await mockBookingState(context, { approved: false, draft: true });
   const page = await context.newPage();
   await page.goto(`${base}/${name}.html`, { waitUntil: 'load' });
   return { context, page };
@@ -82,7 +84,7 @@ test('公開9ページの色・ヘッダー・余白を揃え、4画面幅で本
 });
 
 test('トップからスタイル一覧へ進み、分類の絞込みと予約案内・戻る道を使える', async () => {
-  const { context, page } = await openPage('index');
+  const { context, page } = await openPage('index', 390, true);
   try {
     await page.locator('.home-styles .section-more a').click();
     assert.equal(new URL(page.url()).pathname, '/gallery.html');
@@ -98,15 +100,18 @@ test('トップからスタイル一覧へ進み、分類の絞込みと予約�
     await page.locator('#style-tabs button[data-len="すべて"]').click();
     assert.equal(await page.locator('#style-list .style-card').count(), allCount);
     await page.locator('.style-book').first().click();
+    await page.waitForURL(`${base}/reserve.html`);
+    await page.waitForFunction(() => Catalog.loaded);
     assert.equal(await page.locator('#booking-paused-notice').isVisible(), true);
     assert.equal(await page.locator('.reserve-layout').isVisible(), false);
     await page.locator('.breadcrumb a').click();
+    await page.waitForURL(`${base}/index.html`);
     assert.equal(new URL(page.url()).pathname, '/index.html');
   } finally { await context.close(); }
 });
 
 test('メニューの料金・条件と予約引継ぎを保ち、単品の分類も操作できる', async () => {
-  const { context, page } = await openPage('menu');
+  const { context, page } = await openPage('menu', 390, true);
   try {
     const prices = await page.locator('#coupon-list .price-now').allTextContents();
     assert.equal(prices.length, 14);
@@ -121,6 +126,8 @@ test('メニューの料金・条件と予約引継ぎを保ち、単品の分�
     const target = page.locator('#coupon-list a[href^="reserve.html?menu="]').first();
     const href = await target.getAttribute('href');
     await target.click();
+    await page.waitForURL(new URL(href, base).href);
+    await page.waitForFunction(() => Catalog.loaded);
     assert.equal(new URL(page.url()).search, new URL(href, base).search);
     assert.equal(await page.locator('#booking-paused-notice').isVisible(), true);
   } finally { await context.close(); }

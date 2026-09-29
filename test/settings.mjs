@@ -278,7 +278,7 @@ if (sheetSettings) {
   sheetSettings.forEach(r => { seed[r[0]] = r[1]; });
   const staff = SALON.staff[0] || {};
   const pairs = [
-    ['準備中の帯', SALON.draft ? '出す' : '出さない'],
+    ['準備中の帯', '出す'],
     ['準備中の文言', SALON.draftNote],
     ['電話番号', SALON.tel],
     ['営業開始', SALON.business.openTime],

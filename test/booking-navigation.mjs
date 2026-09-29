@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mockBookingState } from './booking-state-fixture.mjs';
 import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
@@ -28,14 +29,7 @@ async function openPage(name, width = 390, active = false) {
     if (isPublicMapFrame(route.request())) return route.fulfill(mapFixture);
     return new URL(route.request().url()).origin === base ? route.continue() : route.abort();
   });
-  if (active) await context.route('**/assets/js/data.js', async route => {
-    const response = await route.fetch();
-    const original = await response.text();
-    const body = original.replace('draft: true,', 'draft: false,')
-      .replace('bookingLaunchApproved: false,', 'bookingLaunchApproved: true,');
-    assert.notEqual(body, original, '試験内だけ受付開始の設定へ切り替える');
-    await route.fulfill({ response, body });
-  });
+  await mockBookingState(context, { approved: active, draft: !active });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

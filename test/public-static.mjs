@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mockBookingState } from './booking-state-fixture.mjs';
 import { isPublicMapFrame, mapFixture } from './public-map-fixture.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
@@ -74,6 +75,7 @@ try {
     }));
     assert.deepEqual(requests, [], '公開ページはGASに設定取得を要求しない');
     assert.deepEqual(externalRequests, [], '店舗の地図iframe以外は外部へ自動接続しない');
+    await mockBookingState(context, { approved: false, draft: true });
     const reserve = await context.newPage();
     reserve.on('pageerror', error => errors.push(`reserve.html: ${error.message}`));
     await reserve.goto(`${BASE}/reserve.html`, { waitUntil: 'load' });

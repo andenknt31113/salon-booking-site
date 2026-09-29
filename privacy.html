@@ -75,8 +75,9 @@
 
         <h2 class="section-title" style="font-size:17px;margin:36px 0 12px;">3. 保管について</h2>
         <p style="color:var(--text-2);font-size:14px;">
-          ネット予約でお預かりする情報は、Googleのスプレッドシートに保管する予定です。
-          現在は予約受付の準備中です。カレンダー連携の有無、保管先の管理者とアクセスできる人を確認し、受付開始前にこの項目を更新します。
+          ネット予約でお預かりする情報は、Googleのスプレッドシートに保管します。
+          現在はサイトの制作担当者のGoogleアカウントで予約システムを運用しており、制作担当者が予約情報の管理と通知の確認を行います。
+          予約確認メールも、この運用アカウントから送信されます。
         </p>
 
         <h2 class="section-title" style="font-size:17px;margin:36px 0 12px;">4. 第三者への提供</h2>
@@ -88,13 +89,13 @@
         <h2 class="section-title" style="font-size:17px;margin:36px 0 12px;">5. ブラウザへの保存について</h2>
         <p style="color:var(--text-2);font-size:14px;">
           ご予約の確認を簡単にするため、ご予約内容をお使いのブラウザ内
-          （ローカルストレージ）にも保存しています。この情報は当店へは送信されず、
+          （ローカルストレージ）にも保存しています。サーバーに送信した予約情報とは別の端末内の控えで、
           ブラウザの閲覧データを消去すると削除されます。
         </p>
         <p style="color:var(--text-2);font-size:14px;margin-top:12px;">
           あわせて、2回目以降のご予約でお名前・フリガナ・お電話番号・メールアドレスを
           入力し直さずに済むよう、これらも同じブラウザ内に保存しています。
-          この保存はご予約が完了したときにのみ行われ、当店へは送信されません。
+          この端末への保存はご予約が完了したときにのみ行われます。予約手続きでは、入力された情報を予約システムへ送信します。
           <a href="reserve.html" style="color:var(--accent);text-decoration:underline;">ご予約ページ</a>
           のお客様情報の欄にある「この端末から消す」からいつでも削除いただけます。
         </p>
@@ -124,19 +125,13 @@
 
         <p style="color:var(--muted);font-size:12.5px;margin-top:32px;" id="privacy-updated"></p>
 
-        <div class="notice" style="margin-top:32px;">
-          <b>ご注意</b>
-          <span>
-            このページは確認中の文面です。ご予約の受付開始前に、事業者名・代表者名・お問い合わせ先と保管先の管理者を確定し、正式な内容に更新します。
-          </span>
-        </div>
       </div>
     </section>
   </main>
 
   <div id="site-footer"></div>
 
-  <script src="assets/js/data.js"></script>
+  <script src="assets/js/data.js?v=20260929-booking"></script>
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js?v=20260929-navigation"></script>
   <script src="assets/js/privacy.js"></script>

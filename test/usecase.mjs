@@ -4,6 +4,7 @@
 /* Playwright の場所。
    ふつうは npm i -D playwright で入れた 'playwright' を使います。
    別の場所にある場合は PLAYWRIGHT に読み込み先を指定してください。 */
+import { mockBookingState } from './booking-state-fixture.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
 const B = process.env.BASE || 'http://127.0.0.1:8820';
@@ -24,16 +25,7 @@ function check(uc, label, actual, expected) {
 }
 
 async function enableBookingInTest(context) {
-  await context.route('**/assets/js/data.js', async route => {
-    const response = await route.fetch();
-    const original = await response.text();
-    if (!original.includes('bookingLaunchApproved: false,') || !original.includes('draft: true,')) {
-      throw new Error('受付開始の試験設定が見つかりません');
-    }
-    const body = original.replace('bookingLaunchApproved: false,', 'bookingLaunchApproved: true,')
-      .replace('draft: true,', 'draft: false,');
-    await route.fulfill({ response, body });
-  });
+  await mockBookingState(context);
 }
 
 async function newPhone(label) {

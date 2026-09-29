@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mockBookingState } from './booking-state-fixture.mjs';
 import http from 'node:http';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
@@ -45,17 +46,7 @@ const browser = await chromium.launch(process.env.CHROMIUM
 try {
   for (const draft of [true, false]) {
     const context = await browser.newContext();
-    if (!draft) {
-      await context.route('**/assets/js/data.js', async route => {
-        const response = await route.fetch();
-        const original = await response.text();
-        const body = original.replace('draft: true,', 'draft: false,')
-          .replace('bookingLaunchApproved: false,', 'bookingLaunchApproved: true,');
-        assert.notEqual(body, original, '試験用に受付開始設定を切り替える');
-        assert.ok(body.includes('bookingLaunchApproved: true,'), '受付開始承認も切り替える');
-        await route.fulfill({ response, body });
-      });
-    }
+    await mockBookingState(context, { approved: !draft, draft });
     const errors = [];
     for (const name of ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html']) {
       const page = await context.newPage();
@@ -142,14 +133,7 @@ try {
   for (const item of launchCases) {
     sheetDraft = item.sheet;
     const context = await browser.newContext();
-    await context.route('**/assets/js/data.js', async route => {
-      const response = await route.fetch();
-      const original = await response.text();
-      assert.ok(original.includes('bookingLaunchApproved: false,') && original.includes('draft: true,'), '受付開始の試験設定がある');
-      const body = original.replace('bookingLaunchApproved: false,', `bookingLaunchApproved: ${item.approved},`)
-        .replace('draft: true,', `draft: ${item.draft},`);
-      await route.fulfill({ response, body });
-    });
+    await mockBookingState(context, item);
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
