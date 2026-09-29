@@ -98,7 +98,7 @@ try {
       if (name === 'gallery.html') {
         const style = await page.locator('.style-card a[href="reserve.html"]').first().innerText();
         const bottom = await page.locator('main a[href="reserve.html"]').last().innerText();
-        const intro = await page.locator('.page-head p').innerText();
+        const intro = await page.locator('.page-head h1 + p').innerText();
         assert.equal(style.replace(/\s+/g, ''), draft ? '予約について' : 'このスタイルで予約', 'スタイルの導線');
         assert.equal(bottom, draft ? '予約のご案内を見る' : 'スタイルを決めずに予約に進む', 'スタイル末尾の導線');
         assert.equal(intro.includes('ご予約に進めます'), !draft, 'スタイルの案内は受付状態と一致');

@@ -733,7 +733,7 @@ console.log('\n【13c】ボタンの文言と、トップのスタイル節');
   await p.goto(B + '/gallery.html'); await p.waitForTimeout(2200);
   /* ボタンが名前を運ぶようになったので、「ご要望欄に書いてください」と
      お願いし続けると、要らない手間をかけさせることになります。 */
-  const 案内 = await p.locator('.page-head p').innerText();
+  const 案内 = await p.locator('.page-head h1 + p').innerText();
   check('13c', '手で書き写してくださいと言っていない',
     /書いていただければ|ご記入ください/.test(案内), false);
 

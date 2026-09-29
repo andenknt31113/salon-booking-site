@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#F1ECE0" />
+  <meta name="theme-color" content="#f5f2eb" />
   <meta name="description" content="ネット予約の内容確認・キャンセルはこちらから。" />
   <meta name="robots" content="noindex, follow" />
   <title>ご予約の確認・キャンセル｜ZER01 barber/lounge</title>
@@ -21,6 +21,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20260929-unified" />
 </head>
 <body data-page="mypage">
   <div id="site-header"></div>
@@ -31,6 +32,7 @@
         <nav class="breadcrumb" aria-label="パンくず">
           <a href="index.html">サロンTOP</a><span>&gt;</span><span>予約確認</span>
         </nav>
+        <p class="page-kicker" lang="en">MY RESERVATION</p>
         <h1>ご予約の確認・キャンセル</h1>
         <p>予約した端末の記録、または予約番号とお電話番号でご確認いただけます。</p>
       </div>
@@ -71,7 +73,7 @@
         <div id="past-list"></div>
 
         <!-- 予約番号 + 電話番号での照会（別の端末からでも確認できます） -->
-        <section id="lookup-box" style="border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-top:36px;background:var(--panel);">
+        <section id="lookup-box">
           <h2 class="section-title" style="font-size:16px;margin-bottom:6px;">上に出てこないご予約をお探しの方へ</h2>
           <p class="section-desc" style="margin:0 0 18px;font-size:13px;">
             機種変更やご家族の端末からのご予約は、上の一覧に出ません。
