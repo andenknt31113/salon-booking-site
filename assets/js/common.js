@@ -1097,16 +1097,22 @@ async function sendReview(payload) {
 }
 
 /** 予約番号と電話番号でご予約を照会する（ログインの代わり） */
+const LOOKUP_REQUEST_TIMEOUT_MS = 30000;
+
 async function lookupReservation(code, tel) {
   if (!SALON.reservationEndpoint) {
     return { ok: false, error: 'ただいまオンラインでの照会をご利用いただけません。' };
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LOOKUP_REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(SALON.reservationEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ type: 'lookup', code: code, tel: tel })
+      body: JSON.stringify({ type: 'lookup', code: code, tel: tel }),
+      signal: controller.signal
     });
+    if (!res.ok) return { ok: false, error: '予約の照会に接続できませんでした。時間をおいてもう一度お試しください。' };
     const data = await res.json();
     /* 形が違う応答（Googleのログイン画面など）は失敗として扱います。
        公開設定を間違えて入れ直すと、JSONではなくHTMLが返ってきます。
@@ -1114,10 +1120,29 @@ async function lookupReservation(code, tel) {
     if (!data || typeof data.ok !== 'boolean') {
       return { ok: false, error: '受信先から予期しない応答が返りました。' };
     }
+    if (data.ok) {
+      const reservation = data.reservation;
+      const isClockTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+      if (!reservation || Array.isArray(reservation)
+        || typeof reservation.code !== 'string' || normalizeCode(reservation.code) !== normalizeCode(code)
+        || typeof reservation.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(reservation.date)
+        || toKey(fromKey(reservation.date)) !== reservation.date
+        || !isClockTime(reservation.time)
+        || (reservation.endTime !== undefined && reservation.endTime !== '' && !isClockTime(reservation.endTime))
+        || !Number.isFinite(reservation.totalMinutes) || reservation.totalMinutes <= 0
+        || !Number.isFinite(reservation.totalPrice) || reservation.totalPrice < 0
+        || !['name', 'menuText', 'staffName', 'status'].every(key => typeof reservation[key] === 'string')) {
+        return { ok: false, error: '予約内容を含む応答を確認できませんでした。時間をおいてもう一度お試しください。' };
+      }
+    }
     return data;
   } catch (e) {
-    console.warn('照会に失敗しました', e);
+    if (controller.signal.aborted) {
+      return { ok: false, error: '照会に時間がかかっています。時間をおいてもう一度お試しください。予約を取り直す必要はありません。' };
+    }
     return { ok: false, error: '通信に失敗しました。時間をおいてお試しください。' };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

@@ -5,6 +5,7 @@
 let filterCode = '';
 /* 直前に照会したご予約。別端末から日時変更するときに使います */
 let lastLookup = null;
+let lookupVersion = 0;
 
 /* この端末の記録は status:'cancelled'、照会結果は status:'キャンセル' と、
    出どころで言葉が違います。片方だけを見ていると、キャンセル済みの
@@ -284,8 +285,22 @@ function refreshView(force) {
   if (lastLookup) renderLookupResult(lastLookup);
 }
 
+function syncLookupRecord(reservation, tel) {
+  const records = Store.all();
+  const digits = value => normalizeTel(value || '').replace(/\D/g, '');
+  const record = records.find(item => normalizeCode(item.code) === normalizeCode(reservation.code)
+    && digits(item.customer?.tel) && digits(item.customer.tel) === digits(tel));
+  if (!record) return;
+  const { date, time, endTime, totalMinutes, staffName, totalPrice } = reservation;
+  if (record.totalPrice !== totalPrice) record.totalLabel = '';
+  Object.assign(record, { date, time, endTime, totalMinutes, staffName, totalPrice,
+    status: isCancelled(reservation) ? 'cancelled' : 'reserved' });
+  Store.save(records);
+}
+
 async function doLookup() {
   const btn = $('#lookup-btn');
+  if (btn.disabled) return;
   /* 日本語入力のまま打つと「LM-」が「ＬＭー」になります。
      番号は合っているので、直してから照会します。 */
   const code = normalizeCode($('#lookup-code').value);
@@ -294,6 +309,7 @@ async function doLookup() {
   const err = $('#lookup-error');
 
   err.style.display = 'none';
+  lastLookup = null;
   $('#lookup-result').innerHTML = '';
 
   if (!code || !tel) {
@@ -304,9 +320,11 @@ async function doLookup() {
 
   btn.disabled = true;
   btn.textContent = '照会中…';
+  const version = ++lookupVersion;
   const res = await lookupReservation(code, tel);
   btn.disabled = false;
   btn.textContent = 'ご予約を確認する';
+  if (version !== lookupVersion) return;
 
   if (!res.ok) {
     /* 「見つかりませんでした」だけで終わらせると、そこで手が止まります。
@@ -324,6 +342,7 @@ async function doLookup() {
      読み直すと、お客様が欄を消したり打ち直したりしたときに
      「ご予約が確認できませんでした」になり、理由が分かりません。 */
   lastLookup = { ...res.reservation, lookupTel: tel };
+  syncLookupRecord(res.reservation, tel);
   refreshView(true);
 }
 
@@ -434,8 +453,10 @@ document.addEventListener('DOMContentLoaded', () => {
     /* 台帳への反映は済んでいます。ここで照会をやり直すと、直後に電波が
        切れただけで結果が消え、キャンセルできたのか分からなくなります。
        手元の表示だけ書き換えます。 */
-    lastLookup = { ...lastLookup, status: 'キャンセル' };
-    Store.cancel(code); // この端末にも記録があれば同期する
+    const cancelled = { ...r, status: 'キャンセル' };
+    if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) lastLookup = cancelled;
+    lookupVersion++;
+    syncLookupRecord(cancelled, r.lookupTel);
     refreshView(true);
     showFlash('キャンセルを承りました。');
   });
@@ -519,6 +540,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     Store.cancel(code);
+    lookupVersion++;
+    if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) {
+      lastLookup = { ...lastLookup, status: 'キャンセル' };
+    }
     refreshView(true);
     showFlash('キャンセルを承りました。');
   });
