@@ -45,6 +45,143 @@ async function interceptLookup(page, respond) {
 }
 const answer = (route, reservation) => route.fulfill({ json: { ok: true, reservation } });
 
+test('取消確認は対象を文字で示し、戻る・Escapeでは送信せずフォーカスを戻す', async () => {
+  const unusualMenu = '<img src=x onerror=alert(1)>確認用カット';
+  const page = await openLookup([{ ...localRecord, menus: [{ ...localRecord.menus[0], name: unusualMenu }] }]);
+  let cancellations = 0;
+  try {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.route('**/exec', async route => {
+      if (route.request().postDataJSON()?.type !== 'cancel') return route.continue();
+      cancellations++;
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.locator('[data-cancel]').click();
+    const dialog = page.getByRole('dialog', { name: '予約のキャンセル確認' });
+    await dialog.waitFor();
+    const description = await dialog.innerText();
+    assert.ok(description.includes(localRecord.code));
+    assert.ok(description.includes('10:00〜11:00'));
+    assert.ok(description.includes(unusualMenu));
+    assert.equal(await dialog.locator('img').count(), 0);
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '予約を残して戻る');
+    const rectangle = await dialog.boundingBox();
+    assert.ok(rectangle.x >= 0 && rectangle.x + rectangle.width <= 320);
+    await page.keyboard.press('Enter');
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(await page.locator('[data-cancel]').evaluate(element => element === document.activeElement), true);
+    await page.locator('[data-cancel]').click();
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(cancellations, 0);
+    assert.equal((await page.evaluate(() => Store.all()))[0].status, 'reserved');
+  } finally { await page.context().close(); }
+});
+
+test('照会の取消確認は入力済みの電話番号で一度だけ送信する', async () => {
+  const page = await openLookup();
+  const cancellations = [];
+  try {
+    await interceptLookup(page, route => answer(route, latest));
+    await page.route('**/exec', async route => {
+      if (route.request().postDataJSON()?.type !== 'cancel') return route.fallback();
+      cancellations.push(route.request().postDataJSON());
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.locator('#lookup-btn').click();
+    await page.locator('[data-lookup-cancel]').click();
+    await page.getByRole('dialog', { name: '予約のキャンセル確認' }).waitFor();
+    assert.equal(cancellations.length, 0);
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).dblclick();
+    await page.locator('#lookup-result .booking-card.is-cancelled').waitFor();
+    assert.deepEqual(cancellations, [{ type: 'cancel', code: localRecord.code, tel: localRecord.customer.tel }]);
+    assert.equal(await page.getByRole('dialog').count(), 0);
+  } finally { await page.context().close(); }
+});
+
+test('確認画面を開いた後に控えが更新されたら、古い日時のまま取消しない', async () => {
+  const page = await openLookup([localRecord]);
+  let cancellations = 0;
+  try {
+    await page.route('**/exec', async route => {
+      if (route.request().postDataJSON()?.type !== 'cancel') return route.continue();
+      cancellations++;
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.locator('[data-cancel]').click();
+    await page.evaluate(() => {
+      const records = Store.all();
+      records[0].time = '12:00';
+      Store.save(records);
+    });
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
+    await page.locator('#flash').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#flash').innerText(), /最新の内容/);
+    assert.equal(cancellations, 0);
+    assert.equal((await page.evaluate(() => Store.all()))[0].status, 'reserved');
+  } finally { await page.context().close(); }
+});
+
+test('確認中に取消期限を過ぎたら送信せず、dialog非対応時も確認を省略しない', async () => {
+  const page = await openLookup([localRecord]);
+  let cancellations = 0;
+  try {
+    await page.route('**/exec', async route => {
+      if (route.request().postDataJSON()?.type !== 'cancel') return route.continue();
+      cancellations++;
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.locator('[data-cancel]').click();
+    await page.clock.install({ time: new Date('2099-10-07T18:00:00+09:00') });
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
+    await page.locator('#flash').waitFor({ state: 'visible' });
+    assert.equal(cancellations, 0);
+    assert.equal(await page.locator('[data-cancel]').count(), 0);
+    await page.evaluate(() => { HTMLDialogElement.prototype.showModal = undefined; });
+    const nativeConfirmation = page.waitForEvent('dialog');
+    const confirmed = page.evaluate(reservation => confirmCancellation(reservation), localRecord);
+    const dialog = await nativeConfirmation;
+    assert.equal(dialog.type(), 'confirm');
+    assert.ok(dialog.message().includes(localRecord.code));
+    await dialog.dismiss();
+    assert.equal(await confirmed, false);
+    assert.equal(cancellations, 0);
+  } finally { await page.context().close(); }
+});
+
+test('確認中に新しい照会が返った場合も、二重の確認や取消を送らない', async () => {
+  const page = await openLookup();
+  let release;
+  let requests = 0;
+  let cancellations = 0;
+  try {
+    const hold = new Promise(resolve => { release = resolve; });
+    await interceptLookup(page, async route => {
+      if (++requests > 1) await hold;
+      await answer(route, latest);
+    });
+    await page.route('**/exec', async route => {
+      if (route.request().postDataJSON()?.type !== 'cancel') return route.fallback();
+      cancellations++;
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.locator('#lookup-btn').click();
+    await page.locator('[data-lookup-cancel]').click();
+    assert.equal(await page.evaluate(reservation => confirmCancellation(reservation), localRecord), false);
+    assert.equal(await page.getByRole('dialog').count(), 1);
+    const response = page.waitForResponse(response => response.request().postDataJSON()?.type === 'lookup');
+    const pendingLookup = page.evaluate(() => doLookup());
+    release();
+    await response;
+    await pendingLookup;
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
+    await page.locator('#flash').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#flash').innerText(), /最新の内容/);
+    assert.equal(cancellations, 0);
+    assert.equal(await page.locator('#lookup-result .booking-card.is-cancelled').count(), 0);
+  } finally { release?.(); await page.context().close(); }
+});
+
 test('照会した取消結果を既存の控えに反映し、予約確定を残さない', async () => {
   const page = await openLookup([localRecord]);
   try {
@@ -133,8 +270,8 @@ test('端末の控えから取消した場合も、同じ予約の照会結果�
     });
     await page.locator('#lookup-btn').click();
     await page.locator('#lookup-result .booking-card').waitFor();
-    page.once('dialog', dialog => dialog.accept());
     await page.locator('[data-cancel]').click();
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
     await page.locator('#flash').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#past-list .booking-card.is-cancelled').count(), 1);
     assert.equal(await page.locator('#lookup-result .booking-card.is-cancelled').count(), 1);
@@ -154,8 +291,8 @@ test('取消成功の後に届いた古い照会結果で、予約確定へ戻�
     });
     await page.locator('#lookup-btn').click();
     await page.locator('#lookup-btn:disabled').waitFor();
-    page.once('dialog', dialog => dialog.accept());
     await page.locator('[data-cancel]').click();
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
     await page.locator('#flash').waitFor({ state: 'visible' });
     release();
     await page.locator('#lookup-btn:not([disabled])').waitFor();
@@ -175,8 +312,8 @@ test('照会結果から取消しても電話番号の違う端末の控えは�
     });
     await page.locator('#lookup-btn').click();
     await page.locator('#lookup-result .booking-card').waitFor();
-    page.once('dialog', dialog => dialog.accept());
     await page.locator('[data-lookup-cancel]').click();
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
     await page.locator('#flash').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#lookup-result .booking-card.is-cancelled').count(), 1);
     assert.equal((await page.evaluate(() => Store.all()))[0].status, 'reserved');
@@ -196,8 +333,8 @@ test('取消の返事待ちに別の予約を照会しても、取り違えて�
     });
     await page.locator('#lookup-btn').click();
     await page.locator('#lookup-result .booking-card').waitFor();
-    page.once('dialog', dialog => dialog.accept());
     await page.locator('[data-lookup-cancel]').click();
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
     await page.locator('[data-lookup-cancel]:disabled').waitFor();
     await page.locator('#lookup-code').fill('LM-OTHER');
     await page.locator('#lookup-btn').click();

@@ -146,6 +146,12 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
   .google-review-guide h2 { font-size: 23px; }
   .google-review-guide .btn { font-size: 12px; padding-inline: 12px; }
 }
+.booking-cancel-dialog { width: min(480px, calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 24px; border: 1px solid var(--line); background: var(--paper, #f5f2eb); color: var(--ink); overflow: auto; }
+.booking-cancel-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.booking-cancel-dialog h2 { margin: 0 0 16px; font-size: 20px; }
+.booking-cancel-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.booking-cancel-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.booking-cancel-actions .btn { min-height: 44px; white-space: normal; flex: 1 1 180px; }
 @media (max-width: 359px) {
   body[data-page="gallery"] .style-grid { grid-template-columns: 1fr; }
 }

@@ -227,6 +227,33 @@ function clearFlash() {
   if (el) el.style.display = 'none';
 }
 
+function confirmCancellation(reservation) {
+  if (document.querySelector('.booking-cancel-dialog')) return Promise.resolve(false);
+  const description = `予約番号 ${reservation.code}\n${formatDateJa(reservation.date)} ${reservation.time}〜${reservation.endTime || ''}\n`
+    + `${reservation.menuText || (reservation.menus || []).map(menu => menu.name).join(' / ')}\n\n`
+    + 'この予約をキャンセルします。この操作は取り消せません。';
+  const dialog = document.createElement('dialog');
+  if (typeof dialog.showModal !== 'function') return Promise.resolve(confirm(description));
+  dialog.className = 'booking-cancel-dialog';
+  dialog.setAttribute('aria-labelledby', 'booking-cancel-title');
+  dialog.setAttribute('aria-describedby', 'booking-cancel-description');
+  dialog.innerHTML = '<h2 id="booking-cancel-title">予約のキャンセル確認</h2>'
+    + '<p id="booking-cancel-description"></p>'
+    + '<div class="booking-cancel-actions"><button type="button" class="btn btn-outline" value="back" autofocus>予約を残して戻る</button>'
+    + '<button type="button" class="btn btn-dark" value="confirm">キャンセルを確定する</button></div>';
+  dialog.querySelector('p').textContent = description;
+  dialog.querySelectorAll('button').forEach(button => button.addEventListener('click', () => dialog.close(button.value)));
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      const confirmed = dialog.returnValue === 'confirm';
+      dialog.remove();
+      resolve(confirmed);
+    }, { once: true });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
 /* ============================================================
  *  予約番号 + 電話番号での照会
  * ============================================================ */
@@ -408,7 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 照会結果からのキャンセル（電話番号の一致を店舗側でも確認します）
   document.addEventListener('click', async e => {
     const btn = e.target.closest('[data-lookup-cancel]');
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     const code = btn.dataset.lookupCancel;
     if (!lastLookup || lastLookup.code !== code) {
       alert('ご予約が見つかりませんでした。お手数ですが、もう一度照会してください。');
@@ -425,12 +452,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const r = lastLookup;
     /* 何をキャンセルするのかを書きます。
        ご予約が複数ある方が、番号だけを見て取り違えないためです。 */
-    const ok = confirm(
-      `以下のご予約をキャンセルします。よろしいですか？\n\n`
-      + `${formatDateJa(r.date)} ${r.time}〜\n${r.menuText || ''}\n\n`
-      + `※この操作は取り消せません。`
-    );
+    const ok = await confirmCancellation(r);
     if (!ok) return;
+    if (lastLookup !== r || !isCancellable(r)) {
+      refreshView(true);
+      showFlash('予約情報が更新されたか、受付期限を過ぎました。最新の内容をご確認ください。');
+      return;
+    }
 
     clearFlash();
     busy(btn, true);
@@ -504,7 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.addEventListener('click', async e => {
     const btn = e.target.closest('[data-cancel]');
-    if (!btn) return;
+    if (!btn || btn.disabled) return;
     const code = btn.dataset.cancel;
     const r = Store.find(code);
     if (!r) return;
@@ -515,12 +543,14 @@ document.addEventListener('DOMContentLoaded', () => {
       refreshView(true);
       return;
     }
-    const ok = confirm(
-      `以下のご予約をキャンセルします。よろしいですか？\n\n` +
-      `${formatDateJa(r.date)} ${r.time}〜\n${r.menus.map(m => m.name).join(' / ')}\n\n` +
-      `※この操作は取り消せません。`
-    );
+    const ok = await confirmCancellation(r);
     if (!ok) return;
+    const current = Store.find(code);
+    if (!current || JSON.stringify(current) !== JSON.stringify(r) || !isCancellable(current)) {
+      refreshView(true);
+      showFlash('予約情報が更新されたか、受付期限を過ぎました。最新の内容をご確認ください。');
+      return;
+    }
 
     clearFlash();
     busy(btn, true);

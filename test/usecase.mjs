@@ -213,7 +213,8 @@ console.log('\n【UC5】行けなくなったのでキャンセルする');
   p.on('dialog', d => d.accept());
   const r = await book(p, { name: 'キャンセル 三郎', tel: '09011110005', slotIndex: 12 });
   await p.goto(B + '/mypage.html'); await p.waitForTimeout(1300);
-  await p.locator('[data-cancel]').first().click(); await p.waitForTimeout(1800);
+  await p.locator('[data-cancel]').first().click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(1800);
   check('UC5', 'キャンセル済みになる',
     (await p.locator('.status-chip').first().innerText()).includes('キャンセル'), true);
 

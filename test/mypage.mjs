@@ -159,7 +159,8 @@ console.log('\n【MP3】端末の時計がずれていて、店舗の台帳に�
   await p.click('#lookup-btn'); await p.waitForTimeout(1200);
   check('MP3', '画面の計算では、まだ押せる', await p.locator('[data-lookup-cancel]').count(), 1);
 
-  await p.locator('[data-lookup-cancel]').click(); await p.waitForTimeout(1500);
+  await p.locator('[data-lookup-cancel]').click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(1500);
   check('MP3', '台帳の断り文句をそのまま伝えている', /前日18時まで/.test(said.join('\n')), true);
   check('MP3', '断られたキャンセルは消している', await p.locator('[data-lookup-cancel]').count(), 0);
   check('MP3', '同じ理由の日時変更も消している', await p.locator('[data-change]').count(), 0);
@@ -186,11 +187,13 @@ console.log('\n【MP4】キャンセルを押したが、店舗に届かなか�
     record({ date: day(5), code: 'LM-FAIL1' })
   ]);
   await p.goto(B + '/mypage.html'); await p.waitForTimeout(1400);
-  await p.locator(`[data-cancel="${okOne.code}"]`).click(); await p.waitForTimeout(1500);
+  await p.locator(`[data-cancel="${okOne.code}"]`).click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(1500);
   check('MP4', '1件目は承っている', await p.locator('#flash').isVisible(), true);
 
   await post({ type: 'failmode', on: true });
-  await p.locator('[data-cancel="LM-FAIL1"]').click(); await p.waitForTimeout(2500);
+  await p.locator('[data-cancel="LM-FAIL1"]').click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(2500);
 
   check('MP4', '送れなかったことを伝えている', /送信できませんでした/.test(said.join('\n')), true);
   check('MP4', 'やり直しの道を書いている', /もう一度お試し|店舗までご連絡/.test(said.join('\n')), true);
@@ -218,7 +221,8 @@ console.log('\n【MP5】電波が細い場所でキャンセルを押す');
   p.on('dialog', d => d.accept());
   await seedInto(p, [record({ date: day(5), code: 'LM-SLOW1' })]);
   await p.goto(B + '/mypage.html'); await p.waitForTimeout(2600);
-  await p.locator('[data-cancel]').click(); await p.waitForTimeout(500);
+  await p.locator('[data-cancel]').click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(500);
 
   check('MP5', '送信中だと見せている', await text(p, '[data-cancel]'), '送信中…');
   check('MP5', '送信中は二度押しできない', await p.locator('[data-cancel]').isDisabled(), true);
@@ -241,7 +245,8 @@ console.log('\n【MP6】キャンセルしたあと、それで合っている�
   await seedInto(p, [record({ date: day(5), code: add.code,
     customer: { name: '承り 太郎', tel: '09012340002', email: '', visit: '初めて', request: '' } })]);
   await p.goto(B + '/mypage.html'); await p.waitForTimeout(1400);
-  await p.locator('[data-cancel]').click(); await p.waitForTimeout(1500);
+  await p.locator('[data-cancel]').click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(1500);
 
   check('MP6', '承ったことを言葉で伝えている', await p.locator('#flash').isVisible(), true);
   check('MP6', 'その文面が読める', /キャンセルを承りました/.test(await text(p, '#flash')), true);
@@ -270,7 +275,8 @@ console.log('\n【MP7】照会してから、電話番号の欄を消してキ�
   await p.fill('#lookup-tel', '09012340003');
   await p.click('#lookup-btn'); await p.waitForTimeout(1200);
   await p.fill('#lookup-tel', '');   // お客様が消してしまった
-  await p.locator('[data-lookup-cancel]').click(); await p.waitForTimeout(1500);
+  await p.locator('[data-lookup-cancel]').click();
+  await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(1500);
 
   const after = await post({ type: 'lookup', code: add.code, tel: '09012340003' });
   check('MP7', '照会に使った番号でキャンセルできている', after.reservation.status, 'キャンセル');
