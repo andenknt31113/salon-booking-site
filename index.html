@@ -20,7 +20,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/home.css?v=20260929" />
+  <link rel="stylesheet" href="assets/css/home.css?v=20260929-access" />
 </head>
 <body data-page="home">
   <div id="site-header"></div>
@@ -34,7 +34,10 @@
           <a class="btn btn-primary btn-lg" href="reserve.html">予約のご案内を見る</a>
           <a class="btn btn-outline btn-lg" href="menu.html">メニュー・料金</a>
         </div>
-        <a class="home-text-link" href="#styles">ヘアスタイルを見る <span aria-hidden="true">↓</span></a>
+        <div class="home-quick-links">
+          <a class="home-text-link" href="#styles">ヘアスタイルを見る <span aria-hidden="true">↓</span></a>
+          <a class="home-text-link" href="#info">アクセスを見る <span aria-hidden="true">↓</span></a>
+        </div>
       </div>
       <figure class="hero-media" id="home-photo"><img class="hero-photo ph-photo-opt" src="assets/shop2.jpg" alt="ZER01の店内" width="1200" height="1200" fetchpriority="high" /><figcaption>ZER01 barber/lounge</figcaption></figure>
     </section>
@@ -245,13 +248,15 @@
     </section>
 
     <!-- 口コミ -->
-    <section class="section section-alt">
-      <div class="container-narrow">
+    <section class="section home-review" id="reviews">
+      <div class="container">
         <div class="section-head">
           <span class="section-label">REVIEW</span>
-          <h2 class="section-title">お客様の声</h2>
+          <h2 class="section-title">Googleに寄せられた<br />お客様の声。</h2>
         </div>
-        <div class="review-list" id="home-reviews"></div>
+        <div class="review-list" id="home-reviews"><p>ご来店の感想は、Googleの店舗ページでご覧いただけます。</p>
+    <p class="review-caption">施術やお店の雰囲気について、来店前の参考に。</p>
+    <a class="btn btn-outline" href="https://www.google.com/maps/search/?api=1&amp;query=ZER01%20barber%2Flounge%20%E8%8C%A8%E5%9F%8E%E7%9C%8C%E9%BE%8D%E3%82%B1%E5%B4%8E%E5%B8%82%E4%B8%AD%E6%A0%B9%E5%8F%B01%E4%B8%81%E7%9B%AE1-1%20%E3%83%AD%E3%82%A4%E3%83%A4%E3%83%AB%E3%83%A4%E3%82%A8%20002" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a></div>
         <p class="section-more">
           <a class="btn btn-outline" id="home-review-link" href="reviews.html">Googleの口コミを見る・書く</a>
         </p>
@@ -259,13 +264,30 @@
     </section>
 
     <!-- 店舗情報 -->
-    <section class="section" id="info">
-      <div class="container-narrow">
+    <section class="section home-access" id="info">
+      <div class="container">
         <div class="section-head">
-          <span class="section-label">SALON INFO</span>
-          <h2 class="section-title">サロン情報</h2>
+          <span class="section-label">ACCESS &amp; INFORMATION</span>
+          <h2 class="section-title">お店へのアクセス</h2>
         </div>
+        <section class="access-layout" id="home-access" aria-label="地図と来店のご案内"><div class="access-summary">
+      <h3>ZER01 barber/lounge</h3>
+      <p class="access-address">茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002</p>
+      <dl><div><dt>アクセス</dt><dd>龍ケ崎市駅より車5分・バス10分。「中根台二丁目」バス停から徒歩1分。</dd></div><div><dt>駐車場</dt><dd>自社駐車場が目の前に2台あります</dd></div><div><dt>営業時間</dt><dd>09:00〜22:00（最終受付 21:00）<br />9:00-22:00で変動 外部仕事などもあるため変動いたします。あらかじめご確認お願い致します。</dd></div><div><dt>定休日</dt><dd>不定休 都内出張もあるため出勤日数が少なくなる週もございます</dd></div></dl>
+      <a class="access-tel" href="tel:08044987036"><span>お電話でのお問い合わせ</span>080-4498-7036</a>
+    </div>
+    <div class="access-map">
+      <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3230.6222145870834!2d140.168862!3d35.9317461!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x602271a6a355aaa1%3A0x2dade64c4cecb546!2sZER01%20barber%20%26%20lounge!5e0!3m2!1sja!2sjp!4v1790677172199!5m2!1sja!2sjp" title="ZER01の場所を示すGoogleマップ" width="600" height="450" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+      <div class="map-actions">
+        <a class="btn btn-primary" href="https://www.google.com/maps/dir/?api=1&destination=%E8%8C%A8%E5%9F%8E%E7%9C%8C%E9%BE%8D%E3%82%B1%E5%B4%8E%E5%B8%82%E4%B8%AD%E6%A0%B9%E5%8F%B01-1-1%20%E3%83%AD%E3%82%A4%E3%83%A4%E3%83%AB%E3%83%A4%E3%82%A8" target="_blank" rel="noopener noreferrer">ここへの経路を調べる（別タブ）</a>
+        <a class="access-map-link" href="https://www.google.com/maps/search/?api=1&query=%E8%8C%A8%E5%9F%8E%E7%9C%8C%E9%BE%8D%E3%82%B1%E5%B4%8E%E5%B8%82%E4%B8%AD%E6%A0%B9%E5%8F%B01-1-1%20%E3%83%AD%E3%82%A4%E3%83%A4%E3%83%AB%E3%83%A4%E3%82%A8" target="_blank" rel="noopener noreferrer">大きな地図で見る（別タブ）</a>
+      </div>
+      <p class="map-note">Googleマップを表示しています。地図が開かないときも、上のリンクから場所・道順を確認できます。</p>
+    </div></section>
+        <details class="access-details">
+          <summary>詳しい道案内・お支払い・店舗情報</summary>
         <table class="info-table"><tbody id="salon-info"><tr><th>店名</th><td>ZER01 barber/lounge 「メンズカット/縮毛矯正 /白髪ぼかし」</td></tr><tr><th>電話番号</th><td><a href="tel:08044987036">080-4498-7036</a></td></tr><tr><th>住所</th><td>茨城県龍ケ崎市中根台1丁目1-1 ロイヤルヤエ 002</td></tr><tr><th>アクセス</th><td>龍ケ崎市駅より車5分・バス10分。「中根台二丁目」バス停から徒歩1分。</td></tr><tr><th>道案内</th><td>◯お車でお越しの方龍ケ崎市中根台の「ロイヤルヤエ」建物内 002号室が当店です。カーナビ・Googleマップには「龍ケ崎市中根台1-1-1 ロイヤルヤエ」と入力してください。※建物の目の前に自社駐車場がございます。◯ 公共機関ご利用の方龍ケ崎市駅から久保台方面行きのバスにご乗車ください。約10分で「中根台二丁目」バス停に到着します。バス停からは徒歩1分で当店です。</td></tr><tr><th>営業時間</th><td>09:00〜22:00（最終受付 21:00）<br />※9:00-22:00で変動 外部仕事などもあるため変動いたします。あらかじめご確認お願い致します。</td></tr><tr><th>定休日</th><td>不定休 都内出張もあるため出勤日数が少なくなる週もございます</td></tr><tr><th>席数</th><td>セット面2席</td></tr><tr><th>スタッフ数</th><td>スタイリスト1名（マンツーマン施術）</td></tr><tr><th>駐車場</th><td>自社駐車場が目の前に2台あります</td></tr><tr><th>支払方法</th><td>Visa／JCB／American Express／Diners Club／現金、カードはタッチ決済のみ</td></tr><tr><th>こだわり条件</th><td>4席以下の小型サロン／駐車場あり／夜19時以降も受付OK／1人のスタイリストが仕上げまで担当／朝10時前でも受付OK／店頭でのカード支払いOK／お子さま同伴OK／ドリンクサービスあり／個室あり／半個室あり／完全予約制</td></tr></tbody></table>
+        </details>
       </div>
     </section>
 
@@ -296,6 +318,6 @@
   <script src="assets/js/data.js"></script>
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js"></script>
-  <script src="assets/js/pages.js?v=20260929-home"></script>
+  <script src="assets/js/pages.js?v=20260929-access"></script>
 </body>
 </html>

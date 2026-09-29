@@ -495,6 +495,7 @@ console.log('\n【10】掲載どおりの内容（data.js）');
 
   /* 店舗情報。ここは来店できるかどうかに直結する。 */
   await p.goto(B + '/index.html'); await p.waitForTimeout(1800);
+  await p.locator('.access-details summary').click();
   const info = await p.locator('#salon-info').innerText();
   /* 掲載には「竜ヶ崎市」と「龍ケ崎市」が混在していた。住所は正しい字でないと、
      カーナビに入れた方がたどり着けない。 */

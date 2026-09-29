@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isPublicMapFrame, mapFixture } from './public-map-fixture.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 const BASE = process.env.BASE || 'http://127.0.0.1:8820';
@@ -16,7 +17,9 @@ try {
     const externalRequests = [];
     await context.route('**/*', async route => {
       const request = route.request();
-      if (request.method() === 'POST') {
+      if (isPublicMapFrame(request)) {
+        await route.fulfill(mapFixture);
+      } else if (request.method() === 'POST') {
         requests.push(request.url());
         await route.abort();
       } else if (new URL(request.url()).origin !== BASE_ORIGIN) {
@@ -70,7 +73,7 @@ try {
       console.log(`成功：${name} 幅${width}・時間経過による差し替えなし`);
     }));
     assert.deepEqual(requests, [], '公開ページはGASに設定取得を要求しない');
-    assert.deepEqual(externalRequests, [], '公開ページは外部へ自動接続しない');
+    assert.deepEqual(externalRequests, [], '店舗の地図iframe以外は外部へ自動接続しない');
     const reserve = await context.newPage();
     reserve.on('pageerror', error => errors.push(`reserve.html: ${error.message}`));
     await reserve.goto(`${BASE}/reserve.html`, { waitUntil: 'load' });

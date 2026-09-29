@@ -203,7 +203,9 @@ function menuGroupHtml(cat) {
    受信先を入れる前は投稿フォーム自体を出していない（initReviewForm）ので、
    そのあいだは案内も出しません。無いものを探させないためです。 */
 function reviewEmptyHtml({ formHere = false } = {}) {
-  return '<p class="empty-state">口コミの確認・投稿はGoogleでご案内しています。</p>';
+  return `<p>ご来店の感想は、Googleの店舗ページでご覧いただけます。</p>
+    <p class="review-caption">施術やお店の雰囲気について、来店前の参考に。</p>
+    <a class="btn btn-outline" href="${esc(googleReviewViewUrl())}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a>`;
 }
 
 /* トップを開いた方が最初に読む1行。
@@ -302,12 +304,43 @@ function renderSalonInfo(host) {
   renderMapLinks(host.closest('section'));
 }
 
-/* 地図へのボタン。
-   Googleマップの埋め込みは第三者のiframeを読み込むことになり、
-   こちらの環境では表示確認ができないため、確実に動くリンクにしてあります。
-   カーナビ・Googleマップ用の検索語は directions に書いたものと同じ。 */
 function mapQuery() {
   return SALON.mapQuery || SALON.address;
+}
+
+function homeAccessHtml() {
+  const query = encodeURIComponent(mapQuery() || '');
+  let embedUrl = '';
+  try {
+    const url = new URL(SALON.mapEmbedUrl);
+    if (url.origin === 'https://www.google.com' && url.pathname === '/maps/embed'
+        && url.searchParams.has('pb') && !url.username && !url.password) embedUrl = url.href;
+  } catch {}
+  const business = SALON.business;
+  const closed = [business.closedWeekdays.map(day => WEEKDAY_JA[day] + '曜日').join('・'), business.closedNote]
+    .filter(Boolean).join('\n') || '年中無休';
+  const details = [
+    ['アクセス', SALON.access],
+    ['駐車場', SALON.parking],
+    ['営業時間', `${business.openTime}〜${business.closeTime}（最終受付 ${business.lastOrder}）`
+      + (business.note ? '\n' + business.note : '')],
+    ['定休日', closed]
+  ];
+  return `<div class="access-summary">
+      <h3>${esc(SALON.name)} ${esc(SALON.nameSub || '')}</h3>
+      <p class="access-address">${esc(SALON.address)}</p>
+      <dl>${details.filter(([, value]) => value).map(([label, value]) =>
+        `<div><dt>${esc(label)}</dt><dd>${esc(value).replace(/\n/g, '<br />')}</dd></div>`).join('')}</dl>
+      ${SALON.tel ? `<a class="access-tel" href="tel:${esc(SALON.tel.replace(/-/g, ''))}"><span>お電話でのお問い合わせ</span>${esc(SALON.tel)}</a>` : ''}
+    </div>
+    <div class="access-map">
+      ${embedUrl ? `<iframe src="${esc(embedUrl)}" title="${esc(SALON.name)}の場所を示すGoogleマップ" width="600" height="450" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>` : '<p class="map-note">地図はGoogleマップでご確認いただけます。</p>'}
+      <div class="map-actions">
+        <a class="btn btn-primary" href="https://www.google.com/maps/dir/?api=1&destination=${query}" target="_blank" rel="noopener noreferrer">ここへの経路を調べる（別タブ）</a>
+        <a class="access-map-link" href="https://www.google.com/maps/search/?api=1&query=${query}" target="_blank" rel="noopener noreferrer">大きな地図で見る（別タブ）</a>
+      </div>
+      <p class="map-note">Googleマップを表示しています。地図が開かないときも、上のリンクから場所・道順を確認できます。</p>
+    </div>`;
 }
 
 function renderMapLinks(section) {
@@ -420,8 +453,18 @@ function initHome() {
   setHtml($('#home-styles'), homeStyles().map(styleCard).join(''));
   bindStyleBooking();
   setHtml($('#home-staff'), SALON.staff.map(staffCard).join(''));
-  $('#home-reviews').innerHTML = reviewEmptyHtml();
+  setHtml($('#home-reviews'), reviewEmptyHtml());
   renderHomeReviewLink();
+  const access = $('#home-access');
+  if (access) {
+    const html = homeAccessHtml();
+    if (access.__html === undefined) {
+      const template = document.createElement('template');
+      template.innerHTML = html;
+      if (access.innerHTML.trim() === template.innerHTML.trim()) access.__html = html;
+    }
+    setHtml(access, html);
+  }
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
   wireImageFallbacks();
@@ -599,28 +642,43 @@ function initReviewForm() {
   }));
 }
 
-function renderGoogleReviewLink() {
-  const host = $('#google-review');
-  if (!host) return;
+function googleReviewViewUrl() {
   const query = encodeURIComponent([SALON.name, SALON.nameSub, SALON.address].filter(Boolean).join(' '));
-  const viewUrl = 'https://www.google.com/maps/search/?api=1&query=' + query;
+  return 'https://www.google.com/maps/search/?api=1&query=' + query;
+}
+
+function googleReviewGuideHtml() {
+  const viewUrl = googleReviewViewUrl();
   let writeUrl = '';
   try {
     const url = new URL(SALON.googleReviewUrl);
     if (url.protocol === 'https:' && url.hostname === 'g.page'
         && /^\/r\/[^/]+\/review\/?$/.test(url.pathname)) writeUrl = url.href;
   } catch {}
-  host.innerHTML = `
-    <div class="notice" style="display:block;">
-      <h2 style="font-size:20px;margin-bottom:16px;">Googleの口コミ</h2>
-      <p style="margin-bottom:20px;">ご来店の感想はGoogleへお寄せください。口コミの内容・評価は、Googleの店舗ページでご覧いただけます。</p>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+  return `
+    <div class="google-review-guide">
+      <div class="review-reading">
+        <span class="section-label">READ REVIEWS</span>
+        <h2>来店前に、口コミを読む。</h2>
+        <p>施術やお店の雰囲気について、Googleに寄せられた感想をご覧いただけます。</p>
         <a class="btn btn-outline" href="${esc(viewUrl)}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a>
-        ${writeUrl ? `<a class="btn btn-primary" href="${esc(writeUrl)}" target="_blank" rel="noopener noreferrer">Googleに口コミを書く（別タブ）</a>` : ''}
+        <p class="review-caption">Googleマップの店舗ページで「クチコミ」を選んでください。</p>
       </div>
-      <p style="font-size:13px;">「見る」はGoogleマップを開きます。ZER01の店舗ページから「クチコミ」を選んでください。このサイトでは口コミを収集・掲載しません。</p>
-      ${writeUrl ? '' : '<p style="margin-top:12px;">投稿用の直接リンクは準備中です。Googleの店舗ページから投稿してください。</p>'}
+      <div class="review-writing">
+        <span class="section-label">SHARE YOUR EXPERIENCE</span>
+        <h2>来店後に、感想を届ける。</h2>
+        <p>ご来店の感想はGoogleへお寄せください。</p>
+        ${writeUrl ? `<a class="btn btn-primary" href="${esc(writeUrl)}" target="_blank" rel="noopener noreferrer">Googleに口コミを書く（別タブ）</a>` : ''}
+        ${writeUrl ? '' : '<ol class="review-steps"><li>「Googleで口コミを見る」を選ぶ</li><li>「クチコミ」から「クチコミを書く」を選ぶ</li><li>Googleにログインして投稿する</li></ol>'}
+      </div>
+      <p class="review-caption review-disclosure">このサイトでは口コミを収集・掲載しません。口コミの内容・評価はGoogleの店舗ページでご確認ください。</p>
     </div>`;
+}
+
+function renderGoogleReviewLink() {
+  const host = $('#google-review');
+  if (!host) return;
+  setHtml(host, googleReviewGuideHtml());
   host.hidden = false;
 }
 
