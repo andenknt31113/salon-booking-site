@@ -62,16 +62,16 @@ try {
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${base}/${name}`, { waitUntil: 'load' });
       const header = await page.locator('#site-header .header-actions a[href="reserve.html"]').innerText();
-      const navigation = await page.locator('#site-header nav a[href="reserve.html"]').innerText();
+      assert.equal(await page.locator('#site-header nav a[href="reserve.html"]').count(), 0, `${name}：主ナビに予約ボタンを重複させない`);
+      assert.equal(await page.locator('#site-header nav a[href="index.html#info"]').count(), 1, `${name}：店舗への道順を見つけられる`);
+      assert.match(await page.locator('#site-header .reservation-link').innerText(), /予約済みの方.*確認・変更・キャンセル/s, `${name}：予約済みの入口を区別する`);
       const footer = await page.locator('#site-footer .footer-grid a[href="reserve.html"]').innerText();
       if (draft) {
-        assert.equal(header, '予約について', `${name}：準備中のヘッダー`);
-        assert.equal(navigation, '予約について', `${name}：準備中のメニュー`);
-        assert.equal(footer, '予約について', `${name}：準備中のフッター`);
+        assert.equal(header, '予約方法を見る', `${name}：準備中のヘッダー`);
+        assert.equal(footer, '予約方法を見る', `${name}：準備中のフッター`);
       } else {
-        assert.equal(header, 'ネット予約', `${name}：受付中のヘッダー`);
-        assert.equal(navigation, '空席・予約', `${name}：受付中のメニュー`);
-        assert.equal(footer, '空席状況・ネット予約', `${name}：受付中のフッター`);
+        assert.equal(header, '空き時間を見る', `${name}：受付中のヘッダー`);
+        assert.equal(footer, '空き時間を見る', `${name}：受付中のフッター`);
       }
       if (name === 'menu.html' || name === 'index.html') {
         const coupon = await page.locator('.coupon-price a[href^="reserve.html?menu="]').first().innerText();
@@ -82,7 +82,7 @@ try {
         await faq.locator('.faq-q').click();
         assert.equal(/24時間.*予約|予約.*24時間/.test(await faq.locator('.faq-a').innerText()), false,
           '公開FAQもシート側の受付停止後に受付中とは断定しない');
-        assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').innerText(), '空席・予約',
+        assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').innerText(), '空き時間を見る',
           '固定予約ボタンも受付中と断定しない');
         assert.equal(/24時間.*予約|予約.*24時間/.test(await page.locator('body').innerText()), false,
           '公開ページはシート側の受付停止後も24時間受付中とは断定しない');

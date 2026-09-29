@@ -1143,11 +1143,10 @@ function sendCancellation(reservation) {
 const NAV_ITEMS = [
   { href: 'index.html', label: 'サロンTOP' },
   { href: 'gallery.html', label: 'スタイル' },
+  { href: 'menu.html', label: 'メニュー・料金' },
   { href: 'staff.html', label: 'スタッフ' },
-  { href: 'menu.html', label: 'メニュー' },
-  { href: 'reviews.html', label: '口コミ' },
-  { href: 'reserve.html', label: '空席・予約' },
-  { href: 'mypage.html', label: '予約確認' }
+  { href: 'index.html#info', label: 'アクセス' },
+  { href: 'reviews.html', label: '口コミ' }
 ];
 
 function currentPage() {
@@ -1267,7 +1266,22 @@ function renderAdminHeader(host) {
 function renderHeader() {
   document.body.classList.toggle('booking-paused', !!SALON.draft);
   const notice = $('#booking-paused-notice');
-  if (notice) setHtml(notice, `<h2>ネット予約は準備中です</h2><p>現在、このサイトから新しいご予約はお受けしていません。ご予約については店舗へお問い合わせください。</p>${SALON.tel ? `<a class="btn btn-primary" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">店舗へ電話する</a>` : ''}<p><a href="mypage.html">すでにお持ちの予約を確認する</a></p>`);
+  if (notice) setHtml(notice, `
+    <div class="booking-entry-grid">
+      <section class="booking-entry-panel" aria-labelledby="new-booking-title">
+        <p class="booking-entry-label">新しいご予約</p>
+        <h2 id="new-booking-title">ネット予約は準備中です</h2>
+        <p>現在、このサイトから新しいご予約はお受けしていません。ご予約をご希望の方は、店舗へお問い合わせください。</p>
+        ${SALON.tel ? `<a class="btn btn-primary" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">店舗へ電話する</a><p class="booking-entry-contact">${esc(SALON.tel)}</p>` : ''}
+      </section>
+      <section class="booking-entry-panel" aria-labelledby="existing-booking-title">
+        <p class="booking-entry-label">すでに予約済みの方</p>
+        <h2 id="existing-booking-title">予約の確認・変更・キャンセル</h2>
+        <p>このサイトで受け付けた予約はこちらから。日時の変更・キャンセルができる期限も確認できます。</p>
+        <a class="btn btn-outline" href="mypage.html">自分の予約を確認する</a>
+        <p class="booking-entry-contact">予約番号が分からない場合のご案内もあります。</p>
+      </section>
+    </div>`);
   const host = $('#site-header');
   if (!host) return;
   const page = currentPage();
@@ -1277,8 +1291,7 @@ function renderHeader() {
     || 'SL';
   const nav = NAV_ITEMS.map(item => {
     const cur = item.href === page ? ' aria-current="page"' : '';
-    const label = SALON.draft && item.href === 'reserve.html' ? '予約について' : item.label;
-    return `<li><a href="${item.href}"${cur}>${label}</a></li>`;
+    return `<li><a href="${item.href}"${cur}>${item.label}</a></li>`;
   }).join('');
 
   const draft = SALON.draft
@@ -1299,12 +1312,13 @@ function renderHeader() {
             <span>TEL / 受付 ${esc(SALON.business.openTime)}-${esc(SALON.business.closeTime)}</span>
             <strong>${esc(SALON.tel)}</strong>
           </a>` : ''}
-          <a class="btn btn-primary btn-sm" href="reserve.html">${SALON.draft ? '予約について' : 'ネット予約'}</a>
+          <a class="btn btn-primary btn-sm" href="reserve.html"${page === 'reserve.html' ? ' aria-current="page"' : ''}>${SALON.draft ? '予約方法を見る' : '空き時間を見る'}</a>
         </div>
       </div>
-      <nav class="site-nav" aria-label="メインメニュー">
-        <div class="container"><ul>${nav}</ul></div>
-      </nav>
+      <div class="container header-navigation">
+        <nav class="site-nav" aria-label="メインメニュー"><ul>${nav}</ul></nav>
+        <a class="reservation-link" href="mypage.html"${page === 'mypage.html' ? ' aria-current="page"' : ''}>予約済みの方<span>確認・変更・キャンセル</span></a>
+      </div>
     </header>`);
 }
 
@@ -1340,14 +1354,15 @@ function renderFooter() {
               <li><a href="gallery.html">ヘアスタイル</a></li>
               <li><a href="staff.html">スタッフ一覧</a></li>
               <li><a href="menu.html">メニュー</a></li>
+              <li><a href="index.html#info">アクセス・店舗情報</a></li>
               <li><a href="reviews.html">口コミ</a></li>
             </ul>
           </div>
           <div>
             <h4>RESERVATION</h4>
             <ul>
-              <li><a href="reserve.html">${SALON.draft ? '予約について' : '空席状況・ネット予約'}</a></li>
-              <li><a href="mypage.html">ご予約の確認・キャンセル</a></li>
+              <li><a href="reserve.html">${SALON.draft ? '予約方法を見る' : '空き時間を見る'}</a></li>
+              <li><a href="mypage.html">予約済みの方：確認・変更・キャンセル</a></li>
               ${SALON.lineAddUrl
                 ? `<li><a href="${esc(SALON.lineAddUrl)}" target="_blank" rel="noopener">LINEで友だち追加</a></li>`
                 : ''}
@@ -1373,7 +1388,7 @@ function stickyCta() {
   return `
     <div class="sp-cta">
       ${SALON.tel ? `<a class="btn btn-ghost" href="tel:${esc(SALON.tel.replace(/-/g, ''))}">電話</a>` : ''}
-      <a class="btn btn-primary" href="reserve.html">${SALON.draft ? '予約について' : '空席・予約'}</a>
+      <a class="btn btn-primary" href="reserve.html">${SALON.draft ? '予約方法を見る' : '空き時間を見る'}</a>
     </div>`;
 }
 

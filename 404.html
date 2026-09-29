@@ -8,7 +8,7 @@
   <title>ページが見つかりません</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20260929-unified" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20260929-navigation" />
 </head>
 <body data-page="404">
   <div id="site-header"></div>
@@ -22,7 +22,7 @@
           お探しのページは移動または削除された可能性があります。
         </p>
         <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-          <a class="btn btn-primary btn-lg" href="reserve.html">空席を見て予約する</a>
+          <a class="btn btn-primary btn-lg" href="reserve.html"><span class="booking-active-only">空き時間を見る</span><span class="booking-paused-only">予約方法を見る</span></a>
           <a class="btn btn-outline btn-lg" href="index.html">トップへ戻る</a>
         </div>
       </div>
@@ -32,6 +32,6 @@
   <div id="site-footer"></div>
 
   <script src="assets/js/data.js"></script>
-  <script src="assets/js/common.js"></script>
+  <script src="assets/js/common.js?v=20260929-navigation"></script>
 </body>
 </html>

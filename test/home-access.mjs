@@ -103,7 +103,7 @@ test('地図が失敗しても住所・電話・経路が残り、JavaScriptな�
       assert.equal(await page.locator('.review-steps li').count(), 3);
       assert.equal(await page.locator('.review, #review-form, #review-list').count(), 0);
       assert.equal(await page.getByRole('link', { name: 'Googleに口コミを書く（別タブ）' }).count(), 0, '未確認URLを直接投稿と呼ばない');
-      assert.equal(await page.locator('a[href="index.html#info"]').isVisible(), true);
+      assert.equal(await page.locator('main a[href="index.html#info"]').isVisible(), true);
       assert.deepEqual(unexpected, []);
     } finally { await context.close(); }
   }
