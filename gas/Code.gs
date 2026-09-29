@@ -376,9 +376,11 @@ const CLOSED_HEADERS = ['休業日', '開始', '終了', 'メモ'];
    ============================================================ */
 const REQUEST_LOCK_TIMEOUT_MS = 20000;
 
-function withLedgerLock_(operation) {
+function withLedgerLock_(operation, timing) {
   const lock = LockService.getScriptLock();
+  const started = Date.now();
   lock.waitLock(REQUEST_LOCK_TIMEOUT_MS);
+  if (timing) timing.lockMs = Date.now() - started;
   try { return operation(); }
   finally { lock.releaseLock(); }
 }
@@ -399,9 +401,11 @@ function doPost(e) {
         : { ok: false, error: 'Google管理者の接続設定が未完了です。' });
     }
     if (data.type === 'googleAdmin')  return json_(doGoogleAdmin_(data));
-    return json_(withLedgerLock_(function () {
+    const timing = data.type === 'menu' && data.measure === true ? {} : null;
+    const started = Date.now();
+    const result = withLedgerLock_(function () {
       if (['adminAdd', 'adminAddStatus', 'adminNote', 'adminChange'].indexOf(data.type) >= 0) requireAdmin_(data);
-      if (data.type === 'menu')         return doMenu_();
+      if (data.type === 'menu')         return doMenu_(data, timing);
       if (data.type === 'adminLogin')   return doAdminLogin_(data);
       if (data.type === 'adminData')    return doAdminData_(data);
       if (data.type === 'adminSave')    return doAdminSave_(data);
@@ -416,7 +420,9 @@ function doPost(e) {
       if (data.type === 'change')       return doChange_(getSheet_(), data);
       if (data.type === 'review')       return doReview_(getSheet_(), data);
       return doReserve_(getSheet_(), data, true);
-    }));
+    }, timing);
+    if (timing) result.timing = Object.assign(timing, { totalMs: Date.now() - started });
+    return json_(result);
 
   } catch (err) {
     console.error(err);
@@ -1177,17 +1183,22 @@ function verifyReservationMenus_(ss, data) {
   return '';
 }
 
-function doMenu_() {
+function doMenu_(request, timing) {
+  const started = Date.now();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  return {
+  const result = {
     ok: true,
     categories: readMenuSheet_(ss) || [],
-    coupons: readCouponSheet_(ss) || [],
-    styles: readStyleSheet_(ss),
-    reviews: readReviewSheet_(ss),
-    closedDates: readClosedSheet_(ss),
-    settings: publicSettings_(readSettings_(ss))
+    coupons: readCouponSheet_(ss) || []
   };
+  if (!request || request.booking !== true) {
+    result.styles = readStyleSheet_(ss);
+    result.reviews = readReviewSheet_(ss);
+  }
+  result.closedDates = readClosedSheet_(ss);
+  result.settings = publicSettings_(readSettings_(ss));
+  if (timing) timing.catalogMs = Date.now() - started;
+  return result;
 }
 
 /* 「休業日」シートに書いた日付を、予約できない日としてサイトに渡します。

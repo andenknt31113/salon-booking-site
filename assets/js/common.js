@@ -629,6 +629,7 @@ async function sendToEndpoint(payload, attempt = 0) {
  *  受信先から「埋まっている枠」だけを取得します。
  *  氏名・電話番号などは一切受け取りません。
  * ============================================================ */
+const AVAILABILITY_REQUEST_TIMEOUT_MS = 30000;
 const Remote = {
   booked: null,       // null = 未取得または取得失敗
   loaded: false,
@@ -641,9 +642,13 @@ const Remote = {
     if (this.loaded && !force) return Promise.resolve(this.booked !== null);
 
     this.loading = (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), AVAILABILITY_REQUEST_TIMEOUT_MS);
       try {
         const res = await fetch(SALON.reservationEndpoint, {
           method: 'POST',
+          cache: 'no-store',
+          signal: controller.signal,
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ type: 'availability' })
         });
@@ -667,6 +672,7 @@ const Remote = {
         this.booked = null;
         return false;
       } finally {
+        clearTimeout(timeout);
         this.loaded = true;
         this.loading = null;
       }
@@ -768,7 +774,7 @@ const Catalog = {
         cache: 'no-store',
         signal: controller.signal,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ type: 'menu' })
+        body: JSON.stringify({ type: 'menu', booking: BOOKING_CATALOG_PAGES.has(document.body.dataset.page) })
       });
       const data = await res.json();
       if (!res.ok || !data || data.ok !== true

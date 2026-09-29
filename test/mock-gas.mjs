@@ -532,7 +532,9 @@ return (req, res) => {
       if (d.type === 'uploads') return reply(res, { ok:true, uploads: UPLOADS });
 
       if (d.type === 'menu') {
-        return reply(res, { ok: true, categories: buildMenu(), coupons: buildCoupons(), styles: buildStyles(), reviews: buildReviews(), closedDates: SHEET_CLOSED, settings: publicSettings(SHEET_SETTINGS) });
+        return reply(res, { ok: true, categories: buildMenu(), coupons: buildCoupons(),
+          ...(d.booking === true ? {} : { styles: buildStyles(), reviews: buildReviews() }),
+          closedDates: SHEET_CLOSED, settings: publicSettings(SHEET_SETTINGS) });
       }
 
       if (d.type === 'availability') {

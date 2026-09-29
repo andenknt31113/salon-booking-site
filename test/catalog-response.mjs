@@ -24,6 +24,7 @@ test('メニュー読込はキャッシュを使わず、終了時にタイマ�
   const catalog = environment(async (_url, options) => {
     assert.equal(options.cache, 'no-store');
     assert.equal(JSON.parse(options.body).type, 'menu');
+    assert.equal(JSON.parse(options.body).booking, true);
     return { ok: true, json: async () => ({ ok: true, categories: [], coupons: [], closedDates: [], settings: {} }) };
   }, { setTimeout: () => '読込タイマー', clearTimeout: handle => { assert.equal(handle, '読込タイマー'); cleared = true; } });
   assert.equal(await catalog.load(), 'sheet');

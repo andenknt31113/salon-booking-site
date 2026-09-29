@@ -1266,7 +1266,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#submit-reservation').addEventListener('click', submitReservation);
   $('#copy-code').addEventListener('click', copyCode);
 
-  Catalog.load().then(source => {
+  const catalogReady = Catalog.load();
+  catalogReady.then(source => {
     if (SALON.reservationEndpoint && source !== 'sheet') {
       setHtml($('#catalog-status'), '最新のメニューと受付条件を確認できません。現在ネット予約は進められません。時間をおいて再読み込みするか、店舗へお問い合わせください。'
         + (SALON.tel ? ` <a href="tel:${esc(SALON.tel.replace(/-/g, ''))}">店舗へ電話する</a>` : ''));
@@ -1308,7 +1309,10 @@ document.addEventListener('DOMContentLoaded', () => {
      この端末の記録だけで描いた古いもので、黙って出しておくと
      お客様はそれを最新だと思って選びます。 */
   showCalendarLoading(true);
-  Remote.load().then(ok => {
+  catalogReady.then(source => {
+    if (SALON.reservationEndpoint && source !== 'sheet') return false;
+    return Remote.load();
+  }).then(ok => {
     showCalendarLoading(false);
     if (ok && state.step === 3) renderCalendar();
   });
@@ -1324,6 +1328,7 @@ document.addEventListener('DOMContentLoaded', () => {
      いただきます。黙って選択を外すと、何が起きたのか分かりません。 */
   const refreshCalendar = async () => {
     if (state.step !== 3 || document.hidden) return;
+    if (!Catalog.loaded || (SALON.reservationEndpoint && Catalog.source !== 'sheet')) return;
     const had = state.date && state.time
       ? { date: state.date, time: state.time } : null;
     showCalendarLoading(true);
