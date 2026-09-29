@@ -124,6 +124,7 @@ test('トップと404の予約ボタンは準備中と受付中で正しく案�
         assert.ok(texts.length >= 3);
         assert.ok(texts.every(text => text.trim() === label), `${name}・受付${active}：${texts.join(' / ')}`);
         await page.locator('.header-actions a[href="reserve.html"]').click();
+        await page.waitForURL(`${base}/reserve.html`, { waitUntil: 'load' });
         await page.waitForFunction(() => Catalog.loaded);
         assert.equal(await page.locator('#reserve-layout').isVisible(), active);
         assert.equal(await page.locator('#booking-paused-notice').isVisible(), !active);

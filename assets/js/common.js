@@ -603,13 +603,15 @@ async function sendToEndpoint(payload, attempt = 0) {
   try {
     const res = await fetch(SALON.reservationEndpoint, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
     const data = await res.json();
     // 形が違う応答（HTMLのエラーページ等）は失敗として扱う
-    if (!data || typeof data.ok !== 'boolean') {
-      return { ok: false, error: '受信先から予期しない応答が返りました。' };
+    if (!res.ok || !data || typeof data.ok !== 'boolean'
+        || (data.ok && typeof data.message === 'string')) {
+      return { ok: false, error: '店舗への反映結果を確認できません。予約確認ページで最新の状態を確認してください。' };
     }
     return data;
   } catch (e) {
@@ -729,6 +731,13 @@ function normalizeItem(m) {
 }
 
 const STATIC_CATALOG_PAGES = new Set(['home', 'menu', 'staff', 'gallery', 'reviews', 'privacy']);
+const CATALOG_REQUEST_TIMEOUT_MS = 45000;
+const BOOKING_CATALOG_PAGES = new Set(['reserve', 'mypage']);
+const BOOKING_SETTING_KEYS = new Set([
+  '電話番号', '営業開始', '営業終了', '最終受付', '定休曜日',
+  '変更・キャンセル期限（何日前）', '変更・キャンセル期限（何時）',
+  '準備中の帯', '準備中の文言'
+]);
 
 const Catalog = {
   loaded: false,
@@ -751,10 +760,13 @@ const Catalog = {
 
   async _fetch() {
     if (!SALON.reservationEndpoint) return this.source;
-
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CATALOG_REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(SALON.reservationEndpoint, {
         method: 'POST',
+        cache: 'no-store',
+        signal: controller.signal,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ type: 'menu' })
       });
@@ -793,7 +805,10 @@ const Catalog = {
       // 管理ページから変更された店舗情報を反映する。
       // ヘッダー・フッターはこれより先に描かれているため、描き直す。
       if (data.settings) {
-        applySettings(data.settings);
+        const settings = BOOKING_CATALOG_PAGES.has(document.body.dataset.page)
+          ? Object.fromEntries(Object.entries(data.settings).filter(([key]) => BOOKING_SETTING_KEYS.has(key)))
+          : data.settings;
+        applySettings(settings);
         renderHeader();
         renderFooter();
         wireImageFallbacks();
@@ -805,6 +820,8 @@ const Catalog = {
       this.source = 'sheet';
     } catch (e) {
       console.warn('メニューと受付条件を確認できませんでした。', e);
+    } finally {
+      clearTimeout(timeout);
     }
     return this.source;
   }
@@ -1108,6 +1125,7 @@ async function lookupReservation(code, tel) {
   try {
     const res = await fetch(SALON.reservationEndpoint, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ type: 'lookup', code: code, tel: tel }),
       signal: controller.signal

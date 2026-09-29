@@ -28,6 +28,7 @@ function environment(fetch, timing = {}) {
 test('照会は対象の予約が揃った正常な応答だけを返す', async () => {
   for (const status of ['予約確定', 'キャンセル', '']) {
     const lookup = environment(async (_url, options) => {
+      assert.equal(options.cache, 'no-store');
       assert.deepEqual(JSON.parse(options.body), { type: 'lookup', code: 'lm-check', tel: '00000000000' });
       return { ok: true, json: async () => ({ ok: true, reservation: { ...reservation, status } }) };
     });

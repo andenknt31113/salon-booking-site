@@ -434,12 +434,13 @@ console.log('\n【UC13】2回目のお客様が、前回の入力のまま予約
 }
 
 /* ============================================================
-   UC14 LINE公式アカウントを開設し、店がその日のうちに反映する
+   UC14 LINE設定の保存と公開ページの表示を分ける
    ============================================================ */
-console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映する');
+console.log('\n【UC14】LINEの設定保存で公開中の案内を勝手に差し替えない');
 {
   const p = await newPhone('UC14');
   await p.goto(B + '/index.html'); await p.waitForTimeout(1300);
+  const publishedLine = await p.evaluate(() => SALON.lineAddUrl);
   check('UC14', '入れる前は案内が出ていない',
     await p.locator('.site-footer a[href*="lin.ee"]').count(), 0);
 
@@ -464,8 +465,8 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
   check('UC14', '保存だけでは公開トップのリンクを差し替えない',
     await p.locator('.site-footer a[href="https://lin.ee/zer01test"]').count(), 0);
   await p.goto(B + '/mypage.html'); await p.waitForTimeout(1500);
-  check('UC14', '予約確認画面は保存されたリンクを使う',
-    await p.locator('.site-footer a[href="https://lin.ee/zer01test"]').count(), 1);
+  check('UC14', '予約確認画面も公開トップと同じリンクを使う',
+    await p.locator('.site-footer a[href*="line.me"]').getAttribute('href'), publishedLine);
 
   // おかしなURLは受け取らない（押した人を思わぬ場所へ飛ばさない）
   const b2 = await newPhone('UC14-悪い値');
@@ -490,12 +491,6 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
   check('UC14', '変なリンクがサイトに出ない',
     await p.locator('.site-footer a[href^="javascript:"]').count(), 0);
 
-  /* 空欄にしたら、控えのURLごと消えること。
-
-     data.js に控えを置いたぶん、ここが効かないと
-     「LINEをやめたのに、サイトの案内だけ残り続ける」状態になります。
-     店主は管理ページで空にしたのに消えない、という形なので、
-     自分では直せません。控えを置いた日から、これは必ず見ます。 */
   /* 設定の保存には「印」が要ります（別端末との上書きを防ぐため）。
      前は渡し忘れていて、保存が黙って断られたまま「控えが消えない」と
      判定していました。製品のバグではなく、この試験のバグでした。 */
@@ -504,10 +499,10 @@ console.log('\n【UC14】LINEを開設し、店がコードを触らずに反映
     stamp: cur.stamps.settings, rows: { ...cur.settings, 'LINE友だち追加URL': '' } });
   check('UC14', '空欄の保存が通る', cleared.ok, true);
   await p.reload(); await p.waitForTimeout(1500);
-  check('UC14', '空欄にすれば、控えのURLごと案内を消せる',
-    await p.evaluate(() => SALON.lineAddUrl), '');
-  check('UC14', '消したあとはフッターにも出ない',
-    await p.locator('.site-footer a[href*="line.me"], .site-footer a[href*="lin.ee"]').count(), 0);
+  check('UC14', '空欄の保存だけで公開済みのLINEを消さない',
+    await p.evaluate(() => SALON.lineAddUrl), publishedLine);
+  check('UC14', '予約確認のフッターでも公開済みの案内を残す',
+    await p.locator('.site-footer a[href*="line.me"], .site-footer a[href*="lin.ee"]').count(), 1);
   await p.context().close();
 
   // あと片付け（この先の試験に影響させない）

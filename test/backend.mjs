@@ -1728,7 +1728,7 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
       /* 別の端末から保存されていないかを見る「印」を作るのに使います
          （Code.gs の sheetStamp_）。無いと、管理ページの読み込みごと落ちます。 */
       getDataRange: () => ({ getValues: () => d }),
-      getRange: () => ({ getValues: () => d, setValue(){}, setValues(){}, clearContent(){},
+      getRange: () => ({ getValues: () => d, getFormulas: () => d.map(row => row.map(() => '')), setValue(){}, setValues(){}, clearContent(){},
         setFontWeight: () => ({ setBackground: () => {} }), setNote(){},
         setFontLine: () => ({ setFontColor: () => {} }) }),
       setFrozenRows(){}, setColumnWidth(){}, clear(){}, deleteRows(){}, _data: d };
@@ -1744,7 +1744,7 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
       deleteProperty: k => { delete store[k]; },
       getKeys: () => Object.keys(store) }) },
     LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); }, flush() {} },
     /* 写真の保存先。Googleドライブにはつなぎません。 */
     DriveApp: {
       getFoldersByName: () => ({ hasNext: () => true, next: () => ({
@@ -1914,9 +1914,10 @@ function shop(sheetsInit = {}, source = srcLive) {
         const range = {
         /* 本物のシートは、1行目が空でも「空の行」を返します。
            ここで [] を返すと、本番では起きない失敗になります。 */
-        getValues: () => (rw === 1
-          ? [(head || Array(nc || 1).fill('')).slice(c - 1, c - 1 + (nc || (head || []).length || 1))]
-          : data.slice(rw - 2, rw - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || x.length)))),
+        getValues: () => Array.from({ length: nr || 1 }, (_unused, rowIndex) =>
+          Array.from({ length: nc || 1 }, (_cell, columnIndex) =>
+            (rw === 1 ? head : data[rw - 2 + rowIndex])?.[c - 1 + columnIndex] ?? '')),
+        getFormulas: () => Array.from({ length: nr || 1 }, () => Array(nc || 1).fill('')),
         /* 本物のシートと同じで、指定した範囲だけ書き換えます。
            行まるごと差し替える作りにしていると、列ごとの書き込みで
            他の列が消え、本番では起きない失敗になります。 */
@@ -1965,7 +1966,7 @@ function shop(sheetsInit = {}, source = srcLive) {
       getProperty: k => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = v; },
       deleteProperty: k => { delete store[k]; }, getKeys: () => Object.keys(store) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); }, flush() {} },
     DriveApp: {}, ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
     Utilities: { formatDate: d => new Date(d).toISOString().slice(0, 10), getUuid: () => 'uuid',
       /* 印は中身から作ります。中身が変われば印も変わる必要があります。 */

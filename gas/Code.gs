@@ -2278,12 +2278,41 @@ function writeSheetRows_(ss, name, headers, rows) {
   const at = h => { const i = head.indexOf(h); return (i >= 0 ? i : headers.indexOf(h)) + 1; };
 
   const last = sheet.getLastRow();
-  if (last > 1) headers.forEach(h => sheet.getRange(2, at(h), last - 1, 1).clearContent());
-
-  if (!body.length) return;
-  headers.forEach((h, i) => {
-    sheet.getRange(2, at(h), body.length, 1).setValues(body.map(cells => [cells[i]]));
+  const height = Math.max(last - 1, body.length);
+  if (!height) return;
+  const groups = [];
+  headers.map((header, index) => ({ column: at(header), index: index }))
+    .sort((left, right) => left.column - right.column)
+    .forEach(entry => {
+      const group = groups[groups.length - 1];
+      if (group && entry.column === group.column + group.indices.length) group.indices.push(entry.index);
+      else groups.push({ column: entry.column, indices: [entry.index] });
+    });
+  const updates = groups.map(group => {
+    const range = sheet.getRange(2, group.column, height, group.indices.length);
+    const values = range.getValues();
+    const formulas = range.getFormulas();
+    const previous = values.map((row, rowIndex) => row.map((value, columnIndex) =>
+      formulas[rowIndex][columnIndex]
+        || (typeof value === 'string' && value.startsWith('=') ? "'" + value : value)));
+    const next = Array.from({ length: height }, (_unused, rowIndex) =>
+      group.indices.map(index => rowIndex < body.length ? body[rowIndex][index] : ''));
+    return { range: range, previous: previous, next: next };
   });
+  const attempted = [];
+  try {
+    updates.forEach(update => { attempted.push(update); update.range.setValues(update.next); });
+    SpreadsheetApp.flush();
+  } catch (error) {
+    let restored = true;
+    attempted.reverse().forEach(update => {
+      try { update.range.setValues(update.previous); } catch (restoreError) { restored = false; }
+    });
+    try { SpreadsheetApp.flush(); } catch (restoreError) { restored = false; }
+    throw new Error(restored
+      ? '保存に失敗したため、元の内容に戻しました。入力内容を残して、時間をおいてお試しください。'
+      : '保存と元の内容への復旧を確認できません。保存し直さず、制作担当者へ連絡して台帳とバックアップを確認してください。');
+  }
 }
 
 /* 友だち追加URLは「設定」シートから読みます。

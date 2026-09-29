@@ -99,6 +99,30 @@ test('照会の取消確認は入力済みの電話番号で一度だけ送信�
   } finally { await page.context().close(); }
 });
 
+test('取消に接続案内だけが返った場合は、完了表示や取消済みの控えを作らない', async () => {
+  const page = await openLookup([localRecord]);
+  const notices = [];
+  let cancellations = 0;
+  page.on('dialog', async dialog => { notices.push(dialog.message()); await dialog.accept(); });
+  try {
+    await page.route('**/exec', async route => {
+      if (route.request().postDataJSON()?.type !== 'cancel') return route.continue();
+      cancellations++;
+      await route.fulfill({ json: { ok: true, message: '受信先として動作しています' } });
+    });
+    await page.locator('[data-cancel]').click();
+    const errorDialog = page.waitForEvent('dialog');
+    await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
+    await errorDialog;
+    await page.waitForFunction(() => !document.querySelector('[data-cancel]').disabled);
+    assert.equal(cancellations, 1);
+    assert.equal((await page.evaluate(() => Store.all()))[0].status, 'reserved');
+    assert.equal(await page.locator('.booking-card.is-cancelled').count(), 0);
+    assert.ok(notices.some(message => message.includes('反映結果を確認できません')));
+    assert.doesNotMatch(await page.locator('#flash').innerText(), /キャンセルを承りました/);
+  } finally { await page.context().close(); }
+});
+
 test('確認画面を開いた後に控えが更新されたら、古い日時のまま取消しない', async () => {
   const page = await openLookup([localRecord]);
   let cancellations = 0;
