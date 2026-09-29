@@ -20,28 +20,28 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
+  <link rel="stylesheet" href="assets/css/home.css?v=20260929" />
 </head>
 <body data-page="home">
   <div id="site-header"></div>
 
   <main>
-    <!-- ヒーロー -->
-    <section class="hero">
-      <div class="container hero-inner">
-        <div class="hero-brand" id="hero-brand"></div>
-        <!-- ここまで英字しかなく、何の店なのかが日本語で1つも読めませんでした。
-             中身は pages.js が店の掲載名と住所から組みます（heroTaglineParts）。
-             書き足すのではなく、店がすでに書いているものを先に出すだけです。 -->
+    <section class="hero container" aria-labelledby="hero-catch">
+      <div class="hero-inner">
         <p class="hero-tagline" id="hero-tagline"><span>茨城県龍ケ崎市｜</span><span>メンズカット/縮毛矯正 /白髪ぼかし</span></p>
-        <p class="hero-label">ESTD 2026 — RYUGASAKI, IBARAKI</p>
-        <h1 id="hero-catch">イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に</h1>
-        <p class="hero-desc" id="hero-desc">ZER01 は毎日を簡単にカッコよくを基盤にフェードや白髪ぼかし、メンズ縮毛矯正、パーマまで幅広く対応するmen&#39;s専門サロンです。マンツーマン施術でお客様と丁寧に向き合い、年齢やライフスタイルに合わせた&quot;長く似合うスタイル&quot;をご提案。落ち着いた空間で、髪も気持ちも整う時間を提供します。</p>
-        <ul class="hero-meta" id="hero-meta"></ul>
+        <h1 id="hero-catch"><span>イタリア発、</span><span>東京経由。</span><span>伝統と研ぎ澄まされた技術が生む、</span><span>本格バーバーを日常に</span></h1>
         <div class="hero-cta">
           <a class="btn btn-primary btn-lg" href="reserve.html">予約のご案内を見る</a>
           <a class="btn btn-outline btn-lg" href="menu.html">メニュー・料金</a>
         </div>
+        <a class="home-text-link" href="#styles">ヘアスタイルを見る <span aria-hidden="true">↓</span></a>
       </div>
+      <figure class="hero-media" id="home-photo"><img class="hero-photo ph-photo-opt" src="assets/shop2.jpg" alt="ZER01の店内" width="1200" height="1200" fetchpriority="high" /><figcaption>ZER01 barber/lounge</figcaption></figure>
+    </section>
+
+    <section class="home-intro container" aria-labelledby="about-title">
+      <div><span class="section-label">ABOUT</span><h2 class="section-title" id="about-title">お店について</h2></div>
+      <div><p class="hero-desc" id="hero-desc">ZER01 は毎日を簡単にカッコよくを基盤にフェードや白髪ぼかし、メンズ縮毛矯正、パーマまで幅広く対応するmen&#39;s専門サロンです。マンツーマン施術でお客様と丁寧に向き合い、年齢やライフスタイルに合わせた&quot;長く似合うスタイル&quot;をご提案。落ち着いた空間で、髪も気持ちも整う時間を提供します。</p><ul class="hero-meta" id="hero-meta"></ul></div>
     </section>
 
     <!-- お知らせ -->
@@ -58,8 +58,95 @@
       </div>
     </section>
 
+    <!-- スタイル -->
+    <section class="section home-styles" id="styles">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-label">HAIR STYLE</span>
+          <h2 class="section-title">ヘアスタイル</h2>
+          <p class="section-desc">なりたいイメージを探してみてください。</p>
+        </div>
+        <section class="style-grid" id="home-styles" aria-label="ヘアスタイル一覧">
+    <article class="style-card">
+
+    <div class="style-thumb ph" style="--ph-hue:150;">
+      <span class="ph-stripes" aria-hidden="true"></span>
+      <span class="ph-label">センターパート</span>
+      <img class="ph-photo" src="assets/style1.jpg" alt="ナチュラルセンターパート/曲がる縮毛矯正" loading="lazy" />
+    </div>
+      <div class="style-body">
+        <h3 class="style-title">ナチュラルセンターパート/曲がる縮毛矯正</h3>
+        <p class="style-meta">センターパート／MATTEO</p>
+
+        <p class="style-meta" style="color:var(--text-2);">癖毛の方は曲がる縮毛矯正、直毛の方はニュアンスパーマで再現可能です</p>
+        <p class="style-meta">#メンズヘア #センターパート #テーパーフェード #メンズ縮毛矯正 #ニュアンスパーマ #メンズパーマ #フェザー</p>
+
+        <a class="btn btn-outline btn-sm style-book" href="reserve.html"
+           data-style="ナチュラルセンターパート/曲がる縮毛矯正"><span>予約</span><span>について</span></a>
+      </div>
+    </article>
+    <article class="style-card">
+
+    <div class="style-thumb ph" style="--ph-hue:42;">
+      <span class="ph-stripes" aria-hidden="true"></span>
+      <span class="ph-label">白髪ぼかし</span>
+      <img class="ph-photo" src="assets/style3.jpg" alt="白髪ぼかし、ホワイトメッシュ、 ハイライトデザイン" loading="lazy" />
+    </div>
+      <div class="style-body">
+        <h3 class="style-title">白髪ぼかし、ホワイトメッシュ、 ハイライトデザイン</h3>
+        <p class="style-meta">白髪ぼかし／MATTEO</p>
+
+        <p class="style-meta" style="color:var(--text-2);">白髪は隠す時代から生かす時代へ、自分の個性をさらに活かし男性の魅力を最大限に引き出します！</p>
+        <p class="style-meta">#白髪ぼかし #ハイライト #ホワイトメッシュ #ブリーチ #メンズヘア #センターパート #ニュアンスパーマ</p>
+
+        <a class="btn btn-outline btn-sm style-book" href="reserve.html"
+           data-style="白髪ぼかし、ホワイトメッシュ、 ハイライトデザイン"><span>予約</span><span>について</span></a>
+      </div>
+    </article>
+    <article class="style-card">
+
+    <div class="style-thumb ph" style="--ph-hue:18;">
+      <span class="ph-stripes" aria-hidden="true"></span>
+      <span class="ph-label">スパイキーショート</span>
+      <img class="ph-photo" src="assets/style4.jpg" alt="刈り上げ スイングバング 金メッシュ スパイキーショート" loading="lazy" />
+    </div>
+      <div class="style-body">
+        <h3 class="style-title">刈り上げ スイングバング 金メッシュ スパイキーショート</h3>
+        <p class="style-meta">スパイキーショート／MATTEO</p>
+
+        <p class="style-meta" style="color:var(--text-2);">刈り上げのショートスタイルに感メッシュを全体に入れ立体感とコントラストを出した短髪スタイルです</p>
+        <p class="style-meta">#刈り上げ #スイングバング #金メッシュ #スパイキーショート</p>
+
+        <a class="btn btn-outline btn-sm style-book" href="reserve.html"
+           data-style="刈り上げ スイングバング 金メッシュ スパイキーショート"><span>予約</span><span>について</span></a>
+      </div>
+    </article>
+    <article class="style-card">
+
+    <div class="style-thumb ph" style="--ph-hue:265;">
+      <span class="ph-stripes" aria-hidden="true"></span>
+      <span class="ph-label">パーマ</span>
+      <img class="ph-photo" src="assets/style7.jpg" alt="ツイスパマッシュ　men&#39;sパーマ" loading="lazy" />
+    </div>
+      <div class="style-body">
+        <h3 class="style-title">ツイスパマッシュ　men&#39;sパーマ</h3>
+        <p class="style-meta">パーマ／MATTEO</p>
+
+        <p class="style-meta" style="color:var(--text-2);">刈り上げのショートマッシュにツイストスパイラルパーマをかけた清潔感もありどんな年代にも合わせやすいパーマスタイルです</p>
+        <p class="style-meta">#メンズ #メンズパーマ #フェード</p>
+
+        <a class="btn btn-outline btn-sm style-book" href="reserve.html"
+           data-style="ツイスパマッシュ　men&#39;sパーマ"><span>予約</span><span>について</span></a>
+      </div>
+    </article></section>
+        <p class="section-more">
+          <a class="btn btn-outline" href="gallery.html">スタイルをもっと見る</a>
+        </p>
+      </div>
+    </section>
+
     <!-- おすすめメニュー -->
-    <section class="section">
+    <section class="section home-menu" id="menu">
       <div class="container">
         <div class="section-head">
           <!-- 「クーポン」「特別価格」とは書きません。
@@ -124,34 +211,18 @@
         <a class="btn btn-primary btn-sm" href="reserve.html?menu=sc2">予約について</a>
       </div>
     </article></section>
-        <p style="text-align:center;margin-top:26px;">
+        <p class="section-more">
           <a class="btn btn-outline" href="menu.html">メニューをすべて見る</a>
         </p>
       </div>
     </section>
 
-    <!-- スタイル -->
-    <section class="section section-alt">
-      <div class="container">
-        <div class="section-head">
-          <span class="section-label">HAIR STYLE</span>
-          <h2 class="section-title">ヘアスタイル</h2>
-          <p class="section-desc">なりたいイメージを探してみてください。</p>
-        </div>
-        <div class="style-grid" id="home-styles"></div>
-        <p style="text-align:center;margin-top:26px;">
-          <a class="btn btn-outline" href="gallery.html">スタイルをもっと見る</a>
-        </p>
-      </div>
-    </section>
-
     <!-- スタッフ -->
-    <section class="section">
+    <section class="section home-owner" id="owner">
       <div class="container">
         <div class="section-head">
           <span class="section-label">STAFF</span>
           <h2 class="section-title">バーバー紹介</h2>
-          <p class="section-desc">指名予約も承ります。得意分野からお選びください。</p>
         </div>
         <section class="staff-grid" id="home-staff" aria-label="バーバー一覧">
     <article class="staff-card staff-card-solo">
@@ -181,7 +252,7 @@
           <h2 class="section-title">お客様の声</h2>
         </div>
         <div class="review-list" id="home-reviews"></div>
-        <p style="text-align:center;margin-top:26px;">
+        <p class="section-more">
           <a class="btn btn-outline" id="home-review-link" href="reviews.html">Googleの口コミを見る・書く</a>
         </p>
       </div>
@@ -225,6 +296,6 @@
   <script src="assets/js/data.js"></script>
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js"></script>
-  <script src="assets/js/pages.js"></script>
+  <script src="assets/js/pages.js?v=20260929-home"></script>
 </body>
 </html>

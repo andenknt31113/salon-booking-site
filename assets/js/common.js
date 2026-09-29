@@ -1256,12 +1256,11 @@ function wireImageFallbacks(root = document) {
    毎朝いちばんに見たい「今日の予約」が、そのぶん下に押し出されます。
    店名だけ小さく出して、あとは作業のための場所にします。 */
 function renderAdminHeader(host) {
-  const isDesignA = document.documentElement.dataset.adminDesign === 'a';
   host.innerHTML = `
     <header class="admin-bar">
       <span class="admin-bar-name">${esc(SALON.name)}</span>
       <span class="admin-bar-label">管理ページ</span>
-      <a class="admin-bar-link" href="${isDesignA ? 'design-a.html' : 'index.html'}">${isDesignA ? 'A案のサイトを見る' : 'サイトを見る'}</a>
+      <a class="admin-bar-link" href="index.html">サイトを見る</a>
     </header>`;
 }
 

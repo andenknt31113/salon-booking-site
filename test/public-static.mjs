@@ -57,7 +57,7 @@ try {
         assert.equal(await heroPhoto.count(), 1, 'トップの店内写真がある');
         assert.equal(await heroPhoto.evaluate(image => image.complete && image.naturalWidth > 0), true,
           'トップの店内写真を読み込める');
-        assert.equal(await page.locator('.hero').evaluate(hero => hero.classList.contains('has-photo')), true,
+        assert.equal(await page.locator('#home-photo').evaluate(frame => frame.classList.contains('has-photo')), true,
           'トップの店内写真が表示状態になる');
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${name} は幅${width}で横にはみ出さない`);

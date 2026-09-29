@@ -357,6 +357,15 @@ function renderHomeReviewLink() {
   box.hidden = false;
 }
 
+function homePhotoHtml() {
+  return `${SALON.heroImage ? `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="${esc(SALON.name)}の店内" width="1200" height="1200" fetchpriority="high" />` : ''}<figcaption>${esc(SALON.name)} ${esc(SALON.nameSub || '')}</figcaption>`;
+}
+
+function homeCatchHtml() {
+  return String(SALON.catch || '').split(/(?<=[、。])/)
+    .map(text => `<span>${esc(text)}</span>`).join('');
+}
+
 /* ---------- ページごとの初期化 ---------- */
 function initHome() {
   /* 管理ページの「お知らせ」。入力されているときだけ帯を出します。
@@ -368,16 +377,11 @@ function initHome() {
     noticeBox.hidden = !text;
   }
 
-  /* トップの大きい写真。
-     has-photo は「写真が読めたとき」だけ付けます（wireImageFallbacks が付ける）。
-     先に付けてしまうと、写真が無いときに暗い膜と白文字だけが残り、
-     地の意匠より読みにくい画面になります。
-
-     足す前に、前に足したものを外します。この関数はシートが届くともう一度走るので、
-     外さないと写真が2枚重なります。しかも古いほうが後ろに残って上に見えるため、
-     店が管理ページで「メイン写真」を差し替えても、画面は古い写真のままになります。 */
+  const photo = $('#home-photo');
   const hero = $('.hero');
-  if (hero) {
+  if (photo) {
+    if (setHtml(photo, homePhotoHtml())) photo.classList.remove('has-photo');
+  } else if (hero) {
     $$('.hero-photo', hero).forEach(img => img.remove());
     if (SALON.heroImage) {
       hero.insertAdjacentHTML('afterbegin',
@@ -399,7 +403,7 @@ function initHome() {
       .map((t, i) => `<span>${esc(t)}${i < parts.length - 1 ? '｜' : ''}</span>`).join('');
     tagline.hidden = !parts.length;
   }
-  $('#hero-catch').textContent = SALON.catch;
+  setHtml($('#hero-catch'), homeCatchHtml());
   $('#hero-desc').textContent = SALON.description;
 
   $('#hero-meta').innerHTML = [

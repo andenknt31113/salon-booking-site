@@ -865,134 +865,73 @@ console.log('\n【14】文字の濃さと、指の届く大きさ');
   }
 }
 
-/* 店がメイン写真を入れたときのトップ。
-   地が暗くなるので、文字を明るい側へ入れ替えないと読めなくなる。
-   実際「BARBER/LOUNGE」だけ臙脂色のまま残っていて 1.65:1 だった。 */
-console.log('\n【14b】メイン写真を入れたときのトップ');
+function homeReadability() {
+  const channels = color => (color.match(/[\d.]+/g) || []).map(Number);
+  const linear = channel => { const value = channel / 255; return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4; };
+  const luminance = color => .2126 * linear(color[0]) + .7152 * linear(color[1]) + .0722 * linear(color[2]);
+  const failures = [];
+  const overlaps = [];
+  const photo = document.querySelector('.hero-photo');
+  const photoBox = photo?.getBoundingClientRect();
+  document.querySelectorAll('.hero *, .home-intro *').forEach(element => {
+    if (![...element.childNodes].some(node => node.nodeType === 3 && node.textContent.trim())) return;
+    const box = element.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const style = getComputedStyle(element);
+    const ancestors = [];
+    for (let parent = element; parent; parent = parent.parentElement) ancestors.unshift(parent);
+    let background = [255, 255, 255];
+    for (const parent of ancestors) {
+      const color = channels(getComputedStyle(parent).backgroundColor);
+      const alpha = color[3] ?? 1;
+      background = background.map((channel, index) => alpha * color[index] + (1 - alpha) * channel);
+    }
+    const color = channels(style.color);
+    const alpha = color[3] ?? 1;
+    const foreground = color.slice(0, 3).map((channel, index) => alpha * channel + (1 - alpha) * background[index]);
+    const first = luminance(foreground);
+    const second = luminance(background);
+    const ratio = (Math.max(first, second) + .05) / (Math.min(first, second) + .05);
+    const size = parseFloat(style.fontSize);
+    const minimum = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700) ? 3 : 4.5;
+    if (ratio < minimum) failures.push((element.id || element.className || element.tagName) + ':' + ratio.toFixed(2));
+    if (photoBox && box.left < photoBox.right && box.right > photoBox.left && box.top < photoBox.bottom && box.bottom > photoBox.top) overlaps.push(element.id || element.tagName);
+  });
+  return { failures, overlaps, photoReady: !!photo && photo.complete && photo.naturalWidth > 0 };
+}
+
+console.log('\n【14b】公開した写真だけを一度表示し、本文を重ねない');
 {
   const before = await post({ type: 'adminData', password: PW });
   await post({ type: 'adminSave', password: PW, target: 'settings', stamp: before.stamps.settings,
     rows: { ...before.settings, 'メイン写真': '/mock-image.svg?seed=hero' } });
-
   const unchanged = await newPhone('14b変更前');
   await unchanged.goto(B + '/index.html'); await unchanged.waitForTimeout(1800);
-  check('14b', 'シートの写真変更だけでは公開写真を置き換えない',
-    await unchanged.locator('.hero-photo').first().getAttribute('src'), 'assets/shop2.jpg');
+  check('14b', 'シートの写真変更だけでは公開写真を置き換えない', await unchanged.locator('.hero-photo').getAttribute('src'), 'assets/shop2.jpg');
   await unchanged.context().close();
-
-  const p = await newPhone('14b公開後', { publishedData: { heroImage: '/mock-image.svg?seed=hero' } });
-  await p.goto(B + '/index.html'); await p.waitForTimeout(2400);
-  check('14b', '写真が読めたときだけ暗い膜をかける',
-    await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
-  check('14b', '公開した写真が1枚だけ出る', await p.locator('.hero-photo').count(), 1);
-  /* 暗い地の上に置くものは、すべて明るい側（--on-ink 系）に寄っていること。
-     1つでも取り残されると、そこだけ読めない行になる。 */
-  check('14b', '暗い地の上の文字が明るい側にそろっている', await p.evaluate(() => {
-    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-    const lum = s => { const [r, g, b] = (s.match(/[\d.]+/g) || []).map(Number);
-      return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
-    return ['#hero-catch', '#hero-tagline', '.hero .wm-name', '.hero .wm-sub',
-            '.hero-label', '.hero-desc', '.hero-meta']
-      .filter(sel => { const el = document.querySelector(sel);
-        // 暗い膜（黒の不透明度 .35〜.62）の上なので、明るい文字でないと読めない
-        return el && lum(getComputedStyle(el).color) < 0.4; })
-      .join(',') || 'なし';
-  }), 'なし');
-
-  await p.context().close();
+  const page = await newPhone('14b公開後', { publishedData: { heroImage: '/mock-image.svg?seed=hero' } });
+  await page.goto(B + '/index.html'); await page.waitForTimeout(2400);
+  const result = await page.evaluate(homeReadability);
+  check('14b', '公開した写真が読み込めている', result.photoReady, true);
+  check('14b', '公開した写真が1枚だけ出る', await page.locator('.hero-photo').count(), 1);
+  check('14b', '写真に本文を重ねない', result.overlaps.join(',') || 'なし', 'なし');
+  check('14b', '実際の背景に対して文字が読める', result.failures.join(',') || 'なし', 'なし');
+  await page.context().close();
 }
 
-/* ============================================================
-   【14c】トップに写真が入ったとき、その上の文字が読めるか
-
-   写真が届いて初めて出た問題です。ストライプの意匠だったころは起きませんでした。
-
-   覆い（スクリム）は2枚あるように見えて、写真の上に乗るのは ::after だけです。
-   ::before は写真より先に描かれるので、あとから重なる写真に完全に隠れます。
-   ここでも ::after しか勘定に入れません。::before を数えると、
-   実際には効いていない濃さを「足りている」と数えてしまいます。
-
-   測り方：覆いの濃さを CSS から読み、いちばん明るい写真（真っ白）に
-   重ねた地の色を出して、その上の文字との比を計算します。
-   1枚の写真で目視するのではなく、どんな写真が来ても成り立つかを見ます。
-   ============================================================ */
-console.log('\n【14c】写真の上の文字（いちばん明るい写真で）');
-{
-  const p = await newPhone('14c', { whitePhoto: true, noEndpoint: true });
-  await p.goto(B + '/index.html'); await p.waitForTimeout(3200);
-
-  const r = await p.evaluate(() => {
-    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-    const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-    const hero = document.querySelector('.hero');
-    /* 覆いの停止点。濃さと位置（%）が両方書いてあることが前提です。
-       位置を省いた書き方に変えると、ここで読み取れなくなって下の項目が落ちます。
-       黙って通り抜けるより、気づける形にしてあります。 */
-    const stops = [...getComputedStyle(hero, '::after').backgroundImage
-      .matchAll(/rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)\s*([\d.]+)%/g)]
-      .map(m => ({ a: Number(m[1]), at: Number(m[2]) / 100 }));
-    const alphaAt = t => {
-      if (t <= stops[0].at) return stops[0].a;
-      for (let i = 1; i < stops.length; i++) if (t <= stops[i].at) {
-        const s = stops[i - 1], e = stops[i];
-        return s.a + (e.a - s.a) * (t - s.at) / (e.at - s.at);
-      }
-      return stops[stops.length - 1].a;
-    };
-
-    const hb = hero.getBoundingClientRect();
-    const 足りない = [];
-    if (stops.length >= 2) hero.querySelectorAll('*').forEach(el => {
-      if (![...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) return;
-      const cs = getComputedStyle(el);
-      const box = el.getBoundingClientRect();
-      if (!box.width || !box.height) return;
-      // 自前の地を持つもの（黒いボタン）は写真の上に乗っていない
-      const own = (cs.backgroundColor.match(/[\d.]+/g) || []).map(Number);
-      if (own.length >= 3 && (own[3] === undefined || own[3] > 0.5)) return;
-
-      // その文字がかかっている範囲のうち、いちばん薄いところで見る
-      const a = Math.min(alphaAt((box.top - hb.top) / hb.height),
-                         alphaAt((box.bottom - hb.top) / hb.height));
-      const bg = 255 * (1 - a);                     // 真っ白な写真 × 黒の覆い
-      const fg = (cs.color.match(/[\d.]+/g) || []).map(Number);
-      const fa = fg.length > 3 ? fg[3] : 1;
-      // 文字が透けていれば、そのぶん地の明るさが混ざって比が下がる
-      const 比 = (lum(fg.slice(0, 3).map(v => fa * v + (1 - fa) * bg)) + 0.05)
-        / (lum([bg, bg, bg]) + 0.05);
-      const size = parseFloat(cs.fontSize);
-      const 必要 = (size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700)) ? 3 : 4.5;
-      if (比 < 必要) 足りない.push(
-        `${el.id || el.className || el.tagName}(${size}px 覆い${Math.round(a * 100) / 100} ${Math.round(比 * 100) / 100}:1)`);
-    });
-    return { 停止点: stops.length, 足りない, 一番薄い: stops.length ? Math.min(...stops.map(s => s.a)) : 0 };
-  });
-
-  check('14c', '写真が読めたときだけ暗い膜をかける',
-    await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
-  check('14c', '覆いの濃さを CSS から読み取れている', r.停止点 >= 2, true);
-  /* 小さい文字が 4.5:1 を満たすには、真っ白な写真の上で黒 0.58 以上が要ります。
-     文字のある範囲がそれを下回っていないこと。 */
-  console.log('   覆いのいちばん薄いところ:', r.一番薄い);
-  check('14c', 'いちばん明るい写真でも、読めない文字が無い', r.足りない.join(',') || 'なし', 'なし');
-  await p.context().close();
-}
-
-/* いま入っている写真（暗い店内）でも、当然読めること。
-   覆いを濃くしすぎて写真が真っ黒になっていないことも、ここで見ます。 */
-{
-  const p = await newPhone('14d', { noEndpoint: true });
-  await p.goto(B + '/index.html'); await p.waitForTimeout(3200);
-  check('14c', '掲載の写真でも暗い膜がかかっている',
-    await p.evaluate(() => document.querySelector('.hero').classList.contains('has-photo')), true);
-  /* 覆いは、写真がまったく見えなくなるほど濃くしない。
-     0.85 を超えると、何の店なのかが写真から伝わらなくなる。 */
-  check('14c', '写真が見えなくなるほど覆っていない', await p.evaluate(() => {
-    const stops = [...getComputedStyle(document.querySelector('.hero'), '::after').backgroundImage
-      .matchAll(/rgba?\([^)]*,\s*([\d.]+)\s*\)/g)].map(m => Number(m[1]));
-    return stops.length ? Math.max(...stops) <= 0.85 : false;
-  }), true);
-  await p.context().close();
+console.log('\n【14c】白い写真でも掲載の写真でも、文字と写真を両方読める');
+for (const whitePhoto of [true, false]) {
+  const page = await newPhone('14c', { whitePhoto, noEndpoint: true });
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(B + '/index.html'); await page.waitForTimeout(1200);
+    const result = await page.evaluate(homeReadability);
+    check('14c', '幅' + width + 'で写真を読み込める', result.photoReady, true);
+    check('14c', '写真が白でも暗くても文字を重ねない', result.overlaps.join(',') || 'なし', 'なし');
+    check('14c', '小さい文字は4.5:1、大きい文字は3:1以上', result.failures.join(',') || 'なし', 'なし');
+    check('14c', '写真を暗い膜で覆わない', await page.locator('.hero').evaluate(hero => getComputedStyle(hero, '::after').content), 'none');
+  }
+  await page.context().close();
 }
 
 /* ============================================================
