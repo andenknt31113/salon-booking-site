@@ -659,12 +659,14 @@ const Remote = {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), AVAILABILITY_REQUEST_TIMEOUT_MS);
       try {
-        const res = await fetch(SALON.reservationEndpoint, {
+        const request = { type: 'availability' };
+        const res = typeof readPublicEndpoint === 'function' ? await readPublicEndpoint(request, controller.signal)
+          : await fetch(SALON.reservationEndpoint, {
           method: 'POST',
           cache: 'no-store',
           signal: controller.signal,
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ type: 'availability' })
+          body: JSON.stringify(request)
         });
         const data = await res.json();
         if (!res.ok || !data || data.ok !== true || !this.accept(data.booked)) {
@@ -773,13 +775,15 @@ const Catalog = {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CATALOG_REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(SALON.reservationEndpoint, {
+      const request = { type: 'menu', booking: BOOKING_CATALOG_PAGES.has(document.body.dataset.page),
+        initialAvailability: document.body.dataset.page === 'reserve' };
+      const res = typeof readPublicEndpoint === 'function' ? await readPublicEndpoint(request, controller.signal)
+        : await fetch(SALON.reservationEndpoint, {
         method: 'POST',
         cache: 'no-store',
         signal: controller.signal,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ type: 'menu', booking: BOOKING_CATALOG_PAGES.has(document.body.dataset.page),
-          initialAvailability: document.body.dataset.page === 'reserve' })
+        body: JSON.stringify(request)
       });
       const data = await res.json();
       if (!res.ok || !data || data.ok !== true

@@ -34,6 +34,9 @@ body {
 .page-jump a { padding: 10px 0; border: 0; border-bottom: 1px solid var(--text-2); color: var(--text); font-weight: 400; }
 .tabs { gap: 10px; margin-bottom: 36px; }
 .tab { min-height: 44px; }
+:is(.input, .select, .textarea) { transition-property: border-color, box-shadow; }
+:is(.input, .select, .textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.site-footer :focus-visible { outline-color: var(--on-ink); }
 
 body[data-page="gallery"] .style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 56px 32px; }
 body[data-page="gallery"] .style-card { display: flex; flex-direction: column; background: none; border: 0; }

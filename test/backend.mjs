@@ -1364,7 +1364,9 @@ function readSheets(sheets, fnName) {
       getLastRow: () => rows.length + 1,
       getLastColumn: () => (rows[0] || []).length,
       getRange: (r, c, nr, nc) => ({
-        getValues: () => rows.slice(r - 2, r - 2 + nr).map(x => x.slice(c - 1, c - 1 + nc))
+        getValues: () => Array.from({ length: nr }, (_unused, rowIndex) =>
+          Array.from({ length: nc }, (_unusedCell, columnIndex) =>
+            rows[r - 2 + rowIndex]?.[c - 1 + columnIndex] ?? ''))
       })
     };
   });
@@ -1607,8 +1609,8 @@ console.log('\n【設定】早く閉める日を設定したら、受け口も�
     const settingRows = [['営業開始', '09:00'], ['営業終了', close]];
     const setting = {
       getLastRow: () => settingRows.length + 1, getLastColumn: () => 2,
-      getRange: (r, c, nr, nc) => ({ getValues: () => (r === 1 ? [['項目', '内容']]
-        : settingRows.slice(r - 2, r - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || 2)))) })
+      getRange: (r, c, nr, nc) => ({ getValues: () => [['項目', '内容']].concat(settingRows)
+        .slice(r - 1, r - 1 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || 2))) })
     };
     const ledger = makeSheet();
     const ss = { getSheetByName: n => (n === '設定' ? setting : null), insertSheet: () => null };
@@ -1653,8 +1655,8 @@ console.log('\n【設定】最終受付と定休曜日を、受け口も見て�
     };
     const setting = {
       getLastRow: () => rows.length + 1, getLastColumn: () => 2,
-      getRange: (r, c, nr, nc) => ({ getValues: () => (r === 1 ? [['項目', '内容']]
-        : rows.slice(r - 2, r - 2 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || 2)))) })
+      getRange: (r, c, nr, nc) => ({ getValues: () => [['項目', '内容']].concat(rows)
+        .slice(r - 1, r - 1 + (nr || 1)).map(x => x.slice(c - 1, c - 1 + (nc || 2))) })
     };
     const ledger = makeSheet();
     const ss = { getSheetByName: n => (n === '設定' ? setting : null), insertSheet: () => null };
@@ -1916,7 +1918,7 @@ function shop(sheetsInit = {}, source = srcLive) {
            ここで [] を返すと、本番では起きない失敗になります。 */
         getValues: () => Array.from({ length: nr || 1 }, (_unused, rowIndex) =>
           Array.from({ length: nc || 1 }, (_cell, columnIndex) =>
-            (rw === 1 ? head : data[rw - 2 + rowIndex])?.[c - 1 + columnIndex] ?? '')),
+            (rw + rowIndex === 1 ? head : data[rw - 2 + rowIndex])?.[c - 1 + columnIndex] ?? '')),
         getFormulas: () => Array.from({ length: nr || 1 }, () => Array(nc || 1).fill('')),
         /* 本物のシートと同じで、指定した範囲だけ書き換えます。
            行まるごと差し替える作りにしていると、列ごとの書き込みで

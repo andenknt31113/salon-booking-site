@@ -819,8 +819,34 @@ function checkReserve_(sheet, d) {
 }
 
 /** 設置確認用。ブラウザでURLを開くとこれが返ります */
-function doGet() {
-  return json_({ ok: true, message: '予約の受信先として動作しています' });
+function doGet(event) {
+  const params = event && event.parameter || {};
+  if (params.transport !== 'frame') return json_({ ok: true, message: '予約の受信先として動作しています' });
+  const origin = String(params.origin || '');
+  const requestId = String(params.requestId || '');
+  const validOrigin = /^https:\/\/[a-z0-9]+(?:[.-][a-z0-9]+)*(?::\d{1,5})?$/i.test(origin)
+    || /^http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}$/.test(origin);
+  if (!['menu', 'availability'].includes(params.type) || !validOrigin
+      || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestId)) {
+    return json_({ ok: false, error: '読取要求を確認できません。' });
+  }
+  let result;
+  try {
+    result = withLedgerLock_(() => {
+      if (params.type === 'menu') return doMenu_({ booking: true, initialAvailability: true });
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+      if (!sheet) throw new Error('予約台帳を確認できません。');
+      return doAvailability_(sheet);
+    });
+  } catch (error) {
+    result = { ok: false, error: '最新の予約条件を確認できません。時間をおいて再確認してください。' };
+  }
+  const encode = value => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g,
+    character => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'));
+  const message = { type: 'zer01-public-read', requestId: requestId, result: result };
+  return HtmlService.createHtmlOutput('<!doctype html><html><head><meta charset="utf-8"></head><body><script>window.top.postMessage('
+    + encode(message) + ',' + encode(origin) + ');</script></body></html>')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /* ============================================================
@@ -1084,9 +1110,12 @@ function removeFromCalendar_(eventId) {
    氏名・電話番号などの個人情報は一切含めません。
    ============================================================ */
 function doAvailability_(sheet) {
-  // 台帳が空のときは readRows_ が [] を返すので、ここで数えなおしません
-  const rows = readRows_(sheet);
-  const col = colIndex_(sheet);
+  const snapshot = readSheetSnapshot_(sheet, HEADERS);
+  const rows = snapshot.rows;
+  const col = name => {
+    const index = snapshot.head.indexOf(name);
+    return index >= 0 ? index : HEADERS.indexOf(name);
+  };
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
   const booked = rows
@@ -1212,13 +1241,14 @@ function doMenu_(request, timing) {
    サイト側は文字列（終日）とオブジェクト（時間帯）の両方を受け取れます。 */
 function readClosedSheet_(ss) {
   const sheet = ss.getSheetByName(CLOSED_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return [];
+  const snapshot = readSheetSnapshot_(sheet, CLOSED_HEADERS);
+  if (!snapshot.rows.length) return [];
 
   /* 休業日シートも、列は見出しの名前で探します。
      店の人が「メモ」を前に足しても、日付を読み違えないためです。 */
-  const head = sheetHeader_(sheet, CLOSED_HEADERS);
+  const head = snapshot.head;
   const at = h => { const i = head.indexOf(h); return i >= 0 ? i : CLOSED_HEADERS.indexOf(h); };
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues()
+  return snapshot.rows
     .map(function (r) {
       const date = normalizeDate_(r[at('休業日')]);
       if (!date) return null;
@@ -1254,10 +1284,11 @@ function hitsClosed_(sheet, dateKey, time, minutes) {
 
 function readMenuSheet_(ss) {
   const sheet = ss.getSheetByName(MENU_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return null;
+  const snapshot = readSheetSnapshot_(sheet, MENU_HEADERS);
+  if (!snapshot.rows.length) return null;
 
-  const head = sheetHeader_(sheet, MENU_HEADERS);
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const head = snapshot.head;
+  const rows = snapshot.rows;
   const col = n => { const i = head.indexOf(n); return i >= 0 ? i : MENU_HEADERS.indexOf(n); };
   const groups = [];
 
@@ -1291,10 +1322,11 @@ function readMenuSheet_(ss) {
 
 function readCouponSheet_(ss) {
   const sheet = ss.getSheetByName(COUPON_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return null;
+  const snapshot = readSheetSnapshot_(sheet, COUPON_HEADERS);
+  if (!snapshot.rows.length) return null;
 
-  const head = sheetHeader_(sheet, COUPON_HEADERS);
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const head = snapshot.head;
+  const rows = snapshot.rows;
   const col = n => { const i = head.indexOf(n); return i >= 0 ? i : COUPON_HEADERS.indexOf(n); };
   const out = [];
 
@@ -2419,9 +2451,9 @@ const TIME_SETTINGS = ['営業開始', '営業終了', '最終受付'];
 
 function readSettings_(ss) {
   const sheet = ss.getSheetByName(SETTING_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return {};
+  const snapshot = readSheetSnapshot_(sheet, ['項目', '内容']);
   const out = {};
-  sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues().forEach(r => {
+  snapshot.rows.forEach(r => {
     const k = String(r[0] || '').trim();
     if (!k) return;
     if (r[1] === '') { out[k] = ''; return; }
@@ -2451,6 +2483,15 @@ function writeSettings_(ss, obj) {
    何も出ません。ですから、位置ではなく見出しの名前で探します。
    ============================================================ */
 /** どのシートでも使える、1行目の見出しの読み取り */
+function readSheetSnapshot_(sheet, fallback) {
+  const last = sheet ? sheet.getLastRow() : 0;
+  if (!last) return { head: fallback.slice(), rows: [] };
+  const width = Math.max(sheet.getLastColumn() || 0, fallback.length);
+  const values = sheet.getRange(1, 1, last, width).getValues();
+  const head = (values[0] || []).map(value => String(value == null ? '' : value).trim());
+  return { head: head.some(Boolean) ? head : fallback.slice(), rows: values.slice(1) };
+}
+
 function sheetHeader_(sheet, fallback) {
   const width = Math.max(sheet.getLastColumn() || 0, fallback.length);
   const row = (sheet.getRange(1, 1, 1, width).getValues()[0] || [])

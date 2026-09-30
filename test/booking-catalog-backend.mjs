@@ -22,13 +22,16 @@ function environment({ fail = false, missingLedger = false } = {}) {
     }) }
   });
   vm.runInContext(source, context);
-  context.colIndex_ = () => name => name;
-  context.readRows_ = () => [
+  const reservations = [
     { 来店日: '2099-01-02', 開始: '10:00', 終了: '11:30', '所要(分)': 60, 担当ID: 'st01',
       状態: '予約確定', お名前: '非公開の試験客', 電話番号: '00000000000', メール: 'private@example.invalid', 施術メモ: '非公開メモ' },
     { 来店日: '2099-01-02', 開始: '12:00', 終了: '13:00', '所要(分)': 60, 状態: 'キャンセル' },
     { 来店日: '2020-01-01', 開始: '10:00', 終了: '11:00', '所要(分)': 60, 状態: '予約確定' }
   ];
+  context.readSheetSnapshot_ = () => {
+    const head = Object.keys(reservations[0]);
+    return { head, rows: reservations.map(record => head.map(header => record[header])) };
+  };
   for (const [name, result] of [
     ['readMenuSheet_', [{ name: 'カット', items: [{ name: 'カット', price: 6900, minutes: 60 }] }]],
     ['readCouponSheet_', []], ['readStyleSheet_', [{ name: '写真' }]], ['readReviewSheet_', [{ body: '投稿' }]],

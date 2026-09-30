@@ -192,6 +192,7 @@ const SALON = {
      なります。オーナーさんのアカウントに移すまで draft は true のままに
      してください（公開前チェックリスト.md の「全部済んだら」を参照）。 */
   reservationEndpoint: 'https://script.google.com/macros/s/AKfycbwwKAx7kl0IDJ8K1uPLLzcCk_NzRg1rKxK_TyoFClP5e5N8YfoTDZQEBt6An8QDkq4WKw/exec',
+  publicReadFrameTimeoutMs: 8000,
 
   /* ---------- おすすめメニュー ----------
      メニューページの一番上に大きく並ぶ、カット＋カラーなどの組み合わせ。
