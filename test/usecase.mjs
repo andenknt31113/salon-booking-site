@@ -360,7 +360,8 @@ console.log('\n【UC11】店が予約一覧を見て、キャンセル扱いに�
   await a.click('#gate-btn'); await a.waitForTimeout(1700);
   check('UC11', '予約一覧に出ている',
     !!r.code && (await a.locator('#admin-rows').innerText()).includes(r.code), true);
-  await a.locator(`[data-admin-cancel="${r.code}"]`).click(); await a.waitForTimeout(2000);
+  await a.locator(`[data-admin-cancel="${r.code}"]`).click();
+  await a.getByRole('button', { name: 'この予約をキャンセルする', exact: true }).click(); await a.waitForTimeout(2000);
   const info = await post({ type: 'adminData', password: PW });
   check('UC11', '台帳がキャンセルになる',
     (info.reservations.find(x => x.code === r.code) || {}).status, 'キャンセル');

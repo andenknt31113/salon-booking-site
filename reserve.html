@@ -19,7 +19,7 @@
   <meta property="og:locale" content="ja_JP" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/style.css?v=20260930-preview" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261001-usability" />
   <link rel="stylesheet" href="assets/css/public.css?v=20261001-polish" />
 </head>
 <body data-page="reserve" class="catalog-unverified">
@@ -143,35 +143,35 @@
               <form id="customer-form" novalidate>
                 <div class="form-field" data-field="name">
                   <label for="f-name">お名前<span class="required">必須</span></label>
-                  <input class="input" type="text" id="f-name" name="name" autocomplete="name" placeholder="山田 花子" />
-                  <p class="field-error">お名前をご入力ください。</p>
+                  <input class="input" type="text" id="f-name" name="name" autocomplete="name" placeholder="山田 花子" required />
+                  <p class="field-error" id="f-name-error">お名前をご入力ください。</p>
                 </div>
 
                 <div class="form-field" data-field="kana">
                   <label for="f-kana">フリガナ<span class="required">必須</span></label>
-                  <input class="input" type="text" id="f-kana" name="kana" placeholder="ヤマダ ハナコ" />
-                  <p class="field-error">フリガナを全角カタカナでご入力ください。</p>
+                  <input class="input" type="text" id="f-kana" name="kana" placeholder="ヤマダ ハナコ" required />
+                  <p class="field-error" id="f-kana-error">フリガナを全角カタカナでご入力ください。</p>
                 </div>
 
                 <div class="form-field" data-field="tel">
                   <label for="f-tel">電話番号<span class="required">必須</span></label>
-                  <input class="input" type="tel" id="f-tel" name="tel" autocomplete="tel" inputmode="tel" placeholder="09012345678" />
-                  <p class="field-error">電話番号を数字10〜11桁でご入力ください。</p>
+                  <input class="input" type="tel" id="f-tel" name="tel" autocomplete="tel" inputmode="tel" placeholder="09012345678" required />
+                  <p class="field-error" id="f-tel-error">電話番号を数字10〜11桁でご入力ください。</p>
                 </div>
 
                 <div class="form-field" data-field="email">
                   <label for="f-email">メールアドレス<span class="required">必須</span></label>
-                  <input class="input" type="email" id="f-email" name="email" autocomplete="email" placeholder="example@example.com" />
-                  <p class="field-error">メールアドレスの形式をご確認ください。</p>
+                  <input class="input" type="email" id="f-email" name="email" autocomplete="email" placeholder="example@example.com" required />
+                  <p class="field-error" id="f-email-error">メールアドレスの形式をご確認ください。</p>
                 </div>
 
                 <div class="form-field" data-field="visit">
-                  <span class="field-label">ご来店回数<span class="required">必須</span></span>
-                  <div class="radio-row">
-                    <label class="radio-chip"><input type="radio" name="visit" value="初めて" /><span>初めて</span></label>
-                    <label class="radio-chip"><input type="radio" name="visit" value="2回目以降" /><span>2回目以降</span></label>
+                  <span class="field-label" id="f-visit-label">ご来店回数<span class="required">必須</span></span>
+                  <div class="radio-row" role="group" aria-labelledby="f-visit-label">
+                    <label class="radio-chip"><input type="radio" name="visit" value="初めて" required /><span>初めて</span></label>
+                    <label class="radio-chip"><input type="radio" name="visit" value="2回目以降" required /><span>2回目以降</span></label>
                   </div>
-                  <p class="field-error">ご来店回数をお選びください。</p>
+                  <p class="field-error" id="f-visit-error">ご来店回数をお選びください。</p>
                 </div>
 
                 <div class="form-field" data-field="request">
@@ -181,10 +181,10 @@
 
                 <div class="form-field" data-field="agree">
                   <label class="checkbox-line">
-                    <input type="checkbox" id="f-agree" name="agree" />
+                    <input type="checkbox" id="f-agree" name="agree" required />
                     <span id="agree-text">キャンセルポリシーに同意します<span class="required">必須</span></span>
                   </label>
-                  <p class="field-error">キャンセルポリシーへの同意が必要です。</p>
+                  <p class="field-error" id="f-agree-error">キャンセルポリシーへの同意が必要です。</p>
                 </div>
               </form>
 
@@ -272,6 +272,6 @@
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/public-read.js?v=20261001-read"></script>
   <script src="assets/js/common.js?v=20261001-read"></script>
-  <script src="assets/js/reserve.js?v=20260930-preview"></script>
+  <script src="assets/js/reserve.js?v=20261001-usability"></script>
 </body>
 </html>

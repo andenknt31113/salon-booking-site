@@ -536,7 +536,7 @@ table { border-collapse: collapse; width: 100%; }
 .calendar th.is-sat .cal-wd, .calendar th.is-sat .cal-date { color: #7FA3C4; }
 .calendar th.is-sun .cal-wd, .calendar th.is-sun .cal-date { color: #C4837F; }
 .calendar tbody th { font-family: var(--font-en); font-weight: 400; color: var(--text-2); padding: 6px; font-size: 12px; }
-.slot { display: block; width: 100%; height: 36px; font-size: 14px; color: var(--ok); transition: .12s; }
+.slot { display: block; width: 100%; min-width: 44px; height: 44px; font-size: 14px; color: var(--ok); transition: .12s; }
 .slot:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
 .slot:disabled { color: var(--off); cursor: default; }
 .slot.is-few { color: var(--warn); }

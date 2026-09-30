@@ -376,7 +376,7 @@ function renderCalendar() {
           ? `${formatDateJa(d, { short: true })} ${t} を選択`
           : `${formatDateJa(d, { short: true })} ${t} は予約できません`;
         return `<td><button class="${cls}" type="button" ${info.available ? '' : 'disabled'}
-            data-date="${d}" data-time="${t}" aria-label="${esc(label)}">${info.symbol}</button></td>`;
+            data-date="${d}" data-time="${t}" aria-pressed="${selected}" aria-label="${esc(label)}">${info.symbol}</button></td>`;
       }).join('')}
     </tr>`).join('');
 
@@ -395,9 +395,20 @@ function initStep3() {
   $('#cal-body').addEventListener('click', e => {
     const btn = e.target.closest('.slot');
     if (!btn || btn.disabled) return;
+    const info = Availability.slotInfo(btn.dataset.date, btn.dataset.time, state.staffId, totalMinutes());
+    if (!info.available) {
+      renderCalendar();
+      alert(slotStopMessage(info.reason));
+      return;
+    }
     state.date = btn.dataset.date;
     state.time = btn.dataset.time;
-    renderCalendar();
+    $$('#cal-body .slot.is-selected').forEach(slot => {
+      slot.classList.remove('is-selected');
+      slot.setAttribute('aria-pressed', 'false');
+    });
+    btn.classList.add('is-selected');
+    btn.setAttribute('aria-pressed', 'true');
     updateSummary();
     saveDraft();
   });
@@ -493,6 +504,24 @@ function fillForm() {
   }
 }
 
+function setFieldError(field, invalid) {
+  field.classList.toggle('has-error', invalid);
+  const error = $('.field-error', field);
+  $$('input, textarea', field).forEach(input => {
+    input.setAttribute('aria-invalid', String(invalid));
+    if (invalid) input.setAttribute('aria-describedby', error.id);
+    else input.removeAttribute('aria-describedby');
+  });
+}
+
+function refreshFieldError(input) {
+  const field = input.closest('.form-field');
+  if (!field || !field.classList.contains('has-error')) return;
+  const key = field.dataset.field;
+  const check = VALIDATORS[key];
+  if (check) setFieldError(field, !check(readForm()[key]));
+}
+
 function validateForm(showErrors = true) {
   tidyForm();
   const c = readForm();
@@ -502,7 +531,7 @@ function validateForm(showErrors = true) {
   Object.entries(VALIDATORS).forEach(([key, check]) => {
     const field = $(`[data-field="${key}"]`);
     const ok = check(c[key]);
-    if (showErrors) field.classList.toggle('has-error', !ok);
+    if (showErrors) setFieldError(field, !ok);
     if (!ok && !firstInvalid) firstInvalid = field;
   });
 
@@ -568,13 +597,15 @@ function initStep4() {
     form.name.focus();
   }));
 
-  form.addEventListener('input', () => {
+  form.addEventListener('input', e => {
     state.customer = readForm();
     saveDraft();
+    refreshFieldError(e.target);
   });
-  form.addEventListener('change', () => {
+  form.addEventListener('change', e => {
     state.customer = readForm();
     saveDraft();
+    refreshFieldError(e.target);
   });
   // 欄から離れたときに、全角の数字や半角カナをそっと直す
   form.addEventListener('focusout', e => {
@@ -582,11 +613,7 @@ function initStep4() {
     tidyField(e.target);
     state.customer = readForm();
     saveDraft();
-  });
-  // 入力し直したらエラー表示を解除
-  form.addEventListener('input', e => {
-    const field = e.target.closest('.form-field');
-    if (field) field.classList.remove('has-error');
+    refreshFieldError(e.target);
   });
 }
 
@@ -1075,6 +1102,7 @@ function renderStepCta() {
   const ready = cta.ok() && !waiting;
   const info = waiting ? '最新の料金・受付条件を確認中です' : ready ? stepCtaInfo() : (cta.hint || '');
   $$('[data-next="3"]', $('#reserve-layout')).forEach(button => { button.disabled = !catalogVerified(); });
+  $$('[data-next="4"]', $('#reserve-layout')).forEach(button => { button.disabled = !(state.date && state.time) || !catalogVerified(); });
   host.innerHTML = `
     <span class="step-cta-info">${esc(info)}</span>
     <button class="btn btn-primary" type="button" data-next="${cta.to}"${ready ? '' : ' disabled'}>
@@ -1129,6 +1157,11 @@ function goTo(step) {
   if (step === 5) renderConfirm();
   saveDraft();
   renderStep();
+  const heading = $('.reserve-panel.is-active .section-title');
+  if (heading) {
+    heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+  }
   window.scrollTo({ top: $('#steps').offsetTop - 130, behavior: 'smooth' });
 }
 
