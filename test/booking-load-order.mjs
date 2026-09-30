@@ -38,9 +38,15 @@ test('メニューを先に表示し、空席取得を待たせてもメニュ�
     await page.goto(base + '/reserve.html');
     assert.deepEqual(requests.map(request => request.type), ['menu'], 'メニューと空席が同じロックを取り合わない');
     assert.equal(requests[0].booking, true);
-    assert.equal(await page.locator('#reserve-layout').isVisible(), false);
+    assert.equal(requests[0].initialAvailability, true);
+    assert.equal(await page.locator('#reserve-layout').isVisible(), true, '通信待ちでも公開メニューを選べる');
+    await page.locator('#coupon-choices .selectable').first().click();
+    await page.locator('[data-next="2"]').first().click();
+    assert.equal(await page.locator('[data-next="3"]').first().isDisabled(), true, '最新料金の確認前は日時へ進まない');
     releaseMenu();
     await availabilityRequest;
+    assert.equal(await page.evaluate(() => state.step), 1, '公開メニューと試験台帳の内容が違うため最新内容を選び直す');
+    assert.equal(await page.locator('#catalog-change-notice').isVisible(), true);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('[data-next="2"]').first().click();
     await page.locator('[data-next="3"]').first().click();
@@ -77,6 +83,7 @@ test('日時選択の下書きを開き直しても、画面復帰がメニュ�
   const menuGate = new Promise(resolve => { releaseMenu = resolve; });
   try {
     await page.goto(base + '/reserve.html');
+    await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('[data-next="2"]').first().click();
     await page.locator('[data-next="3"]').first().click();

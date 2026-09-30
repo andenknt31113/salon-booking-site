@@ -4,18 +4,31 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('../gas/Code.gs', import.meta.url), 'utf8');
-function environment({ fail = false } = {}) {
+function environment({ fail = false, missingLedger = false } = {}) {
   let held = false;
   const reads = [];
   const context = vm.createContext({ Date, console: { error() {} },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ setMimeType: () => text }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({}) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: name => {
+      assert.equal(name, '予約一覧');
+      assert.equal(held, true, '同じロックの中で空席を読む');
+      reads.push('予約一覧');
+      return missingLedger ? null : {};
+    } }) },
+    Utilities: { formatDate: () => '2030-01-01' },
     LockService: { getScriptLock: () => ({
       waitLock() { assert.equal(held, false); held = true; },
       releaseLock() { assert.equal(held, true); held = false; }
     }) }
   });
   vm.runInContext(source, context);
+  context.colIndex_ = () => name => name;
+  context.readRows_ = () => [
+    { 来店日: '2099-01-02', 開始: '10:00', 終了: '11:30', '所要(分)': 60, 担当ID: 'st01',
+      状態: '予約確定', お名前: '非公開の試験客', 電話番号: '00000000000', メール: 'private@example.invalid', 施術メモ: '非公開メモ' },
+    { 来店日: '2099-01-02', 開始: '12:00', 終了: '13:00', '所要(分)': 60, 状態: 'キャンセル' },
+    { 来店日: '2020-01-01', 開始: '10:00', 終了: '11:00', '所要(分)': 60, 状態: '予約確定' }
+  ];
   for (const [name, result] of [
     ['readMenuSheet_', [{ name: 'カット', items: [{ name: 'カット', price: 6900, minutes: 60 }] }]],
     ['readCouponSheet_', []], ['readStyleSheet_', [{ name: '写真' }]], ['readReviewSheet_', [{ body: '投稿' }]],
@@ -45,6 +58,35 @@ test('予約用メニューは必要な4シートだけ読み、公開許可の�
   assert.deepEqual(data.closedDates, ['2099-01-01']);
   assert.equal(data.categories[0].items[0].minutes, 60);
   assert.equal(data.timing, undefined);
+  assert.equal(app.held(), false);
+});
+
+test('明示した予約初期取得は同じロックでメニューと空席を返し、顧客情報を含めない', () => {
+  const app = environment();
+  const data = app.send({ type: 'menu', booking: true, initialAvailability: true });
+  assert.equal(data.ok, true);
+  assert.deepEqual(data.booked, [{ date: '2099-01-02', time: '10:00', minutes: 90, staffId: 'st01' }]);
+  assert.deepEqual(app.reads, ['readMenuSheet_', 'readCouponSheet_', 'readClosedSheet_', 'readSettings_', '予約一覧']);
+  assert.equal(JSON.stringify(data).includes('非公開'), false);
+  assert.equal(JSON.stringify(data).includes('private@example.invalid'), false);
+  assert.equal(app.held(), false);
+});
+
+test('初期空席を明示しない要求は予約一覧を読まず、台帳がない場合は空席を捏造しない', () => {
+  for (const request of [
+    { booking: true }, { booking: true, initialAvailability: 'true' }, { booking: false, initialAvailability: true }
+  ]) {
+    const app = environment();
+    const data = app.send({ type: 'menu', ...request });
+    assert.equal(data.ok, true);
+    assert.equal(data.booked, undefined);
+    assert.equal(app.reads.includes('予約一覧'), false);
+  }
+  const app = environment({ missingLedger: true });
+  const data = app.send({ type: 'menu', booking: true, initialAvailability: true });
+  assert.equal(data.ok, false);
+  assert.equal(data.booked, undefined);
+  assert.match(data.error, /予約台帳/);
   assert.equal(app.held(), false);
 });
 

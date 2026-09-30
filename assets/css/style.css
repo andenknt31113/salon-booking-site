@@ -575,13 +575,14 @@ table { border-collapse: collapse; width: 100%; }
 .booking-paused:not(.reservation-change) #reserve-layout,
 .booking-paused:not(.reservation-change) #steps,
 .booking-paused:not(.reservation-change) #step-cta { display: none !important; }
-.catalog-unverified:not(.reservation-change) #reserve-layout,
-.catalog-unverified:not(.reservation-change) #steps,
-.catalog-unverified:not(.reservation-change) #step-cta { display: none !important; }
+.catalog-unverified:not(.catalog-preview):not(.reservation-change) #reserve-layout,
+.catalog-unverified:not(.catalog-preview):not(.reservation-change) #steps,
+.catalog-unverified:not(.catalog-preview):not(.reservation-change) #step-cta { display: none !important; }
 body:not(.catalog-unverified) #catalog-status,
 .booking-paused #catalog-status,
 .reservation-change #catalog-status { display: none; }
 #booking-paused-notice p a { display: inline-flex; align-items: center; min-height: 44px; }
+#catalog-status .btn { margin: 8px 8px 0 0; min-height: 44px; }
 
 /* 予約完了後のLINE友だち追加のお誘い（lineAddUrl を入れたときだけ出ます） */
 .line-invite {
@@ -793,6 +794,7 @@ body:not(.catalog-unverified) #catalog-status,
 .customer-row-name { min-width: 0; }
 .customer-row-name strong { font-size: 15px; }
 .customer-row-name small, .customer-row-label { display: block; color: var(--muted); font-size: 11px; }
+.customer-row-name .customer-row-count { margin-top: 4px; color: var(--text-2); font-size: 12px; line-height: 1.7; }
 .customer-row-arrow { font-size: 24px; text-align: center; }
 .customer-record[open] > .customer-row { background: var(--panel-2); border-bottom: 1px solid var(--line); }
 .customer-record[open] > .customer-row .customer-row-arrow { transform: rotate(90deg); }

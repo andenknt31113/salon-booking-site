@@ -68,6 +68,10 @@ body[data-page="staff"] #staff-note { background: transparent; border: 0; border
 body[data-page="reserve"] .reserve-layout { gap: 40px; }
 body[data-page="reserve"] .steps { margin-bottom: 36px; }
 body[data-page="reserve"] .selectable { padding-block: 22px; }
+body[data-page="reserve"] .page-head { padding-block: 20px 24px; }
+body[data-page="reserve"] .breadcrumb { margin-bottom: 12px; }
+body[data-page="reserve"] .page-kicker { margin-bottom: 6px; }
+body[data-page="reserve"] .page-head h1 + p { margin-top: 10px; }
 .booking-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-block: 1px solid var(--line); }
 .booking-entry-panel { padding: 36px 32px 36px 0; }
 .booking-entry-panel + .booking-entry-panel { border-left: 1px solid var(--line); padding-left: 32px; padding-right: 0; }
@@ -154,4 +158,9 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
 .booking-cancel-actions .btn { min-height: 44px; white-space: normal; flex: 1 1 180px; }
 @media (max-width: 359px) {
   body[data-page="gallery"] .style-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  body[data-page="reserve"] .summary { order: 0; }
+  body[data-page="reserve"] .steps { margin-bottom: 24px; }
+  body[data-page="reserve"] .page-head h1 { font-size: 22px; }
 }

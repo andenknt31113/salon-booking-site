@@ -1197,6 +1197,11 @@ function doMenu_(request, timing) {
   }
   result.closedDates = readClosedSheet_(ss);
   result.settings = publicSettings_(readSettings_(ss));
+  if (request && request.booking === true && request.initialAvailability === true) {
+    const sheet = ss.getSheetByName(SHEET_NAME);
+    if (!sheet) throw new Error('予約台帳を確認できませんでした。');
+    result.booked = doAvailability_(sheet).booked;
+  }
   if (timing) timing.catalogMs = Date.now() - started;
   return result;
 }

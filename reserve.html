@@ -19,8 +19,8 @@
   <meta property="og:locale" content="ja_JP" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20260929-navigation" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20260930-preview" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20260930-preview" />
 </head>
 <body data-page="reserve" class="catalog-unverified">
   <div id="site-header"></div>
@@ -42,7 +42,8 @@
         <!-- ステップ表示 -->
         <div class="notice" id="change-notice" hidden></div>
         <div id="booking-paused-notice" role="status"></div>
-        <div class="notice" id="catalog-status" role="status">最新のメニューと受付条件を確認しています…</div>
+        <div class="notice" id="catalog-status" role="status" tabindex="-1">最新の料金・受付条件を確認しています。メニューは先にお選びいただけます。</div>
+        <div class="notice" id="catalog-change-notice" role="alert" hidden></div>
         <ol class="steps" id="steps">
           <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
           <li class="step" data-step="2"><b>STEP 2</b><span id="step2-label">スタッフ</span></li>
@@ -269,7 +270,7 @@
 
   <script src="assets/js/data.js?v=20260929-booking"></script>
   <script src="assets/js/published-menus.js"></script>
-  <script src="assets/js/common.js?v=20260930-speed"></script>
-  <script src="assets/js/reserve.js?v=20260930-speed"></script>
+  <script src="assets/js/common.js?v=20260930-preview"></script>
+  <script src="assets/js/reserve.js?v=20260930-preview"></script>
 </body>
 </html>

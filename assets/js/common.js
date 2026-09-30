@@ -635,6 +635,20 @@ const Remote = {
   loaded: false,
   loading: null,
 
+  accept(booked) {
+    const validSlot = slot => slot && typeof slot === 'object'
+      && typeof slot.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(slot.date)
+      && !Number.isNaN(Date.parse(`${slot.date}T12:00:00Z`))
+      && new Date(`${slot.date}T12:00:00Z`).toISOString().slice(0, 10) === slot.date
+      && typeof slot.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(slot.time)
+      && Number.isInteger(slot.minutes) && slot.minutes > 0 && slot.minutes <= 24 * 60
+      && (slot.staffId === null || typeof slot.staffId === 'string');
+    if (!Array.isArray(booked) || !booked.every(validSlot)) return false;
+    this.booked = booked;
+    this.loaded = true;
+    return true;
+  },
+
   /** 受信先から予約済み枠を取得する（多重呼び出しは1回にまとめる） */
   load(force = false) {
     if (!SALON.reservationEndpoint) { this.loaded = true; return Promise.resolve(false); }
@@ -653,21 +667,11 @@ const Remote = {
           body: JSON.stringify({ type: 'availability' })
         });
         const data = await res.json();
-        const validSlot = slot => slot && typeof slot === 'object'
-          && typeof slot.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(slot.date)
-          && !Number.isNaN(Date.parse(`${slot.date}T12:00:00Z`))
-          && new Date(`${slot.date}T12:00:00Z`).toISOString().slice(0, 10) === slot.date
-          && typeof slot.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(slot.time)
-          && Number.isInteger(slot.minutes) && slot.minutes > 0 && slot.minutes <= 24 * 60
-          && (slot.staffId === null || typeof slot.staffId === 'string');
-        if (!res.ok || !data || data.ok !== true || !Array.isArray(data.booked)
-            || !data.booked.every(validSlot)) {
+        if (!res.ok || !data || data.ok !== true || !this.accept(data.booked)) {
           throw new Error('空席状況の応答を確認できませんでした。');
         }
-        this.booked = data.booked;
         return true;
       } catch (e) {
-        // 取得できないときはこの端末の予約だけで判定する（予約自体は続行できる）
         console.warn('空席状況を取得できませんでした。', e);
         this.booked = null;
         return false;
@@ -774,7 +778,8 @@ const Catalog = {
         cache: 'no-store',
         signal: controller.signal,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ type: 'menu', booking: BOOKING_CATALOG_PAGES.has(document.body.dataset.page) })
+        body: JSON.stringify({ type: 'menu', booking: BOOKING_CATALOG_PAGES.has(document.body.dataset.page),
+          initialAvailability: document.body.dataset.page === 'reserve' })
       });
       const data = await res.json();
       if (!res.ok || !data || data.ok !== true
@@ -784,14 +789,12 @@ const Catalog = {
         throw new Error('メニューと受付条件の応答を確認できませんでした。');
       }
 
-      if (Array.isArray(data.categories)) {
-        SALON.menuCategories = data.categories.map(c => ({
-          ...c, items: (c.items || []).map(normalizeItem)
-        }));
-      }
-      if (Array.isArray(data.coupons)) {
-        SALON.coupons = data.coupons.map(normalizeItem);
-      }
+      const categories = data.categories.map(category => ({
+        ...category, items: (category.items || []).map(normalizeItem)
+      }));
+      const coupons = data.coupons.map(normalizeItem);
+      SALON.menuCategories = categories;
+      SALON.coupons = coupons;
       if (Array.isArray(data.styles) && data.styles.length) {
         SALON.styles = data.styles.map(x => ({ ...x, image: driveImageUrl(x.image) }));
       }
@@ -824,6 +827,7 @@ const Catalog = {
         document.dispatchEvent(new CustomEvent('salon:settings'));
       }
       this.source = 'sheet';
+      if (document.body.dataset.page === 'reserve' && data.booked !== undefined) Remote.accept(data.booked);
     } catch (e) {
       console.warn('メニューと受付条件を確認できませんでした。', e);
     } finally {

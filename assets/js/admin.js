@@ -1589,7 +1589,7 @@ function renderCustomers() {
       <article class="booking-card customer-card">
         <details class="customer-record" data-customer-tel="${esc(telKey(c.tel))}"${expanded === telKey(c.tel) ? ' open' : ''}>
           <summary class="customer-row" data-customer-history>
-            <span class="customer-row-name"><strong>${esc(c.name || '（お名前なし）')}</strong>${shared ? `<small>同じ番号：${esc(c.names.join('・'))}</small>` : ''}</span>
+            <span class="customer-row-name"><strong>${esc(c.name || '（お名前なし）')}</strong><small class="customer-row-count">過去の予約 ${schedule.past.length}件 ／ 今後・施術中 ${schedule.upcoming.length}件</small>${shared ? `<small>同じ番号：${esc(c.names.join('・'))}</small>` : ''}</span>
             <span class="customer-row-tel">${esc(c.tel)}</span>
             <span class="customer-row-date"><span class="customer-row-label">直近の過去予約</span>${latest ? formatDateJa(latest.date) : '過去予約なし'}</span>
             <span class="customer-row-date"><span class="customer-row-label">次の予約</span>${schedule.next ? `${formatDateJa(schedule.next.date)} ${esc(schedule.next.time)}` : '次回予約なし'}</span>

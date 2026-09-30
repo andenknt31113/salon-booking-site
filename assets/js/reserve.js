@@ -6,6 +6,7 @@ const DRAFT_KEY = 'salon.reserveDraft.v1';
 /* 日時変更モード。予約確認ページから渡された予約が入ります。
    null なら通常の新規予約です。 */
 let changing = null;
+let selectionEdited = false;
 
 const state = {
   step: 1,
@@ -34,7 +35,7 @@ function draftNames() {
 
 function saveDraft() {
   try {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...state, ...draftNames() }));
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...state, ...draftNames(), menuDetails: selectedMenus() }));
   } catch (e) { /* プライベートモード等では保存しない */ }
 }
 function loadDraft() {
@@ -104,14 +105,14 @@ function reconcileSelections(saved) {
 }
 
 /* ---------- 集計 ---------- */
-function selectedMenus() {
+function selectedMenus(coupons = SALON.coupons, menuItems = allMenuItems()) {
   const list = [];
   if (state.couponId) {
-    const c = SALON.coupons.find(x => x.id === state.couponId);
+    const c = coupons.find(x => x.id === state.couponId);
     if (c) list.push({ id: c.id, name: c.title, price: c.price, priceFrom: !!c.priceFrom, minutes: c.minutes, isCoupon: true });
   }
   state.menuIds.forEach(id => {
-    const m = allMenuItems().find(x => x.id === id);
+    const m = menuItems.find(x => x.id === id);
     if (m) list.push({ id: m.id, name: m.name, price: m.price, priceFrom: !!m.priceFrom, minutes: m.minutes, isCoupon: false });
   });
   return list;
@@ -161,7 +162,7 @@ function totalText() {
  * ============================================================ */
 function renderCouponChoices() {
   $('#coupon-choices').innerHTML = SALON.coupons.map(c => `
-    <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}">
+    <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}" aria-pressed="${state.couponId === c.id}">
       <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
       ${c.detail ? `<span class="selectable-sub">${esc(c.detail)}</span>` : ''}
       <span class="selectable-meta">
@@ -176,7 +177,7 @@ function renderMenuChoices(catId) {
   $('#menu-choices').innerHTML = cats.map(cat => `
     <h4 style="font-size:13px;color:var(--ink-3);margin:18px 0 8px;">${esc(cat.name)}</h4>
     ${cat.items.map(m => `
-      <button class="selectable ${state.menuIds.includes(m.id) ? 'is-selected' : ''}" type="button" data-menu="${esc(m.id)}">
+      <button class="selectable ${state.menuIds.includes(m.id) ? 'is-selected' : ''}" type="button" data-menu="${esc(m.id)}" aria-pressed="${state.menuIds.includes(m.id)}">
         <span class="selectable-title">${esc(m.name)}</span>
         ${m.note ? `<span class="selectable-sub">${esc(m.note)}</span>` : ''}
         <span class="selectable-meta">
@@ -207,7 +208,9 @@ function initStep1() {
     const btn = e.target.closest('[data-coupon]');
     if (!btn) return;
     const id = btn.dataset.coupon;
+    selectionEdited = true;
     state.couponId = state.couponId === id ? null : id; // 再クリックで解除
+    if (hasMenu()) $('#catalog-change-notice').hidden = true;
     resetDateTime();
     renderCouponChoices();
     updateSummary();
@@ -218,11 +221,14 @@ function initStep1() {
     const btn = e.target.closest('[data-menu]');
     if (!btn) return;
     const id = btn.dataset.menu;
+    selectionEdited = true;
     state.menuIds = state.menuIds.includes(id)
       ? state.menuIds.filter(x => x !== id)
       : [...state.menuIds, id];
+    if (hasMenu()) $('#catalog-change-notice').hidden = true;
     resetDateTime();
     btn.classList.toggle('is-selected', state.menuIds.includes(id));
+    btn.setAttribute('aria-pressed', String(state.menuIds.includes(id)));
     updateSummary();
     saveDraft();
   }));
@@ -259,7 +265,7 @@ function renderStaffLead() {
 function renderStaffChoices() {
   // スタイリストが1名のサロンでは「指名なし」は出さない
   const none = soloStylist() ? '' : `
-    <button class="selectable ${state.staffChosen && !state.staffId ? 'is-selected' : ''}" type="button" data-staff="">
+    <button class="selectable ${state.staffChosen && !state.staffId ? 'is-selected' : ''}" type="button" data-staff="" aria-pressed="${state.staffChosen && !state.staffId}">
       <span class="selectable-title">指名なし（おまかせ）</span>
       <span class="selectable-sub">当日空いているスタッフが担当いたします。指名料はかかりません。</span>
       <span class="selectable-meta"><span>指名料 <strong>¥0</strong></span></span>
@@ -271,7 +277,7 @@ function renderStaffChoices() {
     const fee = (soloStylist() && !s.nominationFee) ? ''
       : `<span class="selectable-meta"><span>指名料 <strong>${s.nominationFee > 0 ? yen(s.nominationFee) : '¥0'}</strong></span></span>`;
     return `
-    <button class="selectable ${state.staffId === s.id ? 'is-selected' : ''}" type="button" data-staff="${esc(s.id)}">
+    <button class="selectable ${state.staffId === s.id ? 'is-selected' : ''}" type="button" data-staff="${esc(s.id)}" aria-pressed="${state.staffId === s.id}">
       <span class="selectable-title">${esc(s.name)}（${esc(s.role)}）</span>
       <span class="selectable-sub">${esc(s.tags.map(t => '#' + t).join(' '))}／出勤：${s.workdays.map(d => WEEKDAY_JA[d]).join('・')}曜</span>
       ${fee}
@@ -814,6 +820,10 @@ function setSubmitting(on) {
 
 async function submitReservation() {
   if (submitting) return;   // 二重送信の入口をここで閉じる
+  if (!catalogVerified() || (SALON.draft && !changing)) {
+    $('#catalog-status').focus();
+    return;
+  }
   setSubmitting(true);
 
   // 選択中に他のお客様が同じ枠を押さえていないか、最新の状況で確認する
@@ -1050,6 +1060,10 @@ const STEP_CTA = {
   4: { to: 5, label: () => '入力内容の確認へ', ok: () => true }
 };
 
+function catalogVerified() {
+  return !SALON.reservationEndpoint || (Catalog.loaded && Catalog.source === 'sheet');
+}
+
 function renderStepCta() {
   const host = $('#step-cta');
   if (!host) return;
@@ -1057,8 +1071,10 @@ function renderStepCta() {
   const cta = STEP_CTA[state.step];
   if (!cta || (changing && state.step !== 3)) { host.hidden = true; return; }
 
-  const ready = cta.ok();
-  const info = ready ? stepCtaInfo() : (cta.hint || '');
+  const waiting = cta.to >= 3 && !catalogVerified();
+  const ready = cta.ok() && !waiting;
+  const info = waiting ? '最新の料金・受付条件を確認中です' : ready ? stepCtaInfo() : (cta.hint || '');
+  $$('[data-next="3"]', $('#reserve-layout')).forEach(button => { button.disabled = !catalogVerified(); });
   host.innerHTML = `
     <span class="step-cta-info">${esc(info)}</span>
     <button class="btn btn-primary" type="button" data-next="${cta.to}"${ready ? '' : ' disabled'}>
@@ -1080,6 +1096,10 @@ function stepCtaInfo() {
 }
 
 function goTo(step) {
+  if (step >= 3 && (!catalogVerified() || (SALON.draft && !changing))) {
+    $('#catalog-status').focus();
+    return;
+  }
   /* 変更モードでは、メニュー・担当・お客様情報は元の予約のまま。
      日時（STEP3）から確認（STEP5）へ直行させる。 */
   if (changing) {
@@ -1191,7 +1211,7 @@ function applyQueryParams(search) {
    IDでは追えない。名前で同じものを探し直す。
    取得を待たずに描いているので、待っているあいだに選ばれることがある。 */
 function remapSelection(before) {
-  if (!before.couponId && !before.menuIds.length) return;
+  if (!before.couponId && !before.menuIds.length) return false;
 
   if (before.couponName) {
     const c = byName(SALON.coupons, before.couponName);
@@ -1205,6 +1225,7 @@ function remapSelection(before) {
   const lost = (before.couponName && !state.couponId)
     || state.menuIds.length !== before.menuIds.length;
   if (lost) resetDateTime();
+  return !!lost;
 }
 
 /* ---------- 起動 ---------- */
@@ -1265,35 +1286,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#submit-reservation').addEventListener('click', submitReservation);
   $('#copy-code').addEventListener('click', copyCode);
+  $('#catalog-status').addEventListener('click', event => {
+    if (!event.target.closest('[data-catalog-retry]')) return;
+    saveDraft();
+    window.location.reload();
+  });
 
+  const previewCoupons = SALON.coupons;
+  const previewMenus = allMenuItems();
+  document.body.classList.toggle('catalog-preview', !changing && state.step <= 2);
   const catalogReady = Catalog.load();
   catalogReady.then(source => {
+    document.body.classList.remove('catalog-preview');
     if (SALON.reservationEndpoint && source !== 'sheet') {
-      setHtml($('#catalog-status'), '最新のメニューと受付条件を確認できません。現在ネット予約は進められません。時間をおいて再読み込みするか、店舗へお問い合わせください。'
+      setHtml($('#catalog-status'), '最新のメニューと受付条件を確認できません。日時の選択へは進めません。もう一度確認するか、店舗へお問い合わせください。'
+        + ' <button class="btn btn-outline btn-sm" type="button" data-catalog-retry>もう一度確認する</button>'
         + (SALON.tel ? ` <a href="tel:${esc(SALON.tel.replace(/-/g, ''))}">店舗へ電話する</a>` : ''));
       return;
     }
     document.body.classList.remove('catalog-unverified');
     if (source !== 'sheet') return;
-    /* いま選ばれているものを、名前で新しいメニューに引き継ぎます。
-
-       読み込み直した直後は、まだ data.js の内容しか無い状態で
-       下書きを復元しています。そのとき引き継げなかったぶんは、
-       **下書きに残っている名前**で、ここでもう一度探します。
-       これをしないと、読み込み直しただけで選択が消えます。 */
-    const names = draftNames();
+    const previous = state.step >= 3 && !selectionEdited && draft && Array.isArray(draft.menuDetails)
+      ? draft.menuDetails : selectedMenus(previewCoupons, previewMenus);
+    const coupon = previous.find(menu => menu.isCoupon);
+    const menus = previous.filter(menu => !menu.isCoupon);
+    const saved = !selectionEdited && draft ? draft : {};
     const before = {
       couponId: state.couponId,
-      couponName: names.couponName || (draft && draft.couponName) || '',
+      couponName: (coupon && coupon.name) || saved.couponName || '',
       menuIds: [...state.menuIds],
-      menuNames: names.menuNames.length ? names.menuNames
-        : ((draft && draft.menuNames) || [])
+      menuNames: menus.length ? menus.map(menu => menu.name) : (saved.menuNames || [])
     };
     if (!before.couponId && before.couponName) before.couponId = 'pending';
     if (!before.menuIds.length && before.menuNames.length) {
       before.menuIds = before.menuNames.map(() => 'pending');
     }
-    remapSelection(before);
+    const lost = remapSelection(before);
+    const current = selectedMenus();
+    const changed = lost || previous.some(menu => {
+      const latest = current.find(item => item.name === menu.name && item.isCoupon === menu.isCoupon);
+      return !latest || ['price', 'priceFrom', 'minutes'].some(key => latest[key] !== menu[key]);
+    });
+    if (changed && !changing) {
+      state.couponId = null;
+      state.menuIds = [];
+      resetDateTime();
+      state.step = 1;
+      const notice = $('#catalog-change-notice');
+      notice.hidden = false;
+      notice.textContent = '選択したメニューの料金・所要時間、または掲載内容が更新されました。最新の内容でメニューを選び直してください。';
+    }
     // 引き継げなかったときは、ここで最初に戻します（待っていた判断）
     if (!hasMenu() && !changing) state.step = 1;
     initStep1();
