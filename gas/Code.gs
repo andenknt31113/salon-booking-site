@@ -2053,6 +2053,14 @@ function doCancel_(sheet, d) {
     // すでにキャンセル済み。二重に通知やメールを送らない。
     return { ok: true, alreadyCancelled: true, calendarWarning: !!calendarEventId };
   }
+  const hasPrevious = d.fromDate !== undefined || d.fromTime !== undefined;
+  if (hasPrevious && (!d.fromDate || !d.fromTime)) {
+    return { ok: false, invalid: true, error: '確認した日時が必要です。最新の予約を確認してください。' };
+  }
+  if (hasPrevious && (normalizeDate_(d.fromDate) !== normalizeDate_(before[col('来店日')])
+      || normalizeTime_(d.fromTime) !== normalizeTime_(before[col('開始')]))) {
+    return { ok: false, stale: true, error: '別の画面で予約日時が変わりました。キャンセルせず、最新の予約を確認してください。' };
+  }
   if (!admin && !validDateKey_(normalizeDate_(before[col('来店日')]))) {
     return { ok: false, error: UNKNOWN_VISIT_DATE_ERROR };
   }

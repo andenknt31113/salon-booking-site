@@ -3368,15 +3368,23 @@ document.addEventListener('DOMContentLoaded', () => {
       const code = cx.dataset.adminCancel;
       const r = (adminData.reservations || []).find(x => x.code === code);
       if (!r || cx.disabled) return;
+      const fromDate = r.date;
+      const fromTime = r.time;
       cx.disabled = true;
       const confirmed = await confirmReservationAction('予約のキャンセル',
-        `予約番号 ${code}\n${r.name || 'お客様'} 様\n${r.date} ${r.time}${r.endTime ? '〜' + r.endTime : ''}\nこの予約をキャンセル扱いにし、予約枠を空けます。`, 'この予約をキャンセルする');
+        `予約番号 ${code}\n${r.name || 'お客様'} 様\n${fromDate} ${fromTime}${r.endTime ? '〜' + r.endTime : ''}\nこの予約をキャンセル扱いにし、予約枠を空けます。`, 'この予約をキャンセルする');
       if (!confirmed || !cx.isConnected) { cx.disabled = false; return; }
       /* 店としてのキャンセルなので、パスワード（または記憶した合鍵）を添えます。
          お客様の電話番号を打ち直さずに反映できます。 */
-      const res = await adminPost({ type: 'cancel', code, date: r.date, time: r.time, name: r.name });
+      const res = await adminPost({ type: 'cancel', code, date: fromDate, time: fromTime,
+        fromDate, fromTime, name: r.name });
       if (!res.ok) {
         cx.disabled = false;
+        if (res.stale) {
+          alert('別の画面で予約日時が変わりました。キャンセルは完了していません。最新の予定を確認してください。');
+          await refreshReservations();
+          return;
+        }
         /* 受信側は「前日18時まで」でキャンセルを断ります。お客様向けの決まりですが、
            店から入れた当日のキャンセルも同じ理由で断られます。
            そのままの文言を出すと「店舗までご連絡ください」と自分に言われることになり、
