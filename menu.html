@@ -20,7 +20,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20261001-journal" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20261001-profile" />
 </head>
 <body data-page="menu">
   <div id="site-header"></div>
@@ -44,7 +44,7 @@
       </div>
     </div>
 
-    <section class="section" id="recommended">
+    <section class="section menu-section" id="recommended">
       <div class="container">
         <div class="section-head is-left">
           <!-- 割引ではなく組み合わせのコースなので「COUPON」とは書きません（index.html と同じ理由） -->
@@ -53,7 +53,10 @@
         </div>
         <!-- 掲載のタグで絞り込みます。タグを持たないおすすめメニュー（シート由来）の
              ときは、pages.js がこの箱ごと隠します。 -->
-        <div class="tabs" id="coupon-tabs" role="group" aria-label="おすすめメニューの施術で絞り込む" hidden></div>
+        <div class="menu-tools">
+          <div class="tabs" id="coupon-tabs" role="group" aria-label="おすすめメニューの施術で絞り込む" hidden></div>
+          <p class="menu-count" id="coupon-count" role="status" aria-atomic="true"></p>
+        </div>
         <section class="coupon-list" id="coupon-list" aria-label="おすすめメニュー一覧">
     <article class="coupon">
       <img class="coupon-photo ph-photo-opt" src="assets/style11.jpg" alt="" />
@@ -310,13 +313,16 @@
       </div>
     </section>
 
-    <section class="section section-alt" id="single">
+    <section class="section section-alt menu-section" id="single">
       <div class="container">
         <div class="section-head is-left">
           <span class="section-label">MENU</span>
           <h2 class="section-title">単品メニュー</h2>
         </div>
-        <div class="tabs" id="menu-tabs" role="group" aria-label="単品メニューの種類で絞り込む"></div>
+        <div class="menu-tools">
+          <div class="tabs" id="menu-tabs" role="group" aria-label="単品メニューの種類で絞り込む"></div>
+          <p class="menu-count" id="menu-count" role="status" aria-atomic="true"></p>
+        </div>
         <section id="menu-list" aria-label="単品メニュー一覧"><div class="menu-group" id="cat-cat0"><h3>カット</h3>
     <div class="menu-row">
       <img class="menu-row-photo ph-photo-opt" src="assets/style6.jpg" alt="" />
@@ -433,6 +439,6 @@
   <script src="assets/js/data.js?v=20260929-booking"></script>
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js?v=20260929-navigation"></script>
-  <script src="assets/js/pages.js?v=20261001-journal"></script>
+  <script src="assets/js/pages.js?v=20261001-profile"></script>
 </body>
 </html>

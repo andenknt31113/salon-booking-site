@@ -114,6 +114,42 @@ test('店内写真の読込が遅くても、写真・文章の順番と位置�
   } finally { releasePhoto(); }
 });
 
+for (const name of ['index', 'gallery']) {
+  test(`${name}：写真到着前も拡大の案内を保ち、読込が終わるまで開かない`, async () => {
+    let releasePhoto;
+    const pendingPhoto = new Promise(resolve => { releasePhoto = resolve; });
+    try {
+      await withPage(name, async page => {
+        const card = page.locator('.style-card').first();
+        const button = card.locator('.style-photo-open');
+        await card.scrollIntoViewIfNeeded();
+        assert.equal(await button.isVisible(), true, '読込後に案内の文字が突然増えない');
+        assert.equal(await button.isDisabled(), true, 'まだ届いていない写真を開けない');
+        const text = await card.innerText();
+        const size = await button.boundingBox();
+        await button.evaluate(element => element.click());
+        assert.equal(await page.locator('.style-photo-dialog').count(), 0);
+        releasePhoto();
+        await page.waitForFunction(() => {
+          const photo = document.querySelector('.style-card img.ph-photo');
+          return photo?.complete && photo.naturalWidth > 0;
+        });
+        assert.equal(await button.isEnabled(), true);
+        assert.equal(await card.innerText(), text, '到着後も一覧の案内・本文を差し替えない');
+        assert.deepEqual(await button.boundingBox(), size, '到着前後で操作の位置を変えない');
+        await button.click();
+        assert.equal(await page.locator('.style-photo-dialog').count(), 1);
+        await page.getByRole('button', { name: '閉じる', exact: true }).click();
+        await page.locator('.style-photo-dialog').waitFor({ state: 'detached' });
+        assert.equal(await button.evaluate(element => document.activeElement === element), true);
+      }, {}, context => context.route('**/style1.jpg', async route => {
+        await pendingPhoto;
+        await route.continue();
+      }), { waitUntil: 'domcontentloaded' });
+    } finally { releasePhoto(); }
+  });
+}
+
 test('スマホの境界をまたいで幅を変えても、写真1点を保ち、文章と操作を重ねない', () => withPage('index', async page => {
   for (const width of [700, 701, 390, 1280]) {
     await page.setViewportSize({ width, height: 900 });

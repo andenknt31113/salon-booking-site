@@ -69,9 +69,9 @@ function couponCard(c) {
 function staffTextHtml(s) {
   const extra = [['得意な技術', s.skills], ['趣味・マイブーム', s.hobby]]
     .filter(([, v]) => String(v ?? '').trim())
-    .map(([label, v]) => `<p style="margin-top:11px;"><b>${esc(label)}</b><br />${esc(v)}</p>`)
+    .map(([label, v]) => `<div><dt>${esc(label)}</dt><dd>${esc(v)}</dd></div>`)
     .join('');
-  return `<div class="staff-message"><p>${esc(s.message)}</p>${extra}</div>`;
+  return `<div class="staff-message"><p>${esc(s.message)}</p>${extra ? `<dl class="staff-details">${extra}</dl>` : ''}</div>`;
 }
 
 function staffCard(s) {
@@ -99,8 +99,10 @@ function staffCard(s) {
         ${meta ? `<p class="staff-kana">${esc(meta)}</p>` : ''}
         <ul class="tag-list">${s.tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>
         ${staffTextHtml(s)}
-        <p class="staff-fee">${esc(fee)}</p>
-        <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${cta}</a>
+        <div class="staff-booking">
+          <p class="staff-fee">${esc(fee)}</p>
+          <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${cta}</a>
+        </div>
       </div>
     </article>`;
 }
@@ -147,9 +149,9 @@ function wireStylePhotos(root = document) {
     button.className = 'style-photo-open';
     button.setAttribute('aria-label', `${photo.alt}の写真を拡大`);
     button.innerHTML = '<span>写真を拡大</span>';
-    button.hidden = !photo.complete || !photo.naturalWidth;
-    photo.addEventListener('load', () => { button.hidden = false; });
-    photo.addEventListener('error', () => { button.hidden = true; });
+    button.disabled = !photo.complete || !photo.naturalWidth;
+    photo.addEventListener('load', () => { button.disabled = false; button.hidden = false; });
+    photo.addEventListener('error', () => { button.disabled = true; button.hidden = true; });
     button.addEventListener('click', () => openStylePhoto(button));
     thumb.append(button);
   });
@@ -545,6 +547,9 @@ function initMenuPage() {
     const cats = SALON.menuCategories;
     const target = catId === 'all' ? cats : cats.filter(c => c.id === catId);
     if (setHtml(listHost, target.map(menuGroupHtml).join(''))) wireImageFallbacks(listHost);
+    const count = $('#menu-count');
+    const label = `${target.reduce((total, category) => total + category.items.length, 0)}メニューを表示`;
+    if (count && count.textContent !== label) count.textContent = label;
   };
   draw(selected);
 
@@ -577,6 +582,9 @@ function initCouponFilter() {
       ? SALON.coupons
       : SALON.coupons.filter(c => (c.tags || []).includes(tag));
     if (setHtml(host, list.map(couponCard).join(''))) wireImageFallbacks(host);
+    const count = $('#coupon-count');
+    const label = `${list.length}メニューを表示`;
+    if (count && count.textContent !== label) count.textContent = label;
   };
 
   const tags = [...new Set(SALON.coupons
