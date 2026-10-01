@@ -33,6 +33,7 @@ function fixture({ current = {}, admin = true } = {}) {
     }
   };
   const context = vm.createContext({ Date, console: { error() {}, warn() {} },
+    SpreadsheetApp: { flush() { assert.equal(held, true); } },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ setMimeType: () => body }) },
     LockService: { getScriptLock: () => ({ waitLock() { assert.equal(held, false); held = true; },

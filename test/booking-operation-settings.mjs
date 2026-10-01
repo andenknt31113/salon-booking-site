@@ -32,7 +32,10 @@ function fixture({ admin = false, calendar = false, failRead = false } = {}) {
   };
   const spreadsheet = { getSheetByName(name) { assert.equal(name, '設定'); return settingSheet; } };
   const ledger = { getParent: () => spreadsheet, getRange(_row, column) {
-    const range = { setValue(value) {
+    const range = { getValues() {
+      assert.equal(held, true);
+      return [[record[canonical[column - 1]] ?? '']];
+    }, setValue(value) {
       assert.equal(held, true);
       record[canonical[column - 1]] = value;
       writes.push({ column, value });
@@ -42,7 +45,7 @@ function fixture({ admin = false, calendar = false, failRead = false } = {}) {
   } };
   const context = vm.createContext({ Date, console: { error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() { assert.equal(held, true); } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: value => ({ setMimeType: () => value }) },
     LockService: { getScriptLock: () => ({ waitLock() { assert.equal(held, false); held = true; },
       releaseLock() { assert.equal(held, true); held = false; } }) },

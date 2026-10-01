@@ -2083,7 +2083,15 @@ function doCancel_(sheet, d) {
   const date = normalizeDate_(before[col('来店日')]) || d.date || '';
   const time = normalizeTime_(before[col('開始')]) || d.time || '';
 
-  sheet.getRange(row, col('状態') + 1).setValue('キャンセル');
+  try {
+    const statusRange = sheet.getRange(row, col('状態') + 1);
+    statusRange.setValue('キャンセル');
+    SpreadsheetApp.flush();
+    if (!isCancelled_(statusRange.getValues()[0][0])) throw new Error();
+  } catch (error) {
+    throw Object.assign(new Error('取消の保存結果を確認できません。予約確認ページで現在の状態を確認するか、店舗へお電話ください。'),
+      { unknown: true });
+  }
   try {
     sheet.getRange(row, 1, 1, headerRow_(sheet).length)
       .setFontLine('line-through')

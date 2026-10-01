@@ -45,6 +45,7 @@ function fixture({ records = [BOOKING], admin = true, headers: initialHeaders } 
     }
   };
   const context = vm.createContext({ Date, console: { error() {}, warn() {} },
+    SpreadsheetApp: { flush() { assert.equal(held, true); } },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ setMimeType: () => body }) },
     LockService: { getScriptLock: () => ({ waitLock() { assert.equal(held, false); held = true; },

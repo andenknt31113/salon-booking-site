@@ -1945,7 +1945,7 @@ function shop(sheetsInit = {}, source = srcLive) {
           });
           return range;
         },
-        setValue() {},
+        setValue(value) { return range.setValues([[value]]); },
         clearContent: () => {
           for (let i = 0; i < (nr || 1); i++) {
             const target = data[rw - 2 + i];
