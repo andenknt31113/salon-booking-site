@@ -375,6 +375,9 @@ const CLOSED_HEADERS = ['休業日', '開始', '終了', 'メモ'];
    受信の入口
    ============================================================ */
 const REQUEST_LOCK_TIMEOUT_MS = 20000;
+const POST_REQUEST_TYPES = ['adminAuthConfig', 'googleAdmin', 'menu', 'adminLogin', 'adminData',
+  'adminSave', 'adminUpload', 'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange',
+  'availability', 'lookup', 'cancel', 'change', 'review', 'reserve'];
 
 function withLedgerLock_(operation, timing, authorize) {
   const lock = LockService.getScriptLock();
@@ -397,6 +400,9 @@ function doPost(e) {
         || (data.type !== undefined && typeof data.type !== 'string')) throw new Error();
   } catch (error) {
     return json_({ ok: false, error: '送信内容を読み取れませんでした。ページを読み込み直してからお試しください。' });
+  }
+  if (data.type !== undefined && POST_REQUEST_TYPES.indexOf(data.type) < 0) {
+    return json_({ ok: false, invalid: true, error: '操作の種類を確認できません。ページを読み込み直してからお試しください。' });
   }
   try {
     if (data.type === 'adminAuthConfig') {
