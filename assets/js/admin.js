@@ -1402,7 +1402,7 @@ async function saveAddBooking(force = false) {
     }
     if (!res.ok) {
       phoneConflict = !!res.requestConflict;
-      phoneUncertain = !!res.transportError || !supportsPhoneRetry();
+      phoneUncertain = !!res.unknown || !!res.transportError || !supportsPhoneRetry();
       showAddError(res.error || '登録できませんでした。');
       return;
     }

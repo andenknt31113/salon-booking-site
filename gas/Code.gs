@@ -488,7 +488,7 @@ function doAdminAdd_(sheet, d) {
     menu: cell_(menuText, LIMITS.menu), memo: cell_(d.memo, LIMITS.request) });
   const col = colIndex_(sheet);
   if (requestId) {
-    const previous = readRows_(sheet).find(row => String(row[col('電話受付ID')] || '') === requestId);
+    const previous = findPhoneRequest_(sheet, col, requestId);
     if (previous) {
       if (String(previous[col('電話受付内容')]) !== requestContent) {
         return { ok: false, requestConflict: true, error: 'この受付は別の内容で登録済みです。登録結果を確認してください。' };
@@ -562,8 +562,14 @@ function doAdminAddStatus_(sheet, data) {
   const requestId = String(data.requestId || '');
   if (!PHONE_REQUEST_ID_PATTERN.test(requestId)) return { ok: false, error: '受付IDが正しくありません。' };
   const col = colIndex_(sheet);
-  const row = readRows_(sheet).find(record => String(record[col('電話受付ID')] || '') === requestId);
+  const row = findPhoneRequest_(sheet, col, requestId);
   return row ? { ...phoneResult_(row, col, requestId, true), found: true } : { ok: true, found: false, requestId: requestId };
+}
+
+function findPhoneRequest_(sheet, col, requestId) {
+  const matches = readRows_(sheet).filter(record => String(record[col('電話受付ID')] || '') === requestId);
+  if (matches.length > 1) throw new Error('電話受付IDが重複しています。制作担当者へ連絡して台帳を確認してください。');
+  return matches[0] || null;
 }
 
 /* ============================================================
