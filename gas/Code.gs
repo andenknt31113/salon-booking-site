@@ -102,10 +102,10 @@ function doGoogleAdmin_(data) {
     return { ok: false, authDenied: true, error: error.message };
   }
   const request = Object.assign({}, payload, { type: action, googleAdminContext: GOOGLE_ADMIN_CONTEXT });
+  if (action === 'adminUpload') return doAdminUpload_(request);
   return withLedgerLock_(function () {
     if (action === 'adminData') return doAdminData_(request);
     if (action === 'adminSave') return doAdminSave_(request);
-    if (action === 'adminUpload') return doAdminUpload_(request);
     if (action === 'adminAdd') return doAdminAdd_(getSheet_(), request);
     if (action === 'adminAddStatus') return doAdminAddStatus_(getSheet_(), request);
     if (action === 'adminNote') return doAdminNote_(getSheet_(), request);
@@ -2465,7 +2465,9 @@ function doAdminUpload_(d) {
   const name = slot + '-' + stamp + '.' + ext;
 
   const blob = Utilities.newBlob(Utilities.base64Decode(body), mime, name);
-  const file = imageFolder_().createFile(blob);
+  const folder = d.googleAdminContext === GOOGLE_ADMIN_CONTEXT
+    ? withLedgerLock_(imageFolder_) : imageFolder_();
+  const file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
   /* <img> から直接読める形式。ドライブの共有リンクそのままでは表示できません。
