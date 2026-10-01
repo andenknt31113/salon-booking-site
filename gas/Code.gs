@@ -513,6 +513,7 @@ function doAdminAdd_(sheet, d) {
   const code = issueCode_(sheet);
   const customer = { name: d.name, tel: d.tel || '', kana: '', email: '', visit: '', request: d.memo || '' };
 
+  const reservationHeaders = headerRow_(sheet);
   const row = rowFor_(sheet, {
     '予約番号': code,
     '受付日時': formatTime_(new Date().toISOString()),
@@ -533,13 +534,14 @@ function doAdminAdd_(sheet, d) {
     'カレンダーID': '',
     '電話受付ID': requestId,
     '電話受付内容': requestId ? requestContent : ''
-  });
-  sheet.appendRow(row);
+  }, reservationHeaders);
+  const reservationRow = appendVerifiedBooking_(sheet, row, reservationHeaders,
+    '電話予約の保存結果を確認できません。新しく登録せず、同じ電話受付の登録結果を確認してください。');
   const eventId = addToCalendar_({ code: code, date: date, time: time, totalMinutes: minutes,
     totalPrice: price, staffName: SALON_STAFF_NAME }, customer, menuText);
   if (eventId) {
     try {
-      sheet.getRange(sheet.getLastRow(), col('カレンダーID') + 1).setValue(eventId);
+      sheet.getRange(reservationRow, col('カレンダーID') + 1).setValue(eventId);
       row[col('カレンダーID')] = eventId;
     } catch (error) {
       removeFromCalendar_(eventId);
@@ -956,7 +958,6 @@ function doReserve_(sheet, d, verifyCatalog) {
      並べる順番は台帳の見出しに合わせます。店の人が列を足していても、
      それぞれの値が正しい列に入るようにするためです。 */
   const reservationHeaders = headerRow_(sheet);
-  if (!validBookingHeaders_(reservationHeaders, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
   const reservationValues = rowFor_(sheet, {
     '予約番号': d.code,
     '受付日時': formatTime_(d.createdAt),
@@ -984,22 +985,7 @@ function doReserve_(sheet, d, verifyCatalog) {
     '状態': '予約確定',
     'カレンダーID': ''
   }, reservationHeaders);
-  let reservationRow;
-  try {
-    sheet.appendRow(reservationValues);
-    SpreadsheetApp.flush();
-    reservationRow = sheet.getLastRow();
-    const saved = sheet.getRange(reservationRow, 1, 1, reservationHeaders.length).getValues()[0];
-    const normalizers = { 予約番号: codeKey_, 来店日: normalizeDate_, 開始: normalizeTime_, 終了: normalizeTime_,
-      '所要(分)': Number, 合計金額: Number, 電話番号: digits_, 担当ID: String, 状態: String };
-    if (!Array.isArray(saved) || Object.keys(normalizers).some(header => {
-      const column = reservationHeaders.indexOf(header);
-      return column >= 0 && normalizers[header](saved[column]) !== normalizers[header](reservationValues[column]);
-    })) throw new Error();
-  } catch (error) {
-    throw Object.assign(new Error('予約の保存結果を確認できません。同じ番号で予約確認ページを開くか、店舗へお電話ください。予約を取り直さないでください。'),
-      { unknown: true });
-  }
+  const reservationRow = appendVerifiedBooking_(sheet, reservationValues, reservationHeaders);
 
   const eventId = addToCalendar_(d, c, menuText, settings);
   let calendarWarning = !!CALENDAR_ID && !eventId;
@@ -2750,6 +2736,28 @@ function rowFor_(sheet, values, headers) {
   return (headers || headerRow_(sheet)).map(function (h) {
     return Object.prototype.hasOwnProperty.call(values, h) ? values[h] : '';
   });
+}
+
+function appendVerifiedBooking_(sheet, values, headers, errorMessage) {
+  if (!validBookingHeaders_(headers, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  try {
+    sheet.appendRow(values);
+    SpreadsheetApp.flush();
+    const row = sheet.getLastRow();
+    const saved = sheet.getRange(row, 1, 1, headers.length).getValues()[0];
+    const normalizers = { 予約番号: codeKey_, 来店日: normalizeDate_, 開始: normalizeTime_, 終了: normalizeTime_,
+      '所要(分)': Number, 合計金額: Number, 電話番号: digits_, 担当ID: String, 状態: String,
+      電話受付ID: String, 電話受付内容: String };
+    if (!Array.isArray(saved) || Object.keys(normalizers).some(header => {
+      const column = headers.indexOf(header);
+      return column >= 0 && normalizers[header](saved[column]) !== normalizers[header](values[column]);
+    })) throw new Error();
+    return row;
+  } catch (error) {
+    throw Object.assign(new Error(errorMessage
+      || '予約の保存結果を確認できません。同じ番号で予約確認ページを開くか、店舗へお電話ください。予約を取り直さないでください。'),
+      { unknown: true });
+  }
 }
 
 /* ============================================================
