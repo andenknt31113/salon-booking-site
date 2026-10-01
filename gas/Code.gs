@@ -3481,65 +3481,87 @@ function ensureHeaders_(ss, name, headers) {
    ・イベントのソース → 時間主導型
    ・タイプ → 日付ベースのタイマー（例：午後6時〜7時）
    ============================================================ */
-function sendReminders() {
-  if (PropertiesService.getScriptProperties().getProperty(BOOKING_CHANGE_JOURNAL)) {
-    throw new Error(BOOKING_CHANGE_RECOVERY_ERROR);
-  }
-  const sheet = getSheet_();
-  const last = sheet.getLastRow();
-  if (last < 2) return;
-  const rows = readRows_(sheet);
-  const col = colIndex_(sheet);
+const REMINDER_PROGRESS_KEY = 'REMINDER_DELIVERY_PROGRESS';
+const REMINDER_PROGRESS_ERROR = '前日通知の送信結果・進捗を確認できません。再送せず、制作担当者へ確認してください。';
 
+function reminderProgress_(props, target) {
+  const raw = props.getProperty(REMINDER_PROGRESS_KEY);
+  if (!raw) return props.getProperty('REMINDED_DATE') === target ? null : { date: target, sent: [], pending: [] };
+  try {
+    const progress = JSON.parse(raw);
+    if (!progress || !validDateKey_(progress.date) || !Array.isArray(progress.sent)
+        || !Array.isArray(progress.pending) || progress.pending.length
+        || progress.sent.some(code => typeof code !== 'string' || !/^[A-Z0-9-]{1,20}$/.test(code))
+        || new Set(progress.sent.map(codeKey_)).size !== progress.sent.length) throw new Error();
+    if (progress.date === target) return progress;
+    return props.getProperty('REMINDED_DATE') === target ? null : { date: target, sent: [], pending: [] };
+  } catch (error) {
+    throw new Error(REMINDER_PROGRESS_ERROR);
+  }
+}
+
+function saveReminderProgress_(props, progress) {
+  const raw = JSON.stringify(progress);
+  props.setProperty(REMINDER_PROGRESS_KEY, raw);
+  if (props.getProperty(REMINDER_PROGRESS_KEY) !== raw) throw new Error(REMINDER_PROGRESS_ERROR);
+}
+
+function reminderRows_(sheet, target) {
+  const col = colIndex_(sheet);
+  const found = new Set();
+  return readRows_(sheet).filter(values => !isCancelled_(values[col('状態')])
+    && normalizeDate_(values[col('来店日')]) === target).map(values => {
+    const code = halfWidth_(values[col('予約番号')]).replace(/^'/, '').trim().toUpperCase();
+    const key = codeKey_(code);
+    if (!/^[A-Z0-9-]{1,20}$/.test(code) || found.has(key)) throw new Error(REMINDER_PROGRESS_ERROR);
+    found.add(key);
+    return { code: code, values: values, col: col };
+  });
+}
+
+function sendReminders() {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const target = Utilities.formatDate(tomorrow, 'Asia/Tokyo', 'yyyy-MM-dd');
-
-  /* 同じ日のぶんを二度送らないようにします。
-
-     トリガーは、こちらが何もしなくても二度動くことがあります。
-     動作を確かめようとして手で実行することもあります。そのたびに
-     お客様へ「明日のご予約」がもう一通届くのは、店の信用に関わります。
-     送った日付を控えておき、同じ日なら何もしません。 */
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try {
+  const codes = withLedgerLock_(function () {
     const props = PropertiesService.getScriptProperties();
-    if (props.getProperty('REMINDED_DATE') === target) {
-      console.log(`リマインドは送信済みです（対象日 ${target}）`);
-      return;
-    }
-    props.setProperty('REMINDED_DATE', target);
-  } finally {
-    lock.releaseLock();
-  }
-
+    if (!reminderProgress_(props, target)) return [];
+    return reminderRows_(getSheet_(), target).map(record => record.code);
+  });
   let sent = 0;
   let unsent = 0;
-
-  rows.forEach(r => {
-    if (isCancelled_(r[col('状態')])) return;
-    if (normalizeDate_(r[col('来店日')]) !== target) return;
-
-    const status = mailCustomer_(r[col('メール')], `明日のご予約のご案内（${normalizeTime_(r[col('開始')])}〜）`, [
-      `${r[col('お名前')]} 様`,
-      '',
-      '明日のご予約をご案内いたします。お気をつけてお越しください。',
-      '',
-      `ご予約番号：${r[col('予約番号')]}`,
-      `ご来店日時：${target} ${normalizeTime_(r[col('開始')])}〜`,
-      `メニュー　：${r[col('メニュー')]}`,
-      `ご担当　　：${r[col('担当')]}`,
-      '',
-      'ご都合が変わられた場合は、お手数ですがご連絡ください。',
-      '',
-      `${SALON_NAME}`,
-      salonSignature_()
-    ].filter(Boolean).join('\n'));
-    if (status === '送信処理受付') sent++;
-    else unsent++;
+  codes.forEach(code => {
+    withLedgerLock_(function () {
+      const props = PropertiesService.getScriptProperties();
+      const progress = reminderProgress_(props, target);
+      if (!progress || progress.sent.some(previous => codeKey_(previous) === codeKey_(code))) return;
+      const record = reminderRows_(getSheet_(), target).find(candidate => codeKey_(candidate.code) === codeKey_(code));
+      if (!record) return;
+      const values = record.values;
+      const col = record.col;
+      progress.pending.push(code);
+      saveReminderProgress_(props, progress);
+      const status = mailCustomer_(values[col('メール')], `明日のご予約のご案内（${normalizeTime_(values[col('開始')])}〜）`, [
+        `${values[col('お名前')]} 様`,
+        '',
+        '明日のご予約をご案内いたします。お気をつけてお越しください。',
+        '',
+        `ご予約番号：${values[col('予約番号')]}`,
+        `ご来店日時：${target} ${normalizeTime_(values[col('開始')])}〜`,
+        `メニュー　：${values[col('メニュー')]}`,
+        `ご担当　　：${values[col('担当')]}`,
+        '',
+        'ご都合が変わられた場合は、お手数ですがご連絡ください。',
+        '',
+        `${SALON_NAME}`,
+        salonSignature_()
+      ].filter(Boolean).join('\n'));
+      if (status === '送信処理受付') { sent++; progress.sent.push(code); }
+      else unsent++;
+      progress.pending = [];
+      saveReminderProgress_(props, progress);
+    });
   });
-
   console.log(`リマインド送信処理受付: ${sent}件、未送信: ${unsent}件（対象日 ${target}）`);
 }
 
