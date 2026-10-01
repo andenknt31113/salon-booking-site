@@ -2783,8 +2783,13 @@ function findRowByCode_(sheet, code) {
   if (last < 2) return -1;
   const codeColumn = colIndex_(sheet)('予約番号') + 1;
   const codes = sheet.getRange(2, codeColumn, last - 1, 1).getValues();
-  const i = codes.findIndex(r => codeKey_(r[0]) === key);
-  return i === -1 ? -1 : i + 2;
+  let matchedRow = -1;
+  codes.forEach((record, index) => {
+    if (codeKey_(record[0]) !== key) return;
+    if (matchedRow !== -1) throw new Error('予約台帳の予約番号が重複しています。店舗または制作担当者に確認を依頼してください。');
+    matchedRow = index + 2;
+  });
+  return matchedRow;
 }
 
 /* 予約が入ったときの通知先。
