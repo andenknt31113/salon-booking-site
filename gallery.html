@@ -20,7 +20,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20261001-stable" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20261001-journal" />
 </head>
 <body data-page="gallery">
   <div id="site-header"></div>
@@ -36,13 +36,16 @@
         <!-- 「ご要望欄に名前を書いていただければ」と書いてありましたが、
              書き写す作業をお客様にさせていました。カードのボタンが名前を運ぶので、
              お願いする文ではなく、何が起きるかを書きます。 -->
-        <p><span class="booking-active-only">気になるスタイルの「このスタイルで予約」を押すと、そのスタイル名をご要望欄に入れた状態でご予約に進めます。</span><span class="booking-paused-only">気になるスタイルから、ご予約についてのご案内を確認できます。</span></p>
+        <p><span class="booking-active-only">気になるスタイルから予約へ進むと、ご要望欄にスタイル名を引き継ぎます。</span><span class="booking-paused-only">気になるスタイルから、ご予約についてのご案内を確認できます。</span></p>
       </div>
     </div>
 
-    <section class="section">
+    <section class="section style-collection">
       <div class="container">
-        <div class="tabs" id="style-tabs"></div>
+        <div class="style-collection-tools">
+          <div class="tabs" id="style-tabs"></div>
+          <p class="style-count" id="style-count" role="status" aria-atomic="true"></p>
+        </div>
         <section class="style-grid" id="style-list" aria-label="ヘアスタイル一覧">
     <article class="style-card">
 
@@ -276,6 +279,6 @@
   <script src="assets/js/data.js?v=20260929-booking"></script>
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js?v=20260929-navigation"></script>
-  <script src="assets/js/pages.js?v=20261001-stable"></script>
+  <script src="assets/js/pages.js?v=20261001-journal"></script>
 </body>
 </html>

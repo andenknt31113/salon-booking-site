@@ -621,6 +621,11 @@ function initGalleryPage() {
     const list = len === 'すべて' ? SALON.styles : SALON.styles.filter(s => s.length === len);
     if (setHtml(host, list.map(styleCard).join(''))) wireImageFallbacks(host);
     wireStylePhotos(host);
+    const count = $('#style-count');
+    if (count) {
+      const text = `${list.length}スタイルを表示`;
+      if (count.textContent !== text) count.textContent = text;
+    }
   };
   draw(selected);
   bindStyleBooking();

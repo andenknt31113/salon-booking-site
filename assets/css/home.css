@@ -41,6 +41,9 @@
 .home-styles .style-title { font-weight: 500; font-size: 14px; line-height: 1.8; }
 .home-styles .ph-photo { opacity: 1; }
 .home-styles .style-book { min-height: 44px; margin-top: 14px; }
+.home-styles .section-head { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; margin-bottom: 48px; }
+.home-styles .section-label, .home-styles .section-title { grid-column: 1; margin: 0; }
+.home-styles .section-desc { grid-column: 2; grid-row: 1 / 3; align-self: end; justify-self: end; margin: 0; }
 .home-menu > .container { display: grid; grid-template-columns: 1fr 2fr; column-gap: 9%; align-items: start; }
 .home-menu .section-head { grid-column: 1; grid-row: 1 / 3; }
 .home-menu .coupon-list, .home-menu .section-more { grid-column: 2; }
@@ -112,6 +115,8 @@
   .hero-desc { font-size: 14px; }
   .hero-meta { display: grid; }
   .home-styles .style-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 16px; }
+  .home-styles .section-head { grid-template-columns: 1fr; gap: 10px; margin-bottom: 32px; }
+  .home-styles .section-desc { grid-column: 1; grid-row: auto; justify-self: start; }
   .home-styles .style-card:nth-child(even) { margin-top: 28px; }
   .home-styles .style-title { font-size: 13px; }
   .home-styles .style-book { width: 100%; }
