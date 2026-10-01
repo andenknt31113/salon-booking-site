@@ -857,14 +857,13 @@ function slotStopMessage(reason) {
    選び直されると、送っている内容と画面が食い違うため）。 */
 let submitting = false;
 
-function setSubmitting(on, phase = 'send') {
+function setSubmitting(on) {
   const wasSubmitting = submitting;
   submitting = on;
   const note = $('#sending-note');
   if (note) {
     note.hidden = !on;
-    if (on) note.textContent = phase === 'availability' ? '最新の空席状況を確認しています。'
-      : '店舗へ送信しています。返事を待っていますので、もう一度予約を送らずにお待ちください。';
+    if (on) note.textContent = '店舗へ送信し、最新の受付条件を確認しています。もう一度予約を送らずにお待ちください。';
   }
   const btn = $('#submit-reservation');
   if (!btn) return;
@@ -880,22 +879,6 @@ async function submitReservation() {
     $('#catalog-status').focus();
     return;
   }
-  setSubmitting(true, 'availability');
-
-  // 選択中に他のお客様が同じ枠を押さえていないか、最新の状況で確認する
-  await Remote.load(true);
-  const info = Availability.slotInfo(state.date, state.time, state.staffId, totalMinutes());
-  if (!info.available) {
-    setSubmitting(false);
-    /* 断る理由は、そのとおりに伝えます。
-       画面を開いたまま時間が過ぎただけなのに「他のお客様のご予約が入りました」と
-       出すのは、事実と違います。 */
-    alert(slotStopMessage(info.reason));
-    state.time = null;
-    goTo(3);
-    return;
-  }
-
   let reservation;
   let changeUnchanged = false;
   setSubmitting(true);

@@ -1657,7 +1657,7 @@ function doAdminChange_(sheet, d) {
 
 function doChange_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
-  if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };
+  if (row === -1) return { ok: false, invalid: true, error: '該当する予約が見つかりません: ' + d.code };
 
   const col = colIndex_(sheet);
   const before = readRow_(sheet, row);
@@ -1669,13 +1669,13 @@ function doChange_(sheet, d) {
      店（管理ページ）からの変更はパスワードで通します。 */
   if (!admin
       && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
-    return { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
+    return { ok: false, invalid: true, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
   }
   if (isCancelled_(before[col('状態')])) {
-    return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
+    return { ok: false, cancelled: true, error: 'キャンセル済みのご予約は変更できません。' };
   }
   if (!admin && !validDateKey_(normalizeDate_(before[col('来店日')]))) {
-    return { ok: false, error: UNKNOWN_VISIT_DATE_ERROR };
+    return { ok: false, invalid: true, error: UNKNOWN_VISIT_DATE_ERROR };
   }
   /* 変更前の来店日で判定する（間近の予約を遠い日へ逃がすのも受付期限の対象）。
      キャンセルと同じで、これはお客様の締め切りです。
@@ -1686,7 +1686,7 @@ function doChange_(sheet, d) {
 
   const newDate = normalizeDate_(d.date);
   const newTime = normalizeTime_(d.time);
-  if (!validDateKey_(newDate) || !newTime) return { ok: false, error: '日時が正しくありません。' };
+  if (!validDateKey_(newDate) || !newTime) return { ok: false, invalid: true, error: '日時が正しくありません。' };
 
   // 同じ担当の同じ時間に別の予約が入っていないか確認する。
   // 画面側でも確認していますが、送信までのあいだに埋まることがあります。
@@ -1696,32 +1696,32 @@ function doChange_(sheet, d) {
      ここを見ていないと「予約は今日以降しか取れないのに、
      変更なら過去や営業時間外に動かせる」という抜け道になります。 */
   const ahead = dayNo_(newDate) - dayNo_(todayKey_());
-  if (ahead < 0) return { ok: false, error: 'すでに過ぎた日付には変更できません。' };
+  if (ahead < 0) return { ok: false, invalid: true, error: 'すでに過ぎた日付には変更できません。' };
   if (ahead > BOOKABLE_DAYS) {
-    return { ok: false, error: `ご予約は${BOOKABLE_DAYS}日先まで承っております。` };
+    return { ok: false, invalid: true, error: `ご予約は${BOOKABLE_DAYS}日先まで承っております。` };
   }
   const startMin = timeToMin_(newTime);
-  if (startMin == null) return { ok: false, error: '開始時刻が正しくありません。' };
+  if (startMin == null) return { ok: false, invalid: true, error: '開始時刻が正しくありません。' };
   const untilMin = ahead * 1440 + startMin - nowMinJst_();
   if (!admin && untilMin < MIN_LEAD_HOURS * 60 - LEAD_GRACE_MINUTES) {
-    return { ok: false, error: `当日のご予約は${MIN_LEAD_HOURS}時間前までとなっております。お手数ですが店舗までお電話ください。` };
+    return { ok: false, invalid: true, error: `当日のご予約は${MIN_LEAD_HOURS}時間前までとなっております。お手数ですが店舗までお電話ください。` };
   }
   if (!Number.isInteger(minutes) || minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
-    return { ok: false, error: '所要時間が正しくありません。' };
+    return { ok: false, invalid: true, error: '所要時間が正しくありません。' };
   }
   const hrs = openHours_(sheet);
   if (startMin < hrs.open || startMin > hrs.last || startMin + minutes > hrs.close) {
-    return { ok: false, error: '営業時間外のご予約は承れません。' };
+    return { ok: false, scheduleChanged: true, error: '営業時間外のご予約は承れません。' };
   }
   if (isClosedWeekday_(sheet, newDate)) {
-    return { ok: false, error: 'その日は定休日のため、ご予約を承れません。' };
+    return { ok: false, scheduleChanged: true, error: 'その日は定休日のため、ご予約を承れません。' };
   }
 
   if (hitsClosed_(sheet, newDate, newTime, minutes)) {
-    return { ok: false, error: 'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' };
+    return { ok: false, closed: true, error: 'ご希望の時間は、店舗の都合により受付を止めております。別の日時をお選びください。' };
   }
   if (isTaken_(sheet, newDate, newTime, minutes, staffId, d.code)) {
-    return { ok: false, error: 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' };
+    return { ok: false, taken: true, error: 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。' };
   }
 
   const oldDate = normalizeDate_(before[col('来店日')]);
@@ -1729,7 +1729,7 @@ function doChange_(sheet, d) {
   const previousEventId = String(before[col('カレンダーID')] || '');
   const hasPrevious = d.fromDate !== undefined || d.fromTime !== undefined;
   if (hasPrevious && (!d.fromDate || !d.fromTime)) {
-    return { ok: false, error: '変更前の日時が必要です。予約確認画面を開き直してください。' };
+    return { ok: false, invalid: true, error: '変更前の日時が必要です。予約確認画面を開き直してください。' };
   }
   if (newDate === oldDate && newTime === oldTime) {
     return { ok: true, unchanged: true,

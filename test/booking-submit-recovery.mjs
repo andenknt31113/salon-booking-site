@@ -22,8 +22,9 @@ async function fixture(run) {
   const errors = [];
   const notices = [];
   const writes = [];
+  const reads = [];
   const releases = [];
-  const control = { fail: '', saveFirst: false, holdAvailability: false };
+  const control = { fail: '', saveFirst: false, holdAvailability: false, rejection: null };
   try {
     await fetch(`${base}/exec`, { method: 'POST', body: JSON.stringify({ type: 'reset' }) });
     await context.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname)
@@ -37,6 +38,7 @@ async function fixture(run) {
     });
     await context.route(`${base}/exec`, async route => {
       const payload = JSON.parse(route.request().postData() || '{}');
+      if (['menu', 'availability'].includes(payload.type)) reads.push(payload);
       if (payload.type === 'availability' && control.holdAvailability) {
         await new Promise(resolve => releases.push(resolve));
         await route.continue().catch(() => {});
@@ -47,6 +49,10 @@ async function fixture(run) {
         return;
       }
       writes.push(payload);
+      if (control.rejection) {
+        await route.fulfill({ json: control.rejection });
+        return;
+      }
       if (!control.fail) { await route.continue(); return; }
       if (control.saveFirst) assert.equal((await (await route.fetch()).json()).ok, true);
       if (control.fail === 'stall') {
@@ -59,7 +65,7 @@ async function fixture(run) {
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(error.message));
     page.on('dialog', async dialog => { notices.push(dialog.message()); await dialog.accept(); });
-    await run({ page, base, writes, control, releases, notices });
+    await run({ page, base, writes, reads, control, releases, notices });
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
   } finally {
     releases.forEach(resolve => resolve());
@@ -142,22 +148,36 @@ for (const failure of ['http', 'stall']) {
   }
 }
 
-test('送信前の空席確認と店舗への書込を区別し、正常時は完了と番号を表示する', async () => {
-  await fixture(async ({ page, base, writes, control, releases }) => {
+test('空席を二重に取り直してから送信せず、店舗の最終検査へ一度だけ進む', async () => {
+  await fixture(async ({ page, base, writes, reads, control }) => {
     await fillReservation(page, base);
+    const readsBefore = reads.length;
     control.holdAvailability = true;
     await page.locator('#submit-reservation').click();
-    await page.waitForFunction(() => document.querySelector('#sending-note').textContent.includes('最新の空席'));
-    assert.equal(writes.length, 0, '空席確認中はまだ予約を送信していない');
-    control.holdAvailability = false;
-    releases.splice(0).forEach(resolve => resolve());
-    await page.waitForFunction(() => !submitting && state.step === 6);
+    await page.waitForFunction(() => !submitting && state.step === 6, null, { timeout: 3000 });
+    assert.equal(reads.length, readsBefore, '予約前に追加の空席取得を待たない');
     assert.match(await page.locator('#h-done').textContent(), /完了/);
     assert.equal(await page.locator('#add-to-calendar').isDisabled(), false);
     assert.equal(writes.length, 1);
     assert.equal((await page.evaluate(() => Store.all()))[0].deliveryState, 'confirmed');
   });
 });
+
+for (const flag of ['taken', 'closed', 'scheduleChanged', 'catalogChanged', 'draft', 'invalid', 'conflict', 'cancelled']) {
+  test(`店舗の最終検査で${flag}を返されたら、完了や未確認の控えを作らない`, async () => {
+    await fixture(async ({ page, base, writes, control, notices }) => {
+      await fillReservation(page, base);
+      control.rejection = { ok: false, [flag]: true, error: `最終検査：${flag}` };
+      await page.locator('#submit-reservation').click();
+      await page.waitForFunction(() => !submitting);
+      assert.equal(writes.length, 1);
+      assert.equal(await page.locator('[data-panel="6"]').isVisible(), false);
+      assert.equal(await page.evaluate(() => Store.all().length), 0);
+      assert.ok(notices.some(message => message.includes(`最終検査：${flag}`)));
+      assert.equal(await page.locator('#submit-reservation').isDisabled(), false);
+    });
+  });
+}
 
 for (const fromLookup of [false, true]) {
   test(`${fromLookup ? '照会結果' : '端末の予約'}からの取消が保存後に応答を失っても、確認してから次の操作へ進む`, async () => {

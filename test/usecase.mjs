@@ -369,9 +369,9 @@ console.log('\n【UC11】店が予約一覧を見て、キャンセル扱いに�
 }
 
 /* ============================================================
-   UC12 通信が切れて、店に届かなかった
+   UC12 通信が切れて、店舗の応答を確認できない
    ============================================================ */
-console.log('\n【UC12】通信が切れて、店に届かなかった');
+console.log('\n【UC12】通信が切れて、店舗の応答を確認できない');
 {
   await post({ type: 'failmode', on: true });
   const p = await newPhone('UC12');
@@ -875,11 +875,14 @@ console.log('\n【UC21】Apps Script を入れ直して、公開設定を間違�
     stored: JSON.parse(localStorage.getItem('salon.reservations.v1') || '[]')
   }));
   check('UC21', '見出しが「完了しました」になっていない', /完了しました/.test(seen.head), false);
-  check('UC21', '届いていないと見出しで伝えている', /届いて/.test(seen.head), true);
+  check('UC21', '受付結果が未確認だと見出しで伝えている', /受付結果を確認できません/.test(seen.head), true);
   check('UC21', '店舗へ連絡するようご案内している', /お電話|ご連絡/.test(seen.warn), true);
   check('UC21', '予約番号は出している（電話で伝えられるように）', /^LM-/.test(seen.code.trim()), true);
-  check('UC21', 'この端末には届かなかったことを記録している',
+  check('UC21', 'この端末には受付未確認を記録している',
     seen.stored.length === 1 && seen.stored[0].delivered === false, true);
+  check('UC21', '未確認の状態を次の画面でも判別できる', seen.stored[0]?.deliveryState, 'unknown');
+  check('UC21', '受付前後が不明な予約をカレンダーに追加しない',
+    await p.locator('#add-to-calendar').isDisabled(), true);
   console.log('   見出し:', seen.head);
 
   await post({ type: 'htmlmode', on: true });
@@ -1190,9 +1193,9 @@ console.log('\n【UC28】完了画面で、番号を控えて、この先が分�
 }
 
 /* ============================================================
-   UC29 届かなかったのに「メールを送りました」と言わない
+   UC29 受付結果が未確認なのに「メールを送りました」と言わない
    ============================================================ */
-console.log('\n【UC29】店舗に届かなかったときは、送っていない案内を出さない');
+console.log('\n【UC29】受付結果が未確認のときは、メール送信済みと断言しない');
 {
   /* UC28 で足した案内は、届いたときだけ正しい文です。
      届かなかった画面に「確認メールをお送りしました」が残っていると、
@@ -1218,10 +1221,12 @@ console.log('\n【UC29】店舗に届かなかったときは、送っていな�
   await p.locator('#submit-reservation').click(); await p.waitForTimeout(7000);
 
   const follow = await p.locator('#done-follow').innerText();
-  check('UC29', '届いていないことを見出しで伝えている',
-    /届いて/.test(await p.locator('#h-done').innerText()), true);
+  check('UC29', '受付結果が未確認だと見出しで伝えている',
+    /受付結果を確認できません/.test(await p.locator('#h-done').innerText()), true);
   check('UC29', '送っていないメールを「送りました」と書かない', /確認メール/.test(follow), false);
-  check('UC29', '店舗へ連絡する道は残している', /080-4498-7036/.test(follow), true);
+  check('UC29', '警告が見える状態を保つ', await p.locator('#done-warning').isVisible(), true);
+  check('UC29', '店舗へ連絡する道は残している',
+    /080-4498-7036/.test(await p.locator('#done-warning').innerText()), true);
   check('UC29', '予約番号は出している', /^LM-/.test((await p.locator('#done-code').innerText()).trim()), true);
   await p.context().close();
 }
