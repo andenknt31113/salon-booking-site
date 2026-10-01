@@ -121,7 +121,7 @@ function styleCard(sy) {
         ${/* 灰色のままだと分類・タグと同じ見た目に埋もれるので、本文の色にします
               （style.css は別の作業者が触っているので、ここで指定しています） */ ''}
         ${detail ? `<p class="style-meta" style="color:var(--text-2);">${esc(detail)}</p>` : ''}
-        <p class="style-meta">${sy.tags.map(t => `#${esc(t)}`).join(' ')}</p>
+        ${sy.tags.length ? `<details class="style-keywords"><summary>関連キーワード</summary><p class="style-meta">${sy.tags.map(tag => `#${esc(tag)}`).join(' ')}</p></details>` : ''}
         ${/* 押すと、このスタイルの名前をご要望欄まで持っていきます
               （common.js の rememberStyleRequest → 予約ページの takeStyleRequest）。
               以前は一覧の下に「このイメージで予約する」が1つあるだけで、どのスタイルも
@@ -135,6 +135,43 @@ function styleCard(sy) {
              : '<span>このスタイルで</span><span>予約</span>'}</a>
       </div>
     </article>`;
+}
+
+function wireStylePhotos(root = document) {
+  if (typeof HTMLDialogElement === 'undefined' || typeof HTMLDialogElement.prototype.showModal !== 'function') return;
+  root.querySelectorAll('.style-thumb').forEach(thumb => {
+    const photo = thumb.querySelector('img.ph-photo');
+    if (!photo || thumb.querySelector('.style-photo-open')) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'style-photo-open';
+    button.setAttribute('aria-label', `${photo.alt}の写真を拡大`);
+    button.innerHTML = '<span>写真を拡大</span>';
+    button.hidden = !photo.complete || !photo.naturalWidth;
+    photo.addEventListener('load', () => { button.hidden = false; });
+    photo.addEventListener('error', () => { button.hidden = true; });
+    button.addEventListener('click', () => openStylePhoto(button));
+    thumb.append(button);
+  });
+}
+
+function openStylePhoto(button) {
+  if (document.querySelector('.style-photo-dialog')) return;
+  const photo = button.closest('.style-thumb').querySelector('img.ph-photo');
+  if (!photo || !photo.complete || !photo.naturalWidth) return;
+  const title = button.closest('.style-card').querySelector('.style-title').textContent;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'style-photo-dialog';
+  dialog.setAttribute('aria-labelledby', 'style-photo-title');
+  dialog.innerHTML = '<form method="dialog"><button class="btn btn-outline btn-sm" autofocus>閉じる</button></form>'
+    + `<figure><img src="${esc(photo.getAttribute('src'))}" alt="${esc(photo.alt)}" />`
+    + `<figcaption id="style-photo-title">${esc(title)}</figcaption></figure>`;
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    if (button.isConnected) button.focus({ preventScroll: true });
+  }, { once: true });
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 /* スタイルのボタンは、一覧を描き直すたびに作り直されます。
@@ -468,6 +505,7 @@ function initHome() {
   renderSalonInfo($('#salon-info'));
   renderFaq($('#faq-list'));
   wireImageFallbacks();
+  wireStylePhotos();
 }
 
 function initMenuPage() {
@@ -556,13 +594,16 @@ function initGalleryPage() {
   const host = $('#style-list');
   const tabsHost = $('#style-tabs');
   const lengths = ['すべて', ...new Set(SALON.styles.map(s => s.length))];
+  tabsHost.setAttribute('role', 'group');
+  tabsHost.setAttribute('aria-label', 'スタイルの種類で絞り込む');
   tabsHost.innerHTML = lengths
-    .map((l, i) => `<button class="tab" type="button" data-len="${esc(l)}" aria-selected="${i === 0}">${esc(l)}</button>`)
+    .map((length, index) => `<button class="tab" type="button" data-len="${esc(length)}" aria-selected="${index === 0}" aria-pressed="${index === 0}">${esc(length)}</button>`)
     .join('');
 
   const draw = len => {
     const list = len === 'すべて' ? SALON.styles : SALON.styles.filter(s => s.length === len);
     if (setHtml(host, list.map(styleCard).join(''))) wireImageFallbacks(host);
+    wireStylePhotos(host);
   };
   draw('すべて');
   bindStyleBooking();
@@ -570,7 +611,10 @@ function initGalleryPage() {
   bindOnce('style-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
-    $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    $$('.tab', tabsHost).forEach(option => {
+      option.setAttribute('aria-selected', String(option === tab));
+      option.setAttribute('aria-pressed', String(option === tab));
+    });
     draw(tab.dataset.len);
   }));
 }

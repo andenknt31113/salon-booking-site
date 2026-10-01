@@ -4,6 +4,7 @@ body {
   --panel-2: #eae5da;
   --line: #cfc8bb;
   --text-2: #585348;
+  --font-display: "Yu Mincho", "Hiragino Mincho ProN", serif;
 }
 .container { width: min(1240px, calc(100% - 96px)); }
 .container-narrow { width: min(840px, calc(100% - 96px)); }
@@ -22,13 +23,14 @@ body {
 .section-alt { background: transparent; border: 0; }
 .section-head { text-align: left; margin-bottom: 32px; }
 .section-label { font-size: 11px; color: var(--text-2); letter-spacing: .2em; }
-.section-title { font-weight: 500; font-size: 27px; letter-spacing: .05em; }
+.section-title { font-family: var(--font-display); font-weight: 500; font-size: 30px; letter-spacing: .05em; }
 .section-more { margin-top: 30px; text-align: right; }
 .page-head { padding-block: 32px 48px; background: transparent; border: 0; }
 .breadcrumb { margin-bottom: 38px; }
 .page-head .page-kicker { font: 11px/1.8 var(--font-en); letter-spacing: .2em; margin: 0 0 14px; }
 .page-head h1 { font-size: clamp(25px, 3.5vw, 38px); font-weight: 500; letter-spacing: .05em; line-height: 1.6; }
 .page-head h1 + p { max-width: 680px; margin-top: 22px; line-height: 2; }
+body:not([data-page="reserve"]):not([data-page="mypage"]) .page-head h1 { font-family: var(--font-display); font-size: clamp(32px, 4vw, 52px); letter-spacing: .04em; }
 .page-head + .section { padding-top: 16px; }
 .page-jump { gap: 12px 24px; }
 .page-jump a { padding: 10px 0; border: 0; border-bottom: 1px solid var(--text-2); color: var(--text); font-weight: 400; }
@@ -45,6 +47,23 @@ body[data-page="gallery"] .style-title { font-size: 16px; font-weight: 500; line
 body[data-page="gallery"] .style-meta { font-size: 12px; line-height: 1.9; margin-top: 10px; }
 body[data-page="gallery"] .style-book { align-self: flex-start; margin-top: 22px; min-height: 44px; }
 body[data-page="gallery"] .ph-photo { opacity: 1; }
+.style-keywords { margin-top: 10px; color: var(--text-2); font-size: 12px; }
+.style-keywords summary { display: list-item; width: fit-content; min-height: 44px; padding-block: 12px; cursor: pointer; }
+.style-keywords summary::marker { color: var(--accent); }
+.style-keywords[open] summary { color: var(--ink); }
+.style-keywords .style-meta { margin: 0 0 10px; line-height: 1.9; }
+.style-photo-open { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.style-photo-open span { position: absolute; right: 10px; bottom: 10px; padding: 8px 10px; background: var(--ink); color: var(--on-ink); font: 11px/1.4 var(--font); }
+.style-photo-open:focus-visible { outline: 3px solid var(--on-ink); outline-offset: -6px; }
+.style-photo-open:is(:hover, :focus-visible) span { background: var(--accent); }
+.style-photo-dialog { width: min(960px, calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 16px; border: 1px solid var(--line); background: var(--ground); color: var(--text); overflow: auto; overscroll-behavior: contain; }
+.style-photo-dialog::backdrop { background: rgb(25 23 19 / 75%); }
+.style-photo-dialog form { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.style-photo-dialog .btn { min-width: 72px; min-height: 44px; }
+.style-photo-dialog figure { margin: 0; }
+.style-photo-dialog img { display: block; width: 100%; height: min(68dvh, 760px); object-fit: contain; }
+.style-photo-dialog figcaption { padding-top: 14px; font-size: 14px; line-height: 1.8; }
+body:has(.style-photo-dialog[open]) { overflow: hidden; }
 
 body[data-page="menu"] .coupon-list { gap: 0; border-bottom: 1px solid var(--line); }
 body[data-page="menu"] .coupon { padding: 32px 0; gap: 28px; background: none; border: 0; border-top: 1px solid var(--line); }
@@ -98,6 +117,14 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
 .review-disclosure { grid-column: 1 / -1; padding-top: 24px; border-top: 1px solid var(--line); }
 .review-return { margin-top: 28px; text-align: center; }
 .review-return a { display: inline-flex; align-items: center; min-height: 44px; font-size: 14px; text-decoration: underline; text-underline-offset: 5px; }
+
+@media (min-width: 1001px) {
+  .page-head-editorial > .container { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 7%; }
+  .page-head-editorial .breadcrumb { grid-column: 1 / -1; }
+  .page-head-editorial .page-kicker, .page-head-editorial h1 { grid-column: 1; }
+  .page-head-editorial h1 { line-height: 1.4; }
+  .page-head-editorial h1 + p { grid-column: 2; grid-row: 2 / 4; align-self: end; margin-top: 0; }
+}
 
 @media (max-width: 1000px) {
   .container { width: calc(100% - 48px); }
