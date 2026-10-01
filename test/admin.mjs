@@ -349,13 +349,15 @@ await group('【管6】電話予約の打ち間違い', async () => {
 await group('【管7】お客様から当日キャンセルの電話が入る', async () => {
   await p.fill('#filter-date', key(0)); await p.waitForTimeout(400);
   p.__answer = 'accept';
-  await p.locator('[data-admin-cancel]').first().click(); await p.waitForTimeout(1400);
+  await p.locator('[data-admin-cancel]').first().click();
+  await p.getByRole('button', { name: 'この予約をキャンセルする', exact: true }).click(); await p.waitForTimeout(1400);
   check('管7', '店は当日でもキャンセルできる',
     await p.locator('#admin-rows .status-chip.is-cancelled').count(), 1);
 
   // 先の予約は、店からキャンセルできる
   await p.fill('#filter-date', key(7)); await p.waitForTimeout(400);
-  await p.locator('[data-admin-cancel]').first().click(); await p.waitForTimeout(1800);
+  await p.locator('[data-admin-cancel]').first().click();
+  await p.getByRole('button', { name: 'この予約をキャンセルする', exact: true }).click(); await p.waitForTimeout(1800);
   check('管7', '先のご予約は店からキャンセルできる',
     await p.locator('#admin-rows .status-chip.is-cancelled').count(), 1);
 });
@@ -372,7 +374,8 @@ await group('【管8】キャンセルは通ったが、読み直しで通信が
   await p.fill('#filter-date', key(8)); await p.waitForTimeout(400);
   p.__dialogs.length = 0;
   p.__answer = 'accept';
-  await p.locator('[data-admin-cancel]').first().click(); await p.waitForTimeout(1600);
+  await p.locator('[data-admin-cancel]').first().click();
+  await p.getByRole('button', { name: 'この予約をキャンセルする', exact: true }).click(); await p.waitForTimeout(1600);
   check('管8', '読み直せなかったことを黙っていない',
     /取得できませんでした.*古い可能性/.test(await textOf(p.locator('#reservation-freshness'))), true);
   check('管8', '読み直し失敗でも確定したキャンセルは表示する',
@@ -1652,12 +1655,24 @@ await group('管31 休業日を日を押すだけで入り切りする', async (
     check('管31', '過ぎた日は押せない', await past.isDisabled(), true);
   }
 
+  const showDate = async date => {
+    const firstDay = await p.locator('#closed-cal [data-ccal]').first().getAttribute('data-ccal');
+    const monthIndex = dateKey => Number(dateKey.slice(0, 4)) * 12 + Number(dateKey.slice(5, 7));
+    const monthDifference = monthIndex(date) - monthIndex(firstDay);
+    for (let step = 0; step < Math.abs(monthDifference); step++) {
+      await p.locator(monthDifference > 0 ? '#ccal-next' : '#ccal-prev').click();
+    }
+    await p.locator(`#closed-cal [data-ccal="${date}"]`).waitFor({ state: 'visible' });
+  };
+
   /* 予約が入っている日は、件数が見えていること */
+  await showDate(busy);
   check('管31', '予約が入っている日は件数が出る',
     /1件/.test(await textOf(p.locator(`[data-ccal="${busy}"]`))), true);
 
   // ---- 空いている日を押す ----
-  const free = key(5).slice(0, 7) === busy.slice(0, 7) ? key(5) : key(2);
+  const free = key(5);
+  await showDate(free);
   const before = await p.locator('#closed-rows .booking-card').count();
   await p.locator(`[data-ccal="${free}"]`).click(); await p.waitForTimeout(500);
   check('管31', '押すと終日休みになる',
@@ -1675,6 +1690,7 @@ await group('管31 休業日を日を押すだけで入り切りする', async (
     await p.locator('#closed-rows .booking-card').count(), before);
 
   // ---- 予約の入っている日を押す ----
+  await showDate(busy);
   p.__dialogs.length = 0;
   p.__answer = 'dismiss';
   await p.locator(`[data-ccal="${busy}"]`).click(); await p.waitForTimeout(600);

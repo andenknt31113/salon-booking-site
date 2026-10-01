@@ -2257,12 +2257,14 @@ function liveCountOn(key) {
 function renderClosedCalendar() {
   const host = $('#closed-cal');
   if (!host) return;
+  const focusedDate = host.contains(document.activeElement) ? document.activeElement.dataset.ccal : '';
   const base = new Date();
   base.setDate(1);
   base.setMonth(base.getMonth() + ccalOffset);
   const year = base.getFullYear(), month = base.getMonth();
   const title = $('#ccal-title');
-  if (title) title.textContent = `${year}年${month + 1}月`;
+  const monthLabel = `${year}年${month + 1}月`;
+  if (title && title.textContent !== monthLabel) title.textContent = monthLabel;
 
   const today = toKey(new Date());
   const first = new Date(year, month, 1).getDay();
@@ -2282,11 +2284,12 @@ function renderClosedCalendar() {
     cells.push(`<td>
       <button type="button" class="${cls}" ${past ? 'disabled' : ''}
               data-ccal="${key}" aria-pressed="${state === 'all'}"
-              aria-label="${month + 1}月${d}日${state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}">
+              aria-label="${year}年${month + 1}月${d}日${state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}${live ? `・予約${live}件` : ''}">
         <span class="ccal-n">${d}</span>
         ${state === 'all' ? '<span class="ccal-mark">休</span>'
           : state === 'range' ? '<span class="ccal-mark is-part">一部</span>'
-          : live ? `<span class="ccal-live">${live}件</span>` : '<span class="ccal-mark is-open">○</span>'}
+          : live ? '' : '<span class="ccal-mark is-open">○</span>'}
+        ${live ? `<span class="ccal-live">${live}件予約</span>` : ''}
       </button></td>`);
   }
   while (cells.length % 7) cells.push('<td class="ccal-empty"></td>');
@@ -2295,11 +2298,12 @@ function renderClosedCalendar() {
   for (let i = 0; i < cells.length; i += 7) rows.push(`<tr>${cells.slice(i, i + 7).join('')}</tr>`);
 
   host.innerHTML = `
-    <table class="ccal">
+    <table class="ccal" aria-labelledby="ccal-title">
       <thead><tr>${WEEKDAY_JA
-        .map((w, i) => `<th class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</th>`).join('')}</tr></thead>
+        .map((w, i) => `<th scope="col" class="${i === 0 ? 'is-sun' : i === 6 ? 'is-sat' : ''}">${w}</th>`).join('')}</tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
+  if (focusedDate) host.querySelector(`[data-ccal="${CSS.escape(focusedDate)}"]`)?.focus({ preventScroll: true });
 }
 
 /** 日を押したとき。終日休みの入り切り */
@@ -2314,7 +2318,10 @@ function toggleClosedDay(key) {
       + '下の一覧から直してください。');
     const i = edits.closed.findIndex(r => String(r['休業日'] || '').trim() === key);
     const el = $$('#closed-rows .booking-card')[i];
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (el) {
+      el.querySelector('[data-col="休業日"]').focus({ preventScroll: true });
+      el.scrollIntoView({ block: 'center' });
+    }
     return;
   }
 
@@ -3093,6 +3100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (target === 'closed') {
       const note = $(`[data-closed-summary="${el.dataset.index}"]`);
       if (note) note.textContent = closedSummary(row);
+      if (el.dataset.col !== 'メモ') renderClosedCalendar();
     }
     /* 一覧の行だけ描き直します（入力欄には触りません）。
        名前や値段を打った先から一覧に出ないと、どの行を直しているのか
@@ -3130,7 +3138,9 @@ document.addEventListener('DOMContentLoaded', () => {
           row['開始'] = SALON.business.openTime;
           row['終了'] = SALON.business.closeTime;
         }
+        const focused = document.activeElement === el;
         renderClosed();
+        if (focused) $(`[data-closed-mode="${el.dataset.closedMode}"][value="${el.value}"]`)?.focus({ preventScroll: true });
         updateDirty();
       }
       return;
@@ -3238,6 +3248,11 @@ document.addEventListener('DOMContentLoaded', () => {
       redraw(t);
       const ed = document.querySelector(`[data-editor="${t}"]`);
       if (ed) ed.scrollIntoView({ block: 'start' });
+      if (t === 'closed') {
+        const field = $(`#closed-rows [data-index="${edits.closed.length - 1}"][data-col="休業日"]`);
+        field.focus({ preventScroll: true });
+        field.closest('.booking-card').scrollIntoView({ block: 'center' });
+      }
       return;
     }
 
@@ -3250,10 +3265,15 @@ document.addEventListener('DOMContentLoaded', () => {
       /* 確かめずに消していました。指がすべって消えると、何が入っていたか
          思い出せません（説明や写真は打ち直せません）。 */
       if (!confirm(`${removeLabel(t, row)}\n\nこの行を削除します。よろしいですか？\n`
-          + '※削除は保存時に確定します。公開ページへの反映は別途更新が必要です。')) return;
+          + (t === 'closed' ? '※「休業日を保存」を押すと予約受付に反映されます。登録済みの予約は消えません。'
+            : '※削除は保存時に確定します。公開ページへの反映は別途更新が必要です。'))) return;
       edits[t].splice(i, 1);
       if (openRow[t] !== undefined) openRow[t] = -1;
       redraw(t);
+      if (t === 'closed') {
+        const next = $(`#closed-rows [data-index="${Math.min(i, edits.closed.length - 1)}"][data-col="休業日"]`);
+        (next || $('[data-add="closed"]')).focus();
+      }
       return;
     }
 

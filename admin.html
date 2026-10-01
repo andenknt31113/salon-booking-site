@@ -12,7 +12,7 @@
     }
   </script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="assets/css/style.css?v=20260930-preview" />
+  <link rel="stylesheet" href="assets/css/style.css?v=20261001-closed" />
   <link rel="stylesheet" href="assets/css/admin-design.css?v=20260929-flow" />
   <script src="assets/js/admin-design.js"></script>
 </head>
@@ -289,7 +289,7 @@
                時間帯だけの休みとメモは日を押すだけでは表せないので、一覧も残します。 -->
           <div class="closed-cal-head">
             <button class="btn btn-ghost btn-sm" type="button" id="ccal-prev">＜ 前の月</button>
-            <strong id="ccal-title"></strong>
+            <strong id="ccal-title" aria-live="polite" aria-atomic="true"></strong>
             <button class="btn btn-ghost btn-sm" type="button" id="ccal-next">次の月 ＞</button>
           </div>
           <div id="closed-cal"></div>
@@ -391,7 +391,7 @@
 
   <script src="assets/js/data.js"></script>
   <script src="assets/js/common.js"></script>
-  <script src="assets/js/admin.js?v=20260930-preview"></script>
+  <script src="assets/js/admin.js?v=20261001-closed"></script>
   <script src="assets/js/admin-notifications.js?v=20260929-flow"></script>
   <script src="assets/js/admin-google-bridge.js"></script>
 </body>

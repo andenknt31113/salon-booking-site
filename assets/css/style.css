@@ -888,6 +888,7 @@ body:not(.catalog-unverified) #catalog-status,
 /* 終日休み。ここだけ塗ります。ひと目で「この日は入らない」と分かる必要があります */
 .ccal-day.is-off { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
 .ccal-day.is-off .ccal-mark { color: var(--on-ink); }
+.ccal-day.is-off .ccal-live { color: var(--on-ink); }
 /* 時間帯だけの休み。押しても切り替わらないので、塗りでは表しません */
 .ccal-day.is-part { border-color: var(--accent); border-style: dashed; }
 .ccal-day.is-part .ccal-mark.is-part { color: var(--accent); }
