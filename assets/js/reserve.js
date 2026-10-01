@@ -1013,7 +1013,9 @@ function renderDoneFollow(r) {
   const mail = r.delivered && r.customer && r.customer.email
     ? `<span>確認メールの宛先：<b>${esc(r.customer.email)}</b>。
          メールが届かない場合も、予約番号でご予約を確認できます。迷惑メールフォルダもご確認ください。</span>` : '';
-  host.innerHTML = mail
+  host.innerHTML = (Store.temporary
+    ? '<span>この端末に控えを保存できません。予約番号はコピーするか画面を保存してください。画面を閉じた後も、予約番号と電話番号で最新の状態を照会できます。</span>' : '')
+    + mail
     + '<span>予約番号はコピーするか、画面を保存してお控えください。メールが届かない・番号が分からない場合は、<a href="mypage.html#reservation-help">予約確認ページのご案内</a>をご確認ください。確認できないまま新しく予約し直さないでください。</span>'
     + (r.delivered ? `<span>ご都合が変わった場合は、<b>${esc(limit)}まで</b>
          「予約内容を確認する」から日時の変更・キャンセルができます。

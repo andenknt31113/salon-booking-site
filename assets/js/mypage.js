@@ -200,6 +200,8 @@ function noRecordHint() {
 
 function render() {
   let list = Store.all();
+  const storeWarning = $('#store-warning');
+  if (storeWarning) storeWarning.hidden = !Store.readProblem;
   /* 絞り込みは、記録が1件しかない方には要りません。
      出しておくと「番号を入れないと見られないのか」と読ませてしまいます。
      絞り込み中は、解除できるように必ず出したままにします。 */
@@ -219,6 +221,7 @@ function render() {
     : `<div class="empty-state">
          ${filterCode
            ? 'ご指定の予約番号は、この端末の記録の中には見つかりませんでした。'
+           : Store.readProblem ? 'この端末の控えを確認できません。'
            : 'この端末に、これからのご予約の記録はありません。'}
          <br />${noRecordHint()}
        </div>`;
@@ -229,6 +232,7 @@ function render() {
     ? past.map(bookingCard).join('')
     : `<div class="empty-state">${filterCode
         ? 'ご指定の予約番号は、この端末の記録の中には見つかりませんでした。'
+        : Store.readProblem ? '過去の控えを確認できません。'
         : '過去のご予約はありません。'}</div>`;
 }
 

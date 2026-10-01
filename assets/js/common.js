@@ -323,13 +323,39 @@ noteVisitSource();
 
 let memory = null; // localStorage が使えない環境（プライベートモード等）での代替
 
+function isStoredReservation(record) {
+  const clock = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  if (!record || typeof record !== 'object' || Array.isArray(record)
+      || typeof record.code !== 'string' || !record.code.trim()
+      || typeof record.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(record.date)
+      || typeof record.time !== 'string' || !clock.test(record.time)
+      || (record.endTime != null && record.endTime !== ''
+        && (typeof record.endTime !== 'string' || !clock.test(record.endTime)))
+      || !Array.isArray(record.menus)
+      || record.menus.some(menu => !menu || typeof menu.name !== 'string')
+      || !record.customer || typeof record.customer !== 'object' || Array.isArray(record.customer)) return false;
+  const date = new Date(record.date + 'T00:00:00Z');
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === record.date;
+}
+
 const Store = {
+  readProblem: false,
+  temporary: false,
   all() {
     if (memory) return memory;
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const records = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(records)) throw new Error('控えの形式を確認できません');
+      const valid = records.filter(isStoredReservation);
+      if (valid.length === records.length) return records;
+      this.readProblem = true;
+      this.temporary = true;
+      memory = valid;
+      return memory;
     } catch (e) {
+      this.readProblem = true;
+      this.temporary = true;
       memory = [];
       return memory;
     }
@@ -339,6 +365,7 @@ const Store = {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(list));
     } catch (e) {
+      this.temporary = true;
       memory = list; // 保存できない環境ではメモリ上に保持する
     }
   },

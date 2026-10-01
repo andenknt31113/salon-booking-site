@@ -163,6 +163,52 @@ test('空席を二重に取り直してから送信せず、店舗の最終検�
   });
 });
 
+test('一部の控えが壊れても、正常な予約と照会の導線を表示する', async () => {
+  await fixture(async ({ page, base, writes }) => {
+    await fillReservation(page, base);
+    const code = await page.evaluate(() => {
+      const record = buildReservation();
+      localStorage.setItem(STORE_KEY, JSON.stringify([record, null]));
+      return record.code;
+    });
+    await page.goto(base + '/mypage.html');
+    await page.locator('#store-warning:not([hidden])').waitFor();
+    assert.match(await page.locator('#upcoming-list').textContent(), new RegExp(code));
+    assert.equal(await page.locator('#upcoming-list .booking-card').count(), 1);
+    assert.equal(await page.locator('#lookup-box').isVisible(), true);
+    assert.equal(writes.length, 0);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem(STORE_KEY)).length), 2,
+      '表示するだけでは元の控えを削除しない');
+  });
+});
+
+for (const raw of ['null', '{}', '[null]']) {
+  test(`端末の控え${raw}が壊れていても送信で固まらず、番号の保存方法を伝える`, async () => {
+    await fixture(async ({ page, base, writes }) => {
+      await fillReservation(page, base);
+      await page.evaluate(value => localStorage.setItem(STORE_KEY, value), raw);
+      await page.locator('#submit-reservation').click();
+      await page.waitForFunction(() => !submitting && state.step === 6, null, { timeout: 3000 });
+      const code = await page.locator('#done-code').textContent();
+      assert.equal(writes.length, 1);
+      assert.equal(writes[0].code, code);
+      assert.match(await page.locator('#h-done').textContent(), /完了/);
+      assert.match(await page.locator('#done-follow').textContent(), /この端末に控えを保存できません/);
+      assert.equal(await page.evaluate(() => Store.all()[0].deliveryState), 'confirmed');
+      assert.equal(await page.evaluate(() => localStorage.getItem(STORE_KEY)), raw);
+      await page.goto(base + '/mypage.html');
+      await page.locator('#store-warning:not([hidden])').waitFor();
+      assert.match(await page.locator('#upcoming-list').textContent(), /控えを確認できません/);
+      await page.fill('#lookup-code', code);
+      await page.fill('#lookup-tel', '09011112222');
+      await page.locator('#lookup-btn').click();
+      await page.waitForFunction(() => !document.querySelector('#lookup-btn').disabled);
+      assert.match(await page.locator('#lookup-result .status-chip').textContent(), /予約確定/);
+      assert.equal(writes.length, 1, '照会で予約を登録し直さない');
+    });
+  });
+}
+
 for (const flag of ['taken', 'closed', 'scheduleChanged', 'catalogChanged', 'draft', 'invalid', 'conflict', 'cancelled']) {
   test(`店舗の最終検査で${flag}を返されたら、完了や未確認の控えを作らない`, async () => {
     await fixture(async ({ page, base, writes, control, notices }) => {
