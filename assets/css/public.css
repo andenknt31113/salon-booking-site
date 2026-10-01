@@ -187,6 +187,10 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
 .booking-cancel-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .booking-cancel-actions .btn { min-height: 44px; white-space: normal; flex: 1 1 180px; }
 @media (max-width: 359px) {
+  .header-top { gap: 12px; }
+  .header-top .brand-lockup { gap: 8px; }
+  .header-top .wm-sub { letter-spacing: .1em; }
+  .header-top .wm-sub::before, .header-top .wm-sub::after { display: none; }
   body[data-page="gallery"] .style-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {

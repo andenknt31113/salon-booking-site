@@ -50,7 +50,8 @@ test('正式トップをA案の構成にし、スマホからPCまで写真・�
         };
       });
       assert.ok(layout.photo && layout.copy, '店内写真と本文の領域がある');
-      assert.ok(layout.copy.right <= layout.photo.left || layout.copy.bottom <= layout.photo.top, '写真と文字を重ねない');
+      assert.ok(width <= 700 ? layout.photo.bottom <= layout.copy.top : layout.copy.right <= layout.photo.left,
+        'スマホは店内写真から、PCは文章と写真を左右に読み、どちらも重ねない');
       assert.ok(layout.styles.top < layout.menus.top, 'ヘアスタイルを料金より先に見せる');
       assert.equal(layout.overflow, false, `幅${width}で横にはみ出さない`);
       assert.equal(await page.locator('#home-styles .style-card').count(), 4, '既存のヘア写真4点を残す');

@@ -105,7 +105,9 @@
   .hero-cta { flex-wrap: nowrap; }
   .hero-cta .btn { width: auto; flex: 1; padding: 15px 8px; font-size: 12px; letter-spacing: 0; }
   .home-text-link { margin-top: 16px; }
-  .hero-media { min-height: 0; aspect-ratio: 1; }
+  .hero-media { order: -1; min-height: 0; aspect-ratio: 1280 / 1061; }
+  .hero-media .hero-photo { object-fit: contain; object-position: center; }
+  .hero-media:not(:has(img)) { display: none; }
   .home-intro { grid-template-columns: 1fr; gap: 24px; padding-block: 68px 20px; }
   .hero-desc { font-size: 14px; }
   .hero-meta { display: grid; }

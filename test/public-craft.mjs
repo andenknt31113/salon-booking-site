@@ -20,7 +20,7 @@ after(async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
-async function withPage(name, run, options = {}, setup) {
+async function withPage(name, run, options = {}, setup, navigation = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 },
     locale: 'ja-JP', timezoneId: 'Asia/Tokyo', ...options });
   const writes = [];
@@ -36,13 +36,132 @@ async function withPage(name, run, options = {}, setup) {
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   try {
-    await page.goto(`${base}/${name}.html`);
+    await page.goto(`${base}/${name}.html`, navigation);
     await run(page);
     assert.deepEqual(writes, [], 'デザイン・写真の閲覧ではAPIや台帳へ送信しない');
     assert.ok(external.every(type => type === 'document'), '地図以外の外部SDK・フォント・素材を追加しない');
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
   } finally { await context.close(); }
 }
+
+for (const width of [320, 390]) {
+  test(`${width}px：最初に店内全体が見え、文章と予約操作を重ねない`, () => withPage('index', async page => {
+    const layout = await page.evaluate(() => {
+      const photo = document.querySelector('#home-photo img');
+      const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+      return {
+        photo: bounds('#home-photo'), copy: bounds('.hero-inner'), caption: bounds('#home-photo figcaption'),
+        booking: bounds('.sp-cta'), fit: getComputedStyle(photo).objectFit,
+        actual: { width: photo.naturalWidth, height: photo.naturalHeight },
+        declared: { width: Number(photo.getAttribute('width')), height: Number(photo.getAttribute('height')) }
+      };
+    });
+    assert.ok(layout.photo.top >= 0 && layout.photo.bottom <= layout.booking.top, '初期画面で店内写真の全体を見せ、固定の予約案内で隠さない');
+    assert.ok(layout.caption.bottom <= layout.copy.top, '写真名と店の文章を重ねない');
+    assert.equal(layout.fit, 'contain', 'スマホで椅子や店内の端を切らずに見せる');
+    assert.deepEqual(layout.declared, layout.actual, '初期HTMLと初期化後の画像寸法を実写真に合わせる');
+    assert.ok(Math.abs(layout.photo.width / layout.photo.height - layout.actual.width / layout.actual.height) < 0.001);
+    assert.equal(await page.locator('#home-styles .style-card').count(), 4, 'ヘアスタイルの実写真は4点とも残す');
+    assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').isVisible(), true);
+    assert.ok(layout.booking.height >= 44, '予約への操作は常に押せる大きさを残す');
+  }, { viewport: { width, height: 844 } }));
+
+  test(`${width}px：JavaScriptなしでも写真を先に見せ、店舗の文章とリンクを残す`, () => withPage('index', async page => {
+    const photo = await page.locator('#home-photo').boundingBox();
+    const copy = await page.locator('.hero-inner').boundingBox();
+    assert.ok(photo.y + photo.height <= copy.y, '写真を表示後のJavaScriptで並べ替えない');
+    assert.equal(await page.locator('#home-photo img').evaluate(image => image.complete && image.naturalWidth > 0), true);
+    assert.equal(await page.locator('#hero-catch').textContent(), 'イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に');
+    assert.equal(await page.locator('.hero a[href="reserve.html"]').isVisible(), true);
+    assert.equal(await page.locator('.hero a[href="menu.html"]').isVisible(), true);
+  }, { viewport: { width, height: 844 }, javaScriptEnabled: false }));
+}
+
+test('店内写真の読込が遅くても、写真・文章の順番と位置を変えない', async () => {
+  let releasePhoto;
+  const pendingPhoto = new Promise(resolve => { releasePhoto = resolve; });
+  try {
+    await withPage('index', async page => {
+      const layout = () => page.evaluate(() => {
+        const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+        return { photo: bounds('#home-photo'), copy: bounds('.hero-inner') };
+      });
+      const before = await layout();
+      assert.equal(await page.locator('#home-photo img').evaluate(image => image.complete), false);
+      assert.ok(before.photo.bottom <= before.copy.top, '読み込み中から写真の位置を確保する');
+      releasePhoto();
+      await page.waitForFunction(() => {
+        const image = document.querySelector('#home-photo img');
+        return image?.complete && image.naturalWidth > 0;
+      });
+      assert.deepEqual(await layout(), before, '画像の到着で文章や予約ボタンを動かさない');
+    }, {}, context => context.route('**/shop2.jpg', async route => {
+      await pendingPhoto;
+      await route.continue();
+    }), { waitUntil: 'domcontentloaded' });
+  } finally { releasePhoto(); }
+});
+
+test('スマホの境界をまたいで幅を変えても、写真1点を保ち、文章と操作を重ねない', () => withPage('index', async page => {
+  for (const width of [700, 701, 390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const layout = await page.evaluate(() => {
+      const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+      return { photo: bounds('#home-photo'), copy: bounds('.hero-inner'),
+        fit: getComputedStyle(document.querySelector('#home-photo img')).objectFit };
+    });
+    assert.ok(width <= 700 ? layout.photo.bottom <= layout.copy.top : layout.copy.right <= layout.photo.left,
+      `${width}pxでスマホは写真を先に、PCは本文と左右に並べる`);
+    assert.equal(layout.fit, width <= 700 ? 'contain' : 'cover', 'スマホだけ店内全体を見せ、PCの構成を保つ');
+    assert.equal(await page.locator('#home-photo img').count(), 1, '画面幅を変えても写真を複製しない');
+    assert.equal(await page.locator('.hero a[href="reserve.html"]').isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  }
+}));
+
+test('店内写真が取得できなければ大きな空白を残さず、店舗の文章と予約へ案内する', () => withPage('index', async page => {
+  await page.locator('#home-photo img').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('#home-photo').isVisible(), false, '壊れた写真の領域を文章の前に残さない');
+  const copy = await page.locator('.hero-inner').boundingBox();
+  const hero = await page.locator('.hero').boundingBox();
+  assert.ok(copy.y - hero.y <= 32, '本文より前に写真用の高さを残さない');
+  assert.equal(await page.locator('.hero a[href="reserve.html"]').isVisible(), true);
+  assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').isVisible(), true);
+}, {}, context => context.route('**/shop2.jpg', route => route.abort())));
+
+test('320pxでも公開9ページの店名・ロゴと予約ボタンを重ねず、すべて読める', async () => {
+  for (const name of ['index', 'gallery', 'menu', 'staff', 'reviews', 'reserve', 'mypage', 'privacy', '404']) {
+    const forbidden = [];
+    await withPage(name, async page => {
+      if (['reserve', 'mypage'].includes(name)) await page.waitForFunction(() => Catalog.loaded);
+      const layout = await page.evaluate(() => {
+        const brand = document.querySelector('.header-top .brand');
+        const button = document.querySelector('.header-actions a[href="reserve.html"]');
+        return {
+          brand: brand.getBoundingClientRect().toJSON(), button: button.getBoundingClientRect().toJSON(),
+          texts: [...brand.querySelectorAll('.wm-name, .wm-sub')].map(element => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return { text: element.textContent, bounds: range.getBoundingClientRect().toJSON() };
+          })
+        };
+      });
+      assert.ok(layout.brand.right <= layout.button.left, `${name}でブランドと予約の領域を重ねない`);
+      assert.ok(layout.texts.every(text => text.bounds.right <= layout.brand.right + 1
+        && text.bounds.left >= layout.brand.left - 1), `${name}で店名・肩書きを途中で隠さない`);
+      assert.deepEqual(layout.texts.map(text => text.text), ['ZER01', 'barber/lounge']);
+      assert.ok(layout.button.width >= 44 && layout.button.height >= 44, '予約ボタンを小さくして解決しない');
+      assert.equal(await page.locator('.header-top .brand-logo').isVisible(), true, '既存の店のロゴを消さない');
+      assert.deepEqual(forbidden, [], 'メニュー・空席の読取以外は模擬接続でも許可しない');
+    }, { viewport: { width: 320, height: 844 } }, context => context.route('**/exec', route => {
+      const request = route.request();
+      const type = request.method() === 'POST' ? request.postDataJSON().type : '';
+      if (!['menu', 'availability'].includes(type)) { forbidden.push(type); return route.abort(); }
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ ok: false, error: '表示の試験では予約データを取得しません。' }) });
+    }));
+  }
+});
 
 for (const width of [320, 390, 768, 1280]) {
   test(`${width}px：店の文章はそのままで、主見出しと補足の強弱を付ける`, () => withPage('index', async page => {

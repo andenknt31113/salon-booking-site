@@ -428,7 +428,7 @@ function renderHomeReviewLink() {
 }
 
 function homePhotoHtml() {
-  return `${SALON.heroImage ? `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="${esc(SALON.name)}の店内" width="1200" height="1200" fetchpriority="high" />` : ''}<figcaption>${esc(SALON.name)} ${esc(SALON.nameSub || '')}</figcaption>`;
+  return `${SALON.heroImage ? `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="${esc(SALON.name)}の店内" width="1280" height="1061" fetchpriority="high" />` : ''}<figcaption>${esc(SALON.name)} ${esc(SALON.nameSub || '')}</figcaption>`;
 }
 
 function homeCatchHtml() {
