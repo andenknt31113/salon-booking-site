@@ -1984,9 +1984,15 @@ function occupiedWindow_(row, col) {
 
 /* その枠が既に埋まっているか（自分自身の予約は除く） */
 function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
-  const col = colIndex_(sheet);
-  // 台帳が空のときは readRows_ が [] を返すので、下の some が false になります
-  const rows = readRows_(sheet);
+  const snapshot = readSheetSnapshot_(sheet, HEADERS);
+  if (!validBookingHeaders_(snapshot.head, { requireCode: !!codeKey_(ownCode) })) {
+    throw new Error(BOOKING_HEADERS_ERROR);
+  }
+  const col = name => {
+    const index = snapshot.head.indexOf(name);
+    return index >= 0 ? index : HEADERS.indexOf(name);
+  };
+  const rows = snapshot.rows;
 
   const start = toMin_(time);
   const end = start + minutes;
