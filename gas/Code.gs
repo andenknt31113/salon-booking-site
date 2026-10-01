@@ -1120,6 +1120,7 @@ function removeFromCalendar_(eventId) {
    ============================================================ */
 function doAvailability_(sheet) {
   const snapshot = readSheetSnapshot_(sheet, HEADERS);
+  if (!validBookingHeaders_(snapshot.head)) throw new Error(BOOKING_HEADERS_ERROR);
   const rows = snapshot.rows;
   const col = name => {
     const index = snapshot.head.indexOf(name);
@@ -2196,7 +2197,8 @@ function readAdminNotifications_(ss) {
   if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '通知用の予約台帳を確認できません。' };
   const headers = sheetHeader_(sheet, []);
   const fields = { code: '予約番号', name: 'お名前', date: '来店日', time: '開始', endTime: '終了', status: '状態' };
-  if (Object.values(fields).some(header => !headers.includes(header))) {
+  if (Object.values(fields).some(header => !headers.includes(header))
+      || !validBookingHeaders_(headers, { requireCode: true })) {
     return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
   }
   const reservations = readRows_(sheet).map(row => {
@@ -2642,6 +2644,17 @@ function writeSettings_(ss, obj) {
    何も出ません。ですから、位置ではなく見出しの名前で探します。
    ============================================================ */
 /** どのシートでも使える、1行目の見出しの読み取り */
+const BOOKING_HEADERS_ERROR = '予約台帳の見出しを確認できません。保存し直さず、制作担当者へ連絡して元の台帳を確認してください。';
+
+function validBookingHeaders_(head, options) {
+  const required = ['来店日', '開始'];
+  if (options && options.requireCode) required.push('予約番号');
+  const missing = required.some(header => !head.includes(header))
+    || (!head.includes('終了') && !head.includes('所要(分)'));
+  const duplicate = head.some((header, index) => HEADERS.includes(header) && head.indexOf(header) !== index);
+  return !duplicate && (!missing || !!(options && options.allowMissing));
+}
+
 function readSheetSnapshot_(sheet, fallback) {
   const last = sheet ? sheet.getLastRow() : 0;
   if (!last) return { head: fallback.slice(), rows: [] };
@@ -3484,7 +3497,8 @@ function replaceKeepingImages_(ss, name, headers, keyHeader, rows) {
     店の人が自分で足した列は動かしたくないので、消さずに右へ足すだけにします。 */
 function ensureHeaders_(ss, name, headers) {
   const sheet = ss.getSheetByName(name);
-  if (!sheet || sheet.getLastRow() === 0) return;   // 作りたてなら writeSheetRows_ が見出しを書く
+  const last = sheet ? sheet.getLastRow() : 0;
+  if (!last) return;   // 作りたてなら writeSheetRows_ が見出しを書く
   /* 幅は sheetHeader_ ではなく、実際に使われている列数で見ます。
 
      sheetHeader_ は、こちらが知っている列数まで幅を広げて読みます
@@ -3492,9 +3506,12 @@ function ensureHeaders_(ss, name, headers) {
      その長さを足す先に使うと、空の列を1つ挟んだ21列目に見出しを書いて
      しまい、20列目が名前の無い列として残ります。 */
   const width = sheet.getLastColumn() || 0;
+  const head = width ? sheet.getRange(1, 1, 1, width).getValues()[0]
+    .map(function (v) { return String(v == null ? '' : v).trim(); }) : [];
+  if (name === SHEET_NAME && !validBookingHeaders_(head, { requireCode: true, allowMissing: last < 2 })) {
+    throw new Error(BOOKING_HEADERS_ERROR);
+  }
   if (!width) return;
-  const head = sheet.getRange(1, 1, 1, width).getValues()[0]
-    .map(function (v) { return String(v == null ? '' : v).trim(); });
   const missing = headers.filter(function (h) { return head.indexOf(h) < 0; });
   if (!missing.length) return;
   sheet.getRange(1, width + 1, 1, missing.length)
