@@ -8,6 +8,7 @@ import { createMockHandler } from './mock-gas.mjs';
 const browsers = await import(process.env.PLAYWRIGHT || 'playwright');
 const browserType = browsers[process.env.TEST_BROWSER || 'chromium'];
 const TEST_WRITE_TIMEOUT_MS = 180;
+const TEST_HELD_WRITE_TIMEOUT_MS = 5000;
 
 async function fixture(run) {
   const server = http.createServer();
@@ -24,7 +25,7 @@ async function fixture(run) {
   const writes = [];
   const reads = [];
   const releases = [];
-  const control = { fail: '', saveFirst: false, holdAvailability: false, rejection: null };
+  const control = { fail: '', saveFirst: false, holdAvailability: false, rejection: null, responseCode: '' };
   try {
     await fetch(`${base}/exec`, { method: 'POST', body: JSON.stringify({ type: 'reset' }) });
     await context.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname)
@@ -51,6 +52,11 @@ async function fixture(run) {
       writes.push(payload);
       if (control.rejection) {
         await route.fulfill({ json: control.rejection });
+        return;
+      }
+      if (control.responseCode && payload.type === 'reserve') {
+        const response = await route.fetch({ postData: JSON.stringify({ ...payload, code: control.responseCode }) });
+        await route.fulfill({ response });
         return;
       }
       if (!control.fail) { await route.continue(); return; }
@@ -162,6 +168,51 @@ test('空席を二重に取り直してから送信せず、店舗の最終検�
     assert.equal((await page.evaluate(() => Store.all()))[0].deliveryState, 'confirmed');
   });
 });
+
+test('店舗で番号が振り直されても、仮控えを増やさず確定した番号へ置き換える', async () => {
+  await fixture(async ({ page, base, writes, control }) => {
+    await fillReservation(page, base);
+    control.responseCode = 'LM-FINAL';
+    await page.locator('#submit-reservation').click();
+    await page.waitForFunction(() => !submitting && state.step === 6);
+    assert.equal(await page.locator('#done-code').textContent(), control.responseCode);
+    const records = await page.evaluate(() => Store.all());
+    assert.equal(records.length, 1);
+    assert.equal(records[0].code, control.responseCode);
+    assert.equal(records[0].deliveryState, 'confirmed');
+    assert.equal(records[0].changedAt, undefined);
+    assert.equal(await page.evaluate(code => Store.find(code), writes[0].code), null);
+  });
+});
+
+for (const saveFirst of [false, true]) {
+  test(`送信中に画面を離れても、台帳${saveFirst ? '保存済み' : '未保存'}の受付結果を同じ番号で確認する`, async () => {
+    await fixture(async ({ page, base, writes, control }) => {
+      await fillReservation(page, base);
+      Object.assign(control, { fail: 'stall', saveFirst });
+      await page.evaluate(timeout => { SALON.bookingTransport.writeTimeoutMs = timeout; }, TEST_HELD_WRITE_TIMEOUT_MS);
+      await page.locator('#submit-reservation').click();
+      await page.waitForFunction(() => submitting && state.step === 5 && Store.all().length === 1,
+        null, { timeout: 3000 });
+      const pending = (await page.evaluate(() => Store.all()))[0];
+      assert.equal(pending.deliveryState, 'unknown');
+      assert.equal(pending.delivered, false);
+      assert.match(await page.locator('#sending-note').textContent(), new RegExp(pending.code));
+      await page.waitForFunction(() => document.querySelector('#submit-reservation').disabled);
+      assert.equal(writes.length, 1);
+      assert.equal(writes[0].code, pending.code);
+      await assertUnconfirmed(page, base, pending.code);
+      if (saveFirst) {
+        assert.match(await page.locator('#lookup-result .status-chip').textContent(), /予約確定/);
+        assert.equal(await page.evaluate(() => Store.all()[0].deliveryState), 'confirmed');
+      } else {
+        assert.equal(await page.locator('#lookup-error').isVisible(), true);
+        assert.equal(await page.evaluate(() => Store.all()[0].deliveryState), 'unknown');
+      }
+      assert.equal(writes.length, 1, '離れた画面から同じ予約を自動再送しない');
+    });
+  });
+}
 
 test('一部の控えが壊れても、正常な予約と照会の導線を表示する', async () => {
   await fixture(async ({ page, base, writes }) => {

@@ -378,14 +378,25 @@ const Store = {
   find(code) {
     return this.all().find(r => r.code === code) || null;
   },
-  /** 日時の変更。予約番号はそのままに、日時だけ差し替える */
-  reschedule(code, next) {
+  remove(code) {
     const list = this.all();
-    const i = list.findIndex(r => r.code === code);
-    if (i < 0) return false;
-    list[i] = { ...list[i], ...next, changedAt: new Date().toISOString() };
+    const index = list.findIndex(record => record.code === code);
+    if (index < 0) return false;
+    list.splice(index, 1);
     this.save(list);
     return true;
+  },
+  replace(code, next) {
+    const list = this.all();
+    const index = list.findIndex(record => record.code === code);
+    if (index < 0) return false;
+    list[index] = { ...list[index], ...next };
+    this.save(list);
+    return true;
+  },
+  /** 日時の変更。予約番号はそのままに、日時だけ差し替える */
+  reschedule(code, next) {
+    return this.replace(code, { ...next, changedAt: new Date().toISOString() });
   },
   cancel(code) {
     const list = this.all();

@@ -81,3 +81,25 @@ test('読込不可・保存不可でも控えを保持し、端末への永続�
     assert.equal(JSON.parse(app.raw()).length, 0);
   }
 });
+
+test('確実に拒否された申込の仮控えだけを除き、別の予約を消さない', () => {
+  const pending = { ...RECORD, code: 'LM-PENDING', delivered: false, deliveryState: 'unknown' };
+  const app = fixture(JSON.stringify([RECORD, pending]));
+  assert.equal(app.store.remove(pending.code), true);
+  assert.equal(app.store.all().length, 1);
+  assert.equal(app.store.find(RECORD.code).date, RECORD.date);
+  assert.equal(app.store.remove('LM-NOTFOUND'), false);
+  assert.equal(JSON.parse(app.raw()).length, 1);
+});
+
+test('仮控えの確定は日時変更の履歴を作らず、サーバーの番号を引き継ぐ', () => {
+  const pending = { ...RECORD, delivered: false, deliveryState: 'unknown' };
+  const app = fixture(JSON.stringify([pending]));
+  assert.equal(app.store.replace(RECORD.code, { code: 'LM-FINAL', delivered: true, deliveryState: 'confirmed' }), true);
+  assert.equal(app.store.all().length, 1);
+  assert.equal(app.store.find(RECORD.code), null);
+  assert.equal(app.store.find('LM-FINAL').changedAt, undefined);
+  assert.equal(app.store.find('LM-FINAL').customer.tel, RECORD.customer.tel);
+  assert.equal(app.store.reschedule('LM-FINAL', { time: '14:00' }), true);
+  assert.ok(app.store.find('LM-FINAL').changedAt, '本当の日時変更には記録を残す');
+});

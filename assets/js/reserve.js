@@ -857,13 +857,15 @@ function slotStopMessage(reason) {
    選び直されると、送っている内容と画面が食い違うため）。 */
 let submitting = false;
 
-function setSubmitting(on) {
+function setSubmitting(on, code = '') {
   const wasSubmitting = submitting;
   submitting = on;
   const note = $('#sending-note');
   if (note) {
     note.hidden = !on;
-    if (on) note.textContent = '店舗へ送信し、最新の受付条件を確認しています。もう一度予約を送らずにお待ちください。';
+    if (on) note.textContent = '店舗へ送信し、最新の受付条件を確認しています。もう一度予約を送らずにお待ちください。'
+      + (code ? ` 受付結果の確認用番号：${code}` : '')
+      + (code && Store.temporary ? ' この端末に控えを保存できません。確認用番号を控えてください。' : '');
   }
   const btn = $('#submit-reservation');
   if (!btn) return;
@@ -919,6 +921,9 @@ async function submitReservation() {
     reservation.deliveryState = sent.ok ? 'confirmed' : 'unknown';
   } else {
     reservation = buildReservation();
+    const requestCode = reservation.code;
+    Store.add({ ...reservation, delivered: false, deliveryState: 'unknown', deliveryError: '' });
+    setSubmitting(true, requestCode);
     // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
     const sent = await sendToEndpoint({ type: 'reserve', ...reservation });
     /* 端末側で作った予約番号が、別のお客様のものとぶつかっていた場合は
@@ -930,6 +935,7 @@ async function submitReservation() {
        予約として保存せず日時の選び直しに戻す。
        画面側の確認をすり抜けて同時に押されたときにここへ来る。 */
     if (sent.taken) {
+      Store.remove(requestCode);
       setSubmitting(false);
       alert(sent.error || 'ご希望の時間は、ちょうど他のお客様のご予約が入りました。');
       state.time = null;
@@ -938,6 +944,7 @@ async function submitReservation() {
       return;
     }
     if (sent.draft) {
+      Store.remove(requestCode);
       setSubmitting(false);
       SALON.draft = true;
       renderHeader();
@@ -946,6 +953,7 @@ async function submitReservation() {
       return;
     }
     if (!sent.ok && (sent.catalogChanged || sent.conflict || sent.cancelled || sent.closed || sent.scheduleChanged || sent.invalid)) {
+      Store.remove(requestCode);
       setSubmitting(false);
       const reason = sent.error || '予約を受け付けられませんでした。';
       alert(reason + ((sent.closed || sent.scheduleChanged)
@@ -955,7 +963,7 @@ async function submitReservation() {
     reservation.delivered = sent.ok;
     reservation.deliveryState = sent.ok ? 'confirmed' : 'unknown';
     reservation.deliveryError = sent.ok ? '' : (sent.error || '');
-    Store.add(reservation);
+    if (!Store.replace(requestCode, reservation)) Store.add(reservation);
     // 受信先を設定しているのに届かなかった場合は、完了画面で正直に伝える
     if (!sent.ok && !sent.noEndpoint) showDeliveryWarning(sent);
   }
