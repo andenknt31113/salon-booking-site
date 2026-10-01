@@ -609,7 +609,15 @@ function doAdminNote_(sheet, d) {
     return { ok: false, conflict: true,
       error: '別の画面で施術メモが更新されました。入力をコピーしてからページを再読み込みし、最新のメモを確認してください。' };
   }
-  sheet.getRange(row, at + 1).setValue(note);
+  try {
+    const noteRange = sheet.getRange(row, at + 1);
+    noteRange.setValue(note);
+    SpreadsheetApp.flush();
+    if (compareText(noteText_(noteRange.getValues()[0][0])) !== compareText(noteText_(note))) throw new Error();
+  } catch (error) {
+    throw Object.assign(new Error('施術メモの保存結果を確認できません。入力をコピーしてから最新のメモを確認してください。'),
+      { unknown: true });
+  }
   // 切り詰めた・頭に ' が付いたときのために、保存した中身をそのまま返します
   return { ok: true, code: String(d.code), note: noteText_(note) };
 }

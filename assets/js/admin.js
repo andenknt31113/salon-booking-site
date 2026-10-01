@@ -635,11 +635,12 @@ async function saveNote(btn) {
   if (!res.ok) {
     /* 保存できていないのに黙っていると、書いたつもりで閉じられます。
        次のご来店のときに何も出てこず、そのときには理由が分かりません。 */
+    const uncertain = !!res.unknown || !!res.transportError;
     if (status) status.textContent = res.conflict
       ? '別の画面で更新されています。入力は残っています。'
-      : res.transportError ? '保存結果を確認できません。入力は残っています。'
+      : uncertain ? '保存結果を確認できません。入力は残っています。'
       : '未保存です。入力は残っています。';
-    alert((res.transportError ? 'メモの保存結果を確認できません。' : 'メモを保存できませんでした。')
+    alert((uncertain ? 'メモの保存結果を確認できません。' : 'メモを保存できませんでした。')
       + (res.error ? '\n' + res.error : ''));
     return;
   }
