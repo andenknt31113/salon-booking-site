@@ -160,8 +160,15 @@ function totalText() {
 /* ============================================================
  *  STEP1: メニュー選択
  * ============================================================ */
+function renderChoiceList(host, html, key) {
+  const focused = host.contains(document.activeElement) ? document.activeElement.dataset[key] : undefined;
+  if (!setHtml(host, html) || focused === undefined) return;
+  const buttons = $$('button', host);
+  (buttons.find(button => button.dataset[key] === focused) || buttons[0])?.focus({ preventScroll: true });
+}
+
 function renderCouponChoices() {
-  $('#coupon-choices').innerHTML = SALON.coupons.map(c => `
+  renderChoiceList($('#coupon-choices'), SALON.coupons.map(c => `
     <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}" aria-pressed="${state.couponId === c.id}">
       <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
       ${c.detail ? `<span class="selectable-sub">${esc(c.detail)}</span>` : ''}
@@ -169,12 +176,12 @@ function renderCouponChoices() {
         <strong class="${c.price ? '' : 'is-quote'}">${priceText(c)}</strong>
         <span class="selectable-time">約${formatDuration(c.minutes)}</span>
       </span>
-    </button>`).join('');
+    </button>`).join(''), 'coupon');
 }
 
 function renderMenuChoices(catId) {
   const cats = catId === 'all' ? SALON.menuCategories : SALON.menuCategories.filter(c => c.id === catId);
-  $('#menu-choices').innerHTML = cats.map(cat => `
+  renderChoiceList($('#menu-choices'), cats.map(cat => `
     <h4 style="font-size:13px;color:var(--ink-3);margin:18px 0 8px;">${esc(cat.name)}</h4>
     ${cat.items.map(m => `
       <button class="selectable ${state.menuIds.includes(m.id) ? 'is-selected' : ''}" type="button" data-menu="${esc(m.id)}" aria-pressed="${state.menuIds.includes(m.id)}">
@@ -185,22 +192,30 @@ function renderMenuChoices(catId) {
           <span class="selectable-time">約${formatDuration(m.minutes)}</span>
         </span>
       </button>`).join('')}
-  `).join('');
+  `).join(''), 'menu');
 }
 
 function initStep1() {
   renderCouponChoices();
 
   const tabsHost = $('#menu-cat-tabs');
-  tabsHost.innerHTML = [{ id: 'all', name: 'すべて' }, ...SALON.menuCategories]
-    .map((c, i) => `<button class="tab" type="button" data-cat="${esc(c.id)}" aria-selected="${i === 0}">${esc(c.name)}</button>`)
-    .join('');
-  renderMenuChoices('all');
+  const categories = [{ id: 'all', name: 'すべて' }, ...SALON.menuCategories];
+  const selectedCategory = $('.tab[aria-pressed="true"]', tabsHost)?.dataset.cat;
+  const category = categories.some(item => item.id === selectedCategory) ? selectedCategory : 'all';
+  const focusedCategory = tabsHost.contains(document.activeElement) ? document.activeElement.dataset.cat : null;
+  setHtml(tabsHost, categories
+    .map(item => `<button class="tab" type="button" data-cat="${esc(item.id)}" aria-pressed="${item.id === category}">${esc(item.name)}</button>`)
+    .join(''));
+  if (focusedCategory) {
+    const focusId = categories.some(item => item.id === focusedCategory) ? focusedCategory : 'all';
+    $$('[data-cat]', tabsHost).find(button => button.dataset.cat === focusId)?.focus({ preventScroll: true });
+  }
+  renderMenuChoices(category);
 
   bindOnce('menu-cat-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
-    $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    $$('.tab', tabsHost).forEach(button => button.setAttribute('aria-pressed', String(button === tab)));
     renderMenuChoices(tab.dataset.cat);
   }));
 
@@ -212,7 +227,11 @@ function initStep1() {
     state.couponId = state.couponId === id ? null : id; // 再クリックで解除
     if (hasMenu()) $('#catalog-change-notice').hidden = true;
     resetDateTime();
-    renderCouponChoices();
+    $$('[data-coupon]', $('#coupon-choices')).forEach(button => {
+      const selected = button.dataset.coupon === state.couponId;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
     updateSummary();
     saveDraft();
   }));
@@ -284,7 +303,7 @@ function renderStaffChoices() {
     </button>`;
   }).join('');
 
-  $('#staff-choices').innerHTML = none + list;
+  renderChoiceList($('#staff-choices'), none + list, 'staff');
 }
 
 function initStep2() {
@@ -296,7 +315,11 @@ function initStep2() {
     state.staffId = btn.dataset.staff || null;
     state.staffChosen = true;
     resetDateTime();
-    renderStaffChoices();
+    $$('[data-staff]', $('#staff-choices')).forEach(button => {
+      const selected = button.dataset.staff === (state.staffId || '');
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
     updateSummary();
     saveDraft();
   }));
@@ -1066,6 +1089,9 @@ function renderStep() {
     s.classList.toggle('is-done', n < state.step);
     // 変更モードで通らないステップは、押せないことが分かるように薄くする
     s.classList.toggle('is-skipped', !!changing && (n === 1 || n === 2 || n === 4));
+    if (n === state.step) s.setAttribute('aria-current', 'step');
+    else s.removeAttribute('aria-current');
+    $('button', s).disabled = n >= state.step || s.classList.contains('is-skipped');
   });
   $('#steps').style.display = state.step === 6 ? 'none' : '';
   $('#summary').style.display = state.step === 6 ? 'none' : '';
@@ -1103,11 +1129,13 @@ function renderStepCta() {
   const info = waiting ? '最新の料金・受付条件を確認中です' : ready ? stepCtaInfo() : (cta.hint || '');
   $$('[data-next="3"]', $('#reserve-layout')).forEach(button => { button.disabled = !catalogVerified(); });
   $$('[data-next="4"]', $('#reserve-layout')).forEach(button => { button.disabled = !(state.date && state.time) || !catalogVerified(); });
-  host.innerHTML = `
-    <span class="step-cta-info">${esc(info)}</span>
-    <button class="btn btn-primary" type="button" data-next="${cta.to}"${ready ? '' : ' disabled'}>
-      ${esc(cta.label())}
-    </button>`;
+  const description = $('.step-cta-info', host);
+  if (description.textContent !== info) description.textContent = info;
+  const button = $('button', host);
+  const label = cta.label();
+  button.dataset.next = String(cta.to);
+  button.disabled = !ready;
+  if (button.textContent !== label) button.textContent = label;
   host.hidden = false;
 }
 
@@ -1116,7 +1144,7 @@ function stepCtaInfo() {
   if (state.step === 1) {
     const n = (state.couponId ? 1 : 0) + state.menuIds.length;
     // 0件のときに「0件 ／ —」と並べても読む値が無いので、次にすることだけ出します
-    return n ? `${n}件 ／ ${totalText()}` : 'メニューをお選びください';
+    return n ? `${n}件 ／ ${totalText()} ／ 約${formatDuration(totalMinutes())}` : 'メニューをお選びください';
   }
   if (state.step === 2) return staffLabel(state.staffId);
   if (state.step === 3) return `${formatDateJa(state.date)} ${state.time}〜`;
@@ -1162,7 +1190,7 @@ function goTo(step) {
     heading.setAttribute('tabindex', '-1');
     heading.focus({ preventScroll: true });
   }
-  window.scrollTo({ top: $('#steps').offsetTop - 130, behavior: 'smooth' });
+  $('#steps').scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
 /* ---------- 日時の変更 ----------

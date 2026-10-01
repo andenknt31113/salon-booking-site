@@ -20,7 +20,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css?v=20261001-usability" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20261001-profile" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20261001-booking-flow" />
 </head>
 <body data-page="reserve" class="catalog-unverified">
   <div id="site-header"></div>
@@ -33,7 +33,7 @@
         </nav>
         <p class="page-kicker" lang="en">RESERVATION</p>
         <h1>空席状況・ネット予約</h1>
-        <p class="booking-active-only">メニュー → スタッフ → 日時 → お客様情報の順にお進みください。</p>
+        <p class="booking-active-only">メニューと日時を選び、お客様情報を入力します。最後の確認画面で予約を確定します。</p>
       </div>
     </div>
 
@@ -44,12 +44,12 @@
         <div id="booking-paused-notice" role="status"></div>
         <div class="notice" id="catalog-status" role="status" tabindex="-1">最新の料金・受付条件を確認しています。メニューは先にお選びいただけます。</div>
         <div class="notice" id="catalog-change-notice" role="alert" hidden></div>
-        <ol class="steps" id="steps">
-          <li class="step" data-step="1"><b>STEP 1</b>メニュー</li>
-          <li class="step" data-step="2"><b>STEP 2</b><span id="step2-label">スタッフ</span></li>
-          <li class="step" data-step="3"><b>STEP 3</b>日時</li>
-          <li class="step" data-step="4"><b>STEP 4</b>お客様情報</li>
-          <li class="step" data-step="5"><b>STEP 5</b>確認</li>
+        <ol class="steps" id="steps" aria-label="予約の手順">
+          <li class="step" data-step="1"><button type="button" disabled><b>STEP 1</b>メニュー</button></li>
+          <li class="step" data-step="2"><button type="button" disabled><b>STEP 2</b><span id="step2-label">スタッフ</span></button></li>
+          <li class="step" data-step="3"><button type="button" disabled><b>STEP 3</b>日時</button></li>
+          <li class="step" data-step="4"><button type="button" disabled><b>STEP 4</b>お客様情報</button></li>
+          <li class="step" data-step="5"><button type="button" disabled><b>STEP 5</b>確認</button></li>
         </ol>
 
         <div class="reserve-layout" id="reserve-layout">
@@ -63,7 +63,7 @@
               <div id="coupon-choices"></div>
 
               <h3 style="font-size:14px;margin:26px 0 10px;padding-left:10px;border-left:3px solid var(--accent);">単品メニュー</h3>
-              <div class="tabs" id="menu-cat-tabs"></div>
+              <div class="tabs" id="menu-cat-tabs" role="group" aria-label="単品メニューの分類"></div>
               <div id="menu-choices"></div>
 
               <div class="panel-actions">
@@ -260,7 +260,10 @@
           </aside>
 
           <!-- 画面下に貼りつく「次へ」。一覧を最後まで送らなくても次に進めます -->
-          <div class="step-cta" id="step-cta" hidden></div>
+          <div class="step-cta" id="step-cta" hidden>
+            <span class="step-cta-info" role="status" aria-atomic="true"></span>
+            <button class="btn btn-primary" type="button" data-next="2" disabled>ご担当の確認へ</button>
+          </div>
         </div>
       </div>
     </section>
@@ -272,6 +275,6 @@
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/public-read.js?v=20261001-read"></script>
   <script src="assets/js/common.js?v=20261001-read"></script>
-  <script src="assets/js/reserve.js?v=20261001-usability"></script>
+  <script src="assets/js/reserve.js?v=20261001-booking-flow"></script>
 </body>
 </html>

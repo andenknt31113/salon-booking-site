@@ -156,6 +156,29 @@ body[data-page="reserve"] .page-head { padding-block: 20px 24px; }
 body[data-page="reserve"] .breadcrumb { margin-bottom: 12px; }
 body[data-page="reserve"] .page-kicker { margin-bottom: 6px; }
 body[data-page="reserve"] .page-head h1 + p { margin-top: 10px; }
+body[data-page="reserve"] .step { padding: 0; background: none; border: 0; border-bottom: 1px solid var(--line); }
+body[data-page="reserve"] .step button { display: block; width: 100%; min-height: 52px; padding: 12px 2px; border: 0; background: none; color: inherit; font: inherit; line-height: 1.6; }
+body[data-page="reserve"] .step.is-current { border-bottom: 3px solid var(--ink); color: var(--ink); }
+body[data-page="reserve"] .step.is-done button { text-decoration: underline; text-underline-offset: 4px; }
+body[data-page="reserve"] .step button:disabled { cursor: default; }
+body[data-page="reserve"] .step button:focus-visible { outline-offset: -3px; }
+body[data-page="reserve"] .selectable { transition-property: border-color; }
+body[data-page="reserve"] .selectable-title { font-size: 16px; line-height: 1.8; }
+body[data-page="reserve"] .selectable-meta strong { font-size: 20px; }
+body[data-page="reserve"] .selectable-meta strong.is-quote { font-size: 14px; }
+body[data-page="reserve"] .step-cta:not([hidden]) { display: flex; align-items: center; gap: 16px; position: fixed; inset: auto 0 0; z-index: 90; padding: 14px max(48px, calc((100% - 1240px) / 2)) calc(14px + env(safe-area-inset-bottom)); background: var(--ground); border-top: 1px solid var(--line); }
+body[data-page="reserve"] .step-cta-info { flex: 1; min-width: 0; font-size: 14px; line-height: 1.6; }
+body[data-page="reserve"] .step-cta .btn { flex: 0 0 auto; min-height: 48px; transition-property: border-color; }
+body[data-page="reserve"]:has(.step-cta:not([hidden])) { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+@media (max-width: 1000px) {
+  body[data-page="reserve"] .step-cta:not([hidden]) { padding-inline: 24px; }
+}
+@media (max-width: 640px) {
+  body[data-page="reserve"] .step button { padding-block: 8px; }
+  body[data-page="reserve"] .step-cta:not([hidden]) { gap: 12px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+  body[data-page="reserve"] .step-cta-info { font-size: 12px; }
+  body[data-page="reserve"] .step-cta .btn { max-width: 60%; }
+}
 .booking-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-block: 1px solid var(--line); }
 .booking-entry-panel { padding: 36px 32px 36px 0; }
 .booking-entry-panel + .booking-entry-panel { border-left: 1px solid var(--line); padding-left: 32px; padding-right: 0; }
