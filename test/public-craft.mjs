@@ -6,8 +6,12 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createMockHandler } from './mock-gas.mjs';
 
-const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
-const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const TEST_BROWSER = process.env.TEST_BROWSER || 'chromium';
+const engines = await import(process.env.PLAYWRIGHT || 'playwright');
+const browserType = engines[TEST_BROWSER];
+assert.ok(browserType && typeof browserType.launch === 'function', 'TEST_BROWSERの試験用ブラウザが利用できる');
+const browser = await browserType.launch(TEST_BROWSER === 'chromium' && process.env.CHROMIUM
+  ? { executablePath: process.env.CHROMIUM } : {});
 let handler;
 const server = http.createServer((request, response) => handler(request, response));
 server.listen(0, '127.0.0.1');
@@ -50,14 +54,18 @@ for (const width of [320, 390]) {
       const photo = document.querySelector('#home-photo img');
       const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
       return {
-        photo: bounds('#home-photo'), copy: bounds('.hero-inner'), caption: bounds('#home-photo figcaption'),
+        photo: bounds('#home-photo'), image: bounds('#home-photo img'), copy: bounds('.hero-inner'), caption: bounds('#home-photo figcaption'),
+        container: bounds('.hero'),
         booking: bounds('.sp-cta'), fit: getComputedStyle(photo).objectFit,
         actual: { width: photo.naturalWidth, height: photo.naturalHeight },
         declared: { width: Number(photo.getAttribute('width')), height: Number(photo.getAttribute('height')) }
       };
     });
     assert.ok(layout.photo.top >= 0 && layout.photo.bottom <= layout.booking.top, '初期画面で店内写真の全体を見せ、固定の予約案内で隠さない');
+    assert.ok(layout.photo.width >= layout.container.width - 1 && layout.photo.height > 0, '写真の幅や高さをゼロへ潰さない');
+    assert.ok(layout.image.width >= layout.photo.width - 1 && layout.image.height >= layout.photo.height - 1, '画像自体も写真の領域全体へ表示する');
     assert.ok(layout.caption.bottom <= layout.copy.top, '写真名と店の文章を重ねない');
+    assert.ok(layout.caption.width > layout.caption.height, '写真名を一文字ずつ縦に折り返さない');
     assert.equal(layout.fit, 'contain', 'スマホで椅子や店内の端を切らずに見せる');
     assert.deepEqual(layout.declared, layout.actual, '初期HTMLと初期化後の画像寸法を実写真に合わせる');
     assert.ok(Math.abs(layout.photo.width / layout.photo.height - layout.actual.width / layout.actual.height) < 0.001);
@@ -69,6 +77,8 @@ for (const width of [320, 390]) {
   test(`${width}px：JavaScriptなしでも写真を先に見せ、店舗の文章とリンクを残す`, () => withPage('index', async page => {
     const photo = await page.locator('#home-photo').boundingBox();
     const copy = await page.locator('.hero-inner').boundingBox();
+    const container = await page.locator('.hero').boundingBox();
+    assert.ok(photo.width >= container.width - 1 && photo.height > 0, 'JavaScriptなしでも写真を実際に見える大きさにする');
     assert.ok(photo.y + photo.height <= copy.y, '写真を表示後のJavaScriptで並べ替えない');
     assert.equal(await page.locator('#home-photo img').evaluate(image => image.complete && image.naturalWidth > 0), true);
     assert.equal(await page.locator('#hero-catch').textContent(), 'イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に');
@@ -87,6 +97,8 @@ test('店内写真の読込が遅くても、写真・文章の順番と位置�
         return { photo: bounds('#home-photo'), copy: bounds('.hero-inner') };
       });
       const before = await layout();
+      const container = await page.locator('.hero').boundingBox();
+      assert.ok(before.photo.width >= container.width - 1 && before.photo.height > 0, '画像の読込前も幅と高さを確保する');
       assert.equal(await page.locator('#home-photo img').evaluate(image => image.complete), false);
       assert.ok(before.photo.bottom <= before.copy.top, '読み込み中から写真の位置を確保する');
       releasePhoto();
@@ -107,9 +119,11 @@ test('スマホの境界をまたいで幅を変えても、写真1点を保ち�
     await page.setViewportSize({ width, height: 900 });
     const layout = await page.evaluate(() => {
       const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
-      return { photo: bounds('#home-photo'), copy: bounds('.hero-inner'),
+      return { photo: bounds('#home-photo'), copy: bounds('.hero-inner'), container: bounds('.hero'),
         fit: getComputedStyle(document.querySelector('#home-photo img')).objectFit };
     });
+    assert.ok(layout.photo.width > 0 && layout.photo.height > 0, `${width}pxで写真の表示領域をゼロにしない`);
+    if (width <= 700) assert.ok(layout.photo.width >= layout.container.width - 1, 'スマホは写真を本文と同じ幅へ表示する');
     assert.ok(width <= 700 ? layout.photo.bottom <= layout.copy.top : layout.copy.right <= layout.photo.left,
       `${width}pxでスマホは写真を先に、PCは本文と左右に並べる`);
     assert.equal(layout.fit, width <= 700 ? 'contain' : 'cover', 'スマホだけ店内全体を見せ、PCの構成を保つ');
@@ -118,6 +132,26 @@ test('スマホの境界をまたいで幅を変えても、写真1点を保ち�
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   }
 }));
+
+test('aspect-ratioに非対応でも実写真の寸法から高さを取り、写真名を横に読める', () => withPage('index', async page => {
+  const layout = await page.evaluate(() => {
+    const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+    const image = document.querySelector('#home-photo img');
+    return { photo: bounds('#home-photo'), image: bounds('#home-photo img'), container: bounds('.hero'),
+      caption: bounds('#home-photo figcaption'), copy: bounds('.hero-inner'),
+      ratio: image.naturalWidth / image.naturalHeight };
+  });
+  assert.ok(layout.photo.width >= layout.container.width - 1 && layout.photo.height > 0, '画像が流れの中で高さを確保する');
+  assert.ok(Math.abs(layout.image.width / layout.image.height - layout.ratio) < 0.001, 'CSSの比率指定なしでも実写真の全体を見せる');
+  assert.ok(layout.caption.width > layout.caption.height && layout.caption.bottom <= layout.copy.top, '写真名を縦に潰したり本文へ重ねたりしない');
+  assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').isVisible(), true);
+}, {}, context => context.route('**/assets/css/home.css?*', async route => {
+  const response = await route.fetch();
+  const source = await response.text();
+  const unsupported = source.replace(/aspect-ratio:\s*1280\s*\/\s*1061;/g, '');
+  assert.notEqual(unsupported, source, '写真の比率指定だけを無効にした条件で確認する');
+  return route.fulfill({ response, body: unsupported });
+})));
 
 test('店内写真が取得できなければ大きな空白を残さず、店舗の文章と予約へ案内する', () => withPage('index', async page => {
   await page.locator('#home-photo img').waitFor({ state: 'detached' });
@@ -187,7 +221,7 @@ for (const width of [320, 390, 768, 1280]) {
 for (const name of ['index', 'gallery']) {
   test(`${name}：写真を大きく見て閉じても一覧の操作位置へ戻る`, () => withPage(name, async page => {
     const button = page.locator('.style-photo-open').first();
-    await button.scrollIntoViewIfNeeded();
+    await page.locator('.style-thumb').first().scrollIntoViewIfNeeded();
     await button.waitFor({ state: 'visible' });
     const photo = page.locator('.style-thumb img.ph-photo').first();
     const source = await photo.getAttribute('src');
@@ -307,6 +341,8 @@ test('絞り込みの選択状態を読み上げへ伝え、失敗した写真�
 
 test('320px・高さ320px・動きを減らす設定でも写真を閉じる操作が画面内に収まる', () => withPage('gallery', async page => {
   const button = page.locator('.style-photo-open').first();
+  await page.locator('.style-thumb').first().scrollIntoViewIfNeeded();
+  await button.waitFor({ state: 'visible' });
   await button.click();
   const dialog = page.locator('.style-photo-dialog');
   const close = dialog.getByRole('button', { name: '閉じる', exact: true });
