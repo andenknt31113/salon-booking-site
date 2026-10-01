@@ -1236,10 +1236,13 @@ function brandLockup(opt = {}) {
      文字ロゴのままにしたいので、そこで使います。 */
   if (!SALON.logo || opt.logo === false) return wordmark;
 
+  const logoSize = esc(opt.height || SALON.logoHeight || 34);
   return `
     <span class="brand-lockup">
-      <img class="brand-logo" src="${esc(SALON.logo)}" alt="" aria-hidden="true"
-           style="height:${opt.height || SALON.logoHeight || 34}px" />
+      <span class="brand-logo-frame" aria-hidden="true" style="width:${logoSize}px;height:${logoSize}px;flex:none">
+        <img class="brand-logo" src="${esc(SALON.logo)}" alt="" aria-hidden="true"
+             style="width:100%;height:100%;object-fit:contain" />
+      </span>
       ${wordmark}
     </span>`;
 }
