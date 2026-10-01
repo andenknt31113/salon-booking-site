@@ -19,6 +19,7 @@ function fixture({ calendar = false, failureAt = 0 } = {}) {
   const messages = [];
   const events = [];
   let held = false;
+  let headers;
   const settingSheet = {
     getLastRow: () => Object.keys(settings).length + 1,
     getLastColumn: () => 2,
@@ -36,9 +37,16 @@ function fixture({ calendar = false, failureAt = 0 } = {}) {
   const ledger = { getParent: () => spreadsheet, appendRow: record => {
     assert.equal(held, true);
     rows.push(record);
-  }, getLastRow: () => rows.length + 1, getRange: () => ({ setValue() {} }) };
+  }, getLastRow: () => rows.length + 1, getLastColumn: () => headers.length,
+  getRange(row, column, numRows = 1, numColumns = 1) {
+    return { getValues() {
+      assert.equal(held, true);
+      return [headers, ...rows].slice(row - 1, row - 1 + numRows)
+        .map(cells => cells.slice(column - 1, column - 1 + numColumns));
+    }, setValue(value) { rows[row - 2][column - 1] = value; } };
+  } };
   const context = vm.createContext({ Date, console: { error() {}, warn() {} },
-    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() { assert.equal(held, true); } },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: value => ({ setMimeType: () => value }) },
     Utilities: { formatDate: () => '2030-01-01' },
@@ -57,10 +65,9 @@ function fixture({ calendar = false, failureAt = 0 } = {}) {
   const source = calendar ? SOURCE.replace("const CALENDAR_ID = '';", "const CALENDAR_ID = 'primary';") : SOURCE;
   if (calendar) assert.notEqual(source, SOURCE);
   vm.runInContext(source, context);
+  headers = Array.from(vm.runInContext('HEADERS', context));
   context.getSheet_ = () => ledger;
   context.findRowByCode_ = () => -1;
-  context.rowFor_ = (sheet, record) => { assert.equal(sheet, ledger); return record; };
-  context.colIndex_ = () => () => 0;
   context.verifyReservationMenus_ = () => '';
   context.isTaken_ = () => false;
   context.hitsClosed_ = () => false;

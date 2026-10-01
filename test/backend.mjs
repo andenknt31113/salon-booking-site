@@ -408,7 +408,8 @@ console.log('\n【カレンダー連携】予約の保存と予定の順番');
   const failedLog = [];
   let saveFailed = false;
   try { run('doReserve_', failedSheet, payload, {}, null, false, false, failedLog); }
-  catch (error) { saveFailed = /試験用の台帳保存失敗/.test(String(error)); }
+  catch (error) { saveFailed = error.unknown === true && /保存結果/.test(String(error))
+    && !/試験用/.test(String(error)); }
   saveFailed && failedSheet._data.length === 0 && failedLog.length === 0
     ? ok('台帳へ保存できなければ、カレンダー予定を作らない')
     : note('保存失敗とカレンダー', '台帳に無い予定だけが残り得る');
@@ -1621,7 +1622,7 @@ console.log('\n【設定】早く閉める日を設定したら、受け口も�
     const ledger = makeSheet();
     const ss = { getSheetByName: n => (n === '設定' ? setting : null), insertSheet: () => null };
     ledger.getParent = () => ss;
-    ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } };
+    ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); }, flush() {} };
     vm.createContext(ctx);
     vm.runInContext(srcLive + ';globalThis.__h = doReserve_;', ctx);
     try { return ctx.__h(ledger, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }
@@ -1667,7 +1668,7 @@ console.log('\n【設定】最終受付と定休曜日を、受け口も見て�
     const ledger = makeSheet();
     const ss = { getSheetByName: n => (n === '設定' ? setting : null), insertSheet: () => null };
     ledger.getParent = () => ss;
-    ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); } };
+    ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, getUi: () => { throw new Error('no ui'); }, flush() {} };
     vm.createContext(ctx);
     vm.runInContext(srcLive + `;globalThis.__g = ${fn};`, ctx);
     try { return ctx.__g(ledger, payload); } catch (e) { return { ok: false, threw: String(e && e.message) }; }

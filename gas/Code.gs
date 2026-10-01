@@ -955,7 +955,9 @@ function doReserve_(sheet, d, verifyCatalog) {
 
      並べる順番は台帳の見出しに合わせます。店の人が列を足していても、
      それぞれの値が正しい列に入るようにするためです。 */
-  sheet.appendRow(rowFor_(sheet, {
+  const reservationHeaders = headerRow_(sheet);
+  if (!validBookingHeaders_(reservationHeaders, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  const reservationValues = rowFor_(sheet, {
     '予約番号': d.code,
     '受付日時': formatTime_(d.createdAt),
     '来店日': normalizeDate_(d.date),
@@ -981,13 +983,29 @@ function doReserve_(sheet, d, verifyCatalog) {
     'ご要望': cell_(c.request, LIMITS.request),
     '状態': '予約確定',
     'カレンダーID': ''
-  }));
+  }, reservationHeaders);
+  let reservationRow;
+  try {
+    sheet.appendRow(reservationValues);
+    SpreadsheetApp.flush();
+    reservationRow = sheet.getLastRow();
+    const saved = sheet.getRange(reservationRow, 1, 1, reservationHeaders.length).getValues()[0];
+    const normalizers = { 予約番号: codeKey_, 来店日: normalizeDate_, 開始: normalizeTime_, 終了: normalizeTime_,
+      '所要(分)': Number, 合計金額: Number, 電話番号: digits_, 担当ID: String, 状態: String };
+    if (!Array.isArray(saved) || Object.keys(normalizers).some(header => {
+      const column = reservationHeaders.indexOf(header);
+      return column >= 0 && normalizers[header](saved[column]) !== normalizers[header](reservationValues[column]);
+    })) throw new Error();
+  } catch (error) {
+    throw Object.assign(new Error('予約の保存結果を確認できません。同じ番号で予約確認ページを開くか、店舗へお電話ください。予約を取り直さないでください。'),
+      { unknown: true });
+  }
 
   const eventId = addToCalendar_(d, c, menuText, settings);
   let calendarWarning = !!CALENDAR_ID && !eventId;
   if (eventId) {
     try {
-      sheet.getRange(sheet.getLastRow(), colIndex_(sheet)('カレンダーID') + 1).setValue(eventId);
+      sheet.getRange(reservationRow, colIndex_(sheet)('カレンダーID') + 1).setValue(eventId);
     } catch (error) {
       removeFromCalendar_(eventId);
       calendarWarning = true;
@@ -1059,7 +1077,7 @@ function doReserve_(sheet, d, verifyCatalog) {
     salonSignature_(null, settings)
   ].filter(Boolean).join('\n'));
 
-  recordMailStatus_(sheet, null, '新規予約', shopMailStatus, customerMailStatus);
+  recordMailStatus_(sheet, reservationRow, '新規予約', shopMailStatus, customerMailStatus);
 
   return { ok: true, code: d.code, calendarWarning: calendarWarning };
 }
@@ -2728,8 +2746,8 @@ function readRows_(sheet) {
 }
 
 /** 見出し名で書いた値を、いまの列の並びに並べ替えます */
-function rowFor_(sheet, values) {
-  return headerRow_(sheet).map(function (h) {
+function rowFor_(sheet, values, headers) {
+  return (headers || headerRow_(sheet)).map(function (h) {
     return Object.prototype.hasOwnProperty.call(values, h) ? values[h] : '';
   });
 }
