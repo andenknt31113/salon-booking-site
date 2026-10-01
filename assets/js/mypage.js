@@ -6,6 +6,7 @@ let filterCode = '';
 /* 直前に照会したご予約。別端末から日時変更するときに使います */
 let lastLookup = null;
 let lookupVersion = 0;
+const pendingBookingActions = new Set();
 
 /* この端末の記録は status:'cancelled'、照会結果は status:'キャンセル' と、
    出どころで言葉が違います。片方だけを見ていると、キャンセル済みの
@@ -15,19 +16,39 @@ function isCancelled(r) {
 }
 
 function isUnconfirmed(reservation) {
-  return reservation.deliveryState === 'unknown' || reservation.delivered === false;
+  return pendingBookingActions.has(normalizeCode(reservation.code))
+    || reservation.deliveryState === 'unknown' || reservation.delivered === false;
 }
 
-function checkBookingAction(code) {
-  return `<p class="booking-detail">店舗の受付結果が未確認です。変更・取消や予約の取り直しの前に、最新の状態をご確認ください。</p>`
+function checkBookingAction(code, fromLookup = false) {
+  const pending = pendingBookingActions.has(normalizeCode(code));
+  const message = pending
+    ? `キャンセルを送信しています。予約番号 ${code}。画面を閉じた場合も、この番号で最新の状態をご確認ください。`
+    : '店舗の受付結果が未確認です。変更・取消や予約の取り直しの前に、最新の状態をご確認ください。';
+  return `<p class="booking-detail">${esc(message)}</p>`
+    + (pending ? `<button class="btn btn-ghost btn-sm" type="button" data-${fromLookup ? 'lookup-cancel' : 'cancel'}="${esc(code)}" disabled>送信中…</button>` : '')
     + `<button class="btn btn-outline btn-sm" type="button" data-check-booking="${esc(code)}">この予約番号で受付結果を確認する</button>`;
 }
 
-function markBookingUnconfirmed(code) {
-  const record = Store.find(code);
-  if (record) Store.reschedule(code, { ...record, delivered: false, deliveryState: 'unknown' });
+function markBookingUnconfirmed(code, tel) {
+  const cached = Store.find(code);
+  const phoneDigits = value => normalizeTel(value || '').replace(/\D/g, '');
+  const record = cached && (tel === undefined || phoneDigits(cached.customer?.tel) === phoneDigits(tel))
+    ? cached : null;
+  if (record) Store.replace(code, { delivered: false, deliveryState: 'unknown', deliveryError: '' });
   if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) {
     lastLookup = { ...lastLookup, delivered: false, deliveryState: 'unknown' };
+  }
+  refreshView(true);
+  return record;
+}
+
+function restoreBookingDelivery(code, record, lookup) {
+  if (record) Store.replace(code, { delivered: record.delivered,
+    deliveryState: record.deliveryState, deliveryError: record.deliveryError });
+  if (lookup && lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) {
+    lastLookup = { ...lastLookup, delivered: lookup.delivered,
+      deliveryState: lookup.deliveryState, deliveryError: lookup.deliveryError };
   }
   refreshView(true);
 }
@@ -302,7 +323,7 @@ function renderLookupResult(r) {
       <p class="booking-detail">メニュー：${esc(r.menuText)}</p>
       <p class="booking-detail">ご担当：${esc(r.staffName)}</p>
       ${totalLine(r)}
-      ${isUnconfirmed(r) ? `<div class="booking-actions">${checkBookingAction(r.code)}</div>` : canCancel
+      ${isUnconfirmed(r) ? `<div class="booking-actions">${checkBookingAction(r.code, true)}</div>` : canCancel
         ? `<div class="booking-actions">
              ${changeBtn(r.code)}
              <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>
@@ -341,6 +362,7 @@ function refreshView(force) {
 }
 
 function syncLookupRecord(reservation, tel) {
+  if (pendingBookingActions.has(normalizeCode(reservation.code))) return;
   const records = Store.all();
   const digits = value => normalizeTel(value || '').replace(/\D/g, '');
   const record = records.find(item => normalizeCode(item.code) === normalizeCode(reservation.code)
@@ -504,25 +526,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     clearFlash();
     busy(btn, true);
+    pendingBookingActions.add(normalizeCode(code));
+    const originalReceipt = markBookingUnconfirmed(code, r.lookupTel);
     const res = await sendToEndpoint({ type: 'cancel', code, tel: r.lookupTel });
+    pendingBookingActions.delete(normalizeCode(code));
+    clearFlash();
     busy(btn, false, 'この予約をキャンセルする');
 
-    if (res.deadline) {
+    if (res.noEndpoint || res.deadline) {
+      restoreBookingDelivery(code, originalReceipt, r);
+      if (res.noEndpoint) {
+        showFlash('店舗へ送信できません。予約は取り消されていません。' + contactWay());
+        return;
+      }
       alert(res.error);
       // 台帳が期限切れと答えました。画面の側も期限切れの見た目に直します
       refusedByDeadline.add(normalizeCode(code));
       refreshView(true);
       return;
     }
-    if (!res.ok && !res.noEndpoint) {
-      markBookingUnconfirmed(code);
+    if (!res.ok) {
+      markBookingUnconfirmed(code, r.lookupTel);
       showFlash('キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
       return;
     }
     /* 台帳への反映は済んでいます。ここで照会をやり直すと、直後に電波が
        切れただけで結果が消え、キャンセルできたのか分からなくなります。
        手元の表示だけ書き換えます。 */
-    const cancelled = { ...r, status: 'キャンセル' };
+    const cancelled = { ...r, status: 'キャンセル', delivered: true, deliveryState: 'confirmed', deliveryError: '' };
     if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) lastLookup = cancelled;
     lookupVersion++;
     syncLookupRecord(cancelled, r.lookupTel);
@@ -595,24 +626,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     clearFlash();
     busy(btn, true);
+    pendingBookingActions.add(normalizeCode(code));
+    const originalReceipt = markBookingUnconfirmed(code);
     const res = await sendCancellation(r); // 予約台帳の状態も「キャンセル」に更新する
+    pendingBookingActions.delete(normalizeCode(code));
+    clearFlash();
     busy(btn, false, 'この予約をキャンセルする');
 
-    if (res.deadline) {
+    if (res.noEndpoint || res.deadline) {
+      restoreBookingDelivery(code, originalReceipt, r);
+      if (res.noEndpoint) {
+        showFlash('店舗へ送信できません。予約は取り消されていません。' + contactWay());
+        return;
+      }
       alert(res.error);
       refusedByDeadline.add(normalizeCode(code));
       refreshView(true);
       return;
     }
-    if (!res.ok && !res.noEndpoint) {
+    if (!res.ok) {
       markBookingUnconfirmed(code);
       showFlash('キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
       return;
     }
+    Store.replace(code, { delivered: true, deliveryState: 'confirmed', deliveryError: '' });
     Store.cancel(code);
     lookupVersion++;
     if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) {
-      lastLookup = { ...lastLookup, status: 'キャンセル' };
+      lastLookup = { ...lastLookup, status: 'キャンセル', delivered: true, deliveryState: 'confirmed', deliveryError: '' };
     }
     refreshView(true);
     showFlash('キャンセルを承りました。');

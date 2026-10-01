@@ -885,6 +885,14 @@ async function submitReservation() {
   let changeUnchanged = false;
   setSubmitting(true);
   if (changing) {
+    const cached = Store.find(changing.code);
+    const tel = changing.lookupTel || (changing.customer && changing.customer.tel) || '';
+    const phoneDigits = value => normalizeTel(value || '').replace(/\D/g, '');
+    const originalReceipt = cached && phoneDigits(cached.customer?.tel) === phoneDigits(tel) ? cached : null;
+    if (originalReceipt) Store.replace(changing.code, {
+      delivered: false, deliveryState: 'unknown', deliveryError: ''
+    });
+    setSubmitting(true, changing.code);
     // 予約番号はそのまま。日時だけ差し替える。
     reservation = { ...changing, date: state.date, time: state.time,
       endTime: toHHMM(toMinutes(state.time) + totalMinutes()) };
@@ -898,24 +906,33 @@ async function submitReservation() {
       endTime: reservation.endTime,
       minutes: totalMinutes(),
       // 別端末から照会して変更する場合の本人確認
-      tel: changing.lookupTel || (changing.customer && changing.customer.tel) || ''
+      tel
     });
     /* 結果不明のときは、控えの日時を書き換えず照会へ案内します。 */
-    if (!sent.ok && !sent.noEndpoint) {
-      if (sent.restored || sent.deadline || sent.taken || sent.stale || sent.cancelled
+    if (!sent.ok) {
+      if (sent.noEndpoint || sent.restored || sent.deadline || sent.taken || sent.stale || sent.cancelled
         || sent.invalid || sent.closed || sent.scheduleChanged) {
+        if (originalReceipt) Store.replace(changing.code, {
+          delivered: originalReceipt.delivered, deliveryState: originalReceipt.deliveryState,
+          deliveryError: originalReceipt.deliveryError
+        });
         setSubmitting(false);
-        alert(sent.restored ? deliveryFailureMessage(sent, '変更') : sent.error);
+        alert(sent.noEndpoint ? '店舗へ送信できません。日時は変更されていません。' + contactWay()
+          : sent.restored ? deliveryFailureMessage(sent, '変更') : sent.error);
         if (sent.taken) { state.time = null; await Remote.load(true); goTo(3); }
         return;
       }
-      Store.reschedule(changing.code, { ...changing, delivered: false,
-        deliveryState: 'unknown', deliveryError: sent.error || '' });
+      if (originalReceipt) Store.replace(changing.code, {
+        delivered: false, deliveryState: 'unknown', deliveryError: sent.error || ''
+      });
       showDeliveryWarning(sent);
     } else {
       changeUnchanged = sent.unchanged === true;
-      Store.reschedule(changing.code, { ...reservation, delivered: sent.ok,
-        deliveryState: sent.ok ? 'confirmed' : 'unknown' });
+      if (originalReceipt) {
+        const confirmed = { ...reservation, delivered: true, deliveryState: 'confirmed', deliveryError: '' };
+        if (changeUnchanged) Store.replace(changing.code, confirmed);
+        else Store.reschedule(changing.code, confirmed);
+      }
     }
     reservation.delivered = sent.ok;
     reservation.deliveryState = sent.ok ? 'confirmed' : 'unknown';

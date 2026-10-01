@@ -25,7 +25,7 @@ async function fixture(run) {
   const writes = [];
   const reads = [];
   const releases = [];
-  const control = { fail: '', saveFirst: false, holdAvailability: false, rejection: null, responseCode: '' };
+  const control = { fail: '', saveFirst: false, holdAvailability: false, rejection: null, responseCode: '', afterSave: null };
   try {
     await fetch(`${base}/exec`, { method: 'POST', body: JSON.stringify({ type: 'reset' }) });
     await context.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname)
@@ -60,7 +60,10 @@ async function fixture(run) {
         return;
       }
       if (!control.fail) { await route.continue(); return; }
-      if (control.saveFirst) assert.equal((await (await route.fetch()).json()).ok, true);
+      if (control.saveFirst) {
+        assert.equal((await (await route.fetch()).json()).ok, true);
+        control.afterSave?.();
+      }
       if (control.fail === 'stall') {
         await new Promise(resolve => releases.push(resolve));
         await route.abort().catch(() => {});
@@ -122,6 +125,160 @@ async function assertUnconfirmed(page, base, code) {
   assert.equal(new URL(page.url()).search, '', '電話番号をURLへ出さない');
   await page.waitForFunction(() => !document.querySelector('#lookup-btn').disabled);
 }
+
+async function prepareChange(page, base) {
+  await fillReservation(page, base);
+  await page.locator('#submit-reservation').click();
+  await page.waitForFunction(() => !submitting && state.step === 6);
+  const original = (await page.evaluate(() => Store.all()))[0];
+  await page.goto(`${base}/mypage.html`);
+  await page.locator('[data-change]').click();
+  await page.waitForFunction(() => typeof Catalog !== 'undefined' && typeof Remote !== 'undefined'
+    && typeof state !== 'undefined' && Catalog.loaded && Remote.loaded && state.step === 3);
+  const slot = await page.evaluate(original => {
+    const button = [...document.querySelectorAll('button[data-date][data-time]:not([disabled])')]
+      .find(candidate => candidate.dataset.date > original.date);
+    return button ? { date: button.dataset.date, time: button.dataset.time } : null;
+  }, original);
+  assert.ok(slot);
+  await page.locator(`button[data-date="${slot.date}"][data-time="${slot.time}"]`).click();
+  await page.locator('[data-next="4"]').first().click();
+  return { original, slot };
+}
+
+for (const operation of ['change', 'cancel']) {
+  for (const saveFirst of [false, true]) {
+    test(`${operation}応答前に離れても、台帳${saveFirst ? '保存済み' : '未保存'}の状態を同じ番号で確認する`, async () => {
+      await fixture(async ({ page, base, writes, control }) => {
+        let original;
+        let slot;
+        if (operation === 'change') {
+          ({ original, slot } = await prepareChange(page, base));
+        } else {
+          await fillReservation(page, base);
+          await page.locator('#submit-reservation').click();
+          await page.waitForFunction(() => !submitting && state.step === 6);
+          original = (await page.evaluate(() => Store.all()))[0];
+          await page.goto(`${base}/mypage.html`);
+        }
+        const saved = new Promise(resolve => { control.afterSave = resolve; });
+        Object.assign(control, { fail: 'stall', saveFirst });
+        await page.evaluate(timeout => { SALON.bookingTransport.writeTimeoutMs = timeout; }, TEST_HELD_WRITE_TIMEOUT_MS);
+        await page.locator(operation === 'change' ? '#submit-reservation' : '[data-cancel]').click();
+        if (operation === 'cancel') await page.locator('dialog button[value="confirm"]').click();
+        if (saveFirst) await saved;
+        await page.waitForFunction(code => Store.find(code)?.deliveryState === 'unknown', original.code,
+          { timeout: 1500 });
+        const pending = await page.evaluate(code => Store.find(code), original.code);
+        assert.equal(pending.date, original.date);
+        assert.equal(pending.time, original.time);
+        assert.equal(pending.status, original.status);
+        assert.equal(pending.changedAt, original.changedAt, '未確定の送信を日時変更履歴にしない');
+        assert.equal(pending.cancelledAt, undefined, '応答前に取消を確定しない');
+        assert.match(await page.locator(operation === 'change' ? '#sending-note' : '#upcoming-list').textContent(),
+          new RegExp(original.code));
+        assert.equal(writes.filter(write => write.type === operation).length, 1);
+        await assertUnconfirmed(page, base, original.code);
+        const checked = await page.evaluate(code => Store.find(code), original.code);
+        assert.equal(checked.deliveryState, 'confirmed');
+        assert.equal(checked.date, saveFirst && operation === 'change' ? slot.date : original.date);
+        assert.equal(checked.time, saveFirst && operation === 'change' ? slot.time : original.time);
+        assert.equal(checked.status, saveFirst && operation === 'cancel' ? 'cancelled' : 'reserved');
+        assert.equal(writes.length, 2, '予約と操作が各1回だけで、照会や画面復帰は再送しない');
+      });
+    });
+  }
+}
+
+for (const flag of ['restored', 'deadline', 'taken', 'stale', 'invalid']) {
+  test(`変更の${flag}拒否では控えを確定前のまま戻し、架空の変更履歴を付けない`, async () => {
+    await fixture(async ({ page, base, writes, control, notices }) => {
+      const { original } = await prepareChange(page, base);
+      control.rejection = { ok: false, [flag]: true, error: `変更の最終検査：${flag}` };
+      await page.locator('#submit-reservation').click();
+      await page.waitForFunction(() => !submitting);
+      assert.deepEqual(await page.evaluate(code => Store.find(code), original.code), original);
+      assert.ok(notices.some(message => message.includes('変更')));
+      assert.equal(await page.locator('[data-panel="6"]').isVisible(), false);
+      assert.equal(writes.filter(write => write.type === 'change').length, 1);
+    });
+  });
+}
+
+test('取消の期限拒否では確定した控えを保持し、取消済みや受付未確認と表示しない', async () => {
+  await fixture(async ({ page, base, control }) => {
+    await fillReservation(page, base);
+    await page.locator('#submit-reservation').click();
+    await page.waitForFunction(() => !submitting && state.step === 6);
+    const original = (await page.evaluate(() => Store.all()))[0];
+    await page.goto(`${base}/mypage.html`);
+    control.rejection = { ok: false, deadline: true, error: '期限を過ぎました。' };
+    await page.locator('[data-cancel]').click();
+    await page.locator('dialog button[value="confirm"]').click();
+    await page.waitForFunction(() => refusedByDeadline.size === 1);
+    assert.deepEqual(await page.evaluate(code => Store.find(code), original.code), original);
+    assert.equal(await page.locator('#upcoming-list .status-chip').textContent(), '予約確定');
+    assert.equal(await page.locator('[data-cancel], [data-change]').count(), 0);
+  });
+});
+
+for (const operation of ['change', 'cancel']) {
+  test(`送信先が未設定の${operation}を完了扱いせず、元の確定した予約を保つ`, async () => {
+    await fixture(async ({ page, base, writes, notices }) => {
+      let original;
+      if (operation === 'change') {
+        ({ original } = await prepareChange(page, base));
+      } else {
+        await fillReservation(page, base);
+        await page.locator('#submit-reservation').click();
+        await page.waitForFunction(() => !submitting && state.step === 6);
+        original = (await page.evaluate(() => Store.all()))[0];
+        await page.goto(`${base}/mypage.html`);
+      }
+      await page.evaluate(() => { SALON.reservationEndpoint = ''; });
+      await page.locator(operation === 'change' ? '#submit-reservation' : '[data-cancel]').click();
+      if (operation === 'cancel') await page.locator('dialog button[value="confirm"]').click();
+      if (operation === 'change') {
+        await page.waitForFunction(() => !submitting);
+        assert.ok(notices.some(message => message.includes('送信できません')));
+      } else {
+        await page.waitForFunction(() => document.querySelector('#flash').textContent.includes('送信できません'),
+          null, { timeout: 2000 });
+      }
+      assert.deepEqual(await page.evaluate(code => Store.find(code), original.code), original);
+      assert.equal(writes.length, 1, '接続先が無い操作は送信していない');
+      if (operation === 'change') assert.equal(await page.locator('[data-panel="6"]').isVisible(), false);
+      else assert.doesNotMatch(await page.locator('#flash').textContent(), /承りました/);
+    });
+});
+}
+
+test('取消送信中の照会で古い確定状態が返っても、再取消や日時変更を出さない', async () => {
+  await fixture(async ({ page, base, writes, control, releases }) => {
+    await fillReservation(page, base);
+    await page.locator('#submit-reservation').click();
+    await page.waitForFunction(() => !submitting && state.step === 6);
+    const code = await page.locator('#done-code').textContent();
+    await page.goto(`${base}/mypage.html`);
+    Object.assign(control, { fail: 'stall', saveFirst: false });
+    await page.evaluate(timeout => { SALON.bookingTransport.writeTimeoutMs = timeout; }, TEST_HELD_WRITE_TIMEOUT_MS);
+    await page.locator('[data-cancel]').click();
+    await page.locator('dialog button[value="confirm"]').click();
+    await page.waitForFunction(code => Store.find(code)?.deliveryState === 'unknown', code, { timeout: 1500 });
+    await page.locator('[data-check-booking]').first().click();
+    await page.waitForFunction(() => !document.querySelector('#lookup-btn').disabled);
+    assert.equal(await page.evaluate(code => Store.find(code).deliveryState, code), 'unknown');
+    assert.equal(await page.locator('[data-cancel]:not([disabled]), [data-lookup-cancel]:not([disabled]), [data-change]').count(), 0);
+    assert.equal(await page.locator('#lookup-result [data-lookup-cancel]').isDisabled(), true);
+    assert.equal(await page.locator('#lookup-result [data-lookup-cancel]').textContent(), '送信中…');
+    releases.forEach(resolve => resolve());
+    await page.waitForFunction(() => document.querySelector('#flash').textContent.includes('反映結果'));
+    await page.locator('[data-check-booking]').first().click();
+    await page.waitForFunction(() => !document.querySelector('#lookup-btn').disabled);
+    assert.equal(await page.evaluate(code => Store.find(code).deliveryState, code), 'confirmed');
+    assert.equal(writes.filter(write => write.type === 'cancel').length, 1);
+  });
+});
 
 for (const failure of ['http', 'stall']) {
   for (const saveFirst of [false, true]) {
@@ -301,6 +458,8 @@ for (const fromLookup of [false, true]) {
       await page.waitForFunction(() => !document.querySelector('#lookup-btn').disabled);
       assert.equal(await page.locator('#lookup-result .status-chip').textContent(), 'キャンセル済み');
       assert.equal(writes.length, 2, '予約1回と取消1回だけで、照会は再送しない');
+      if (fromLookup) assert.equal(await page.evaluate(() => Store.all().length), 0,
+        '照会だけでこの端末に予約の個人情報を保存しない');
     });
   });
 }
