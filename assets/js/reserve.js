@@ -43,10 +43,37 @@ function loadDraft() {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
-    if (saved.step === 6) return null; // 完了済みの下書きは復元しない
-    Object.assign(state, saved, { calOffset: 0 });
-    return saved;
+    if (!validDraft(saved)) return null;
+    const restored = Object.fromEntries(Object.keys(state)
+      .filter(key => Object.prototype.hasOwnProperty.call(saved, key)).map(key => [key, saved[key]]));
+    restored.customer = Object.fromEntries(Object.keys(state.customer)
+      .map(key => [key, saved.customer[key] ?? state.customer[key]]));
+    Object.assign(state, restored, { calOffset: 0 });
+    return { ...state, couponName: saved.couponName || '', menuNames: saved.menuNames || [],
+      menuDetails: saved.menuDetails };
   } catch (e) { return null; }   // 破損時は無視
+}
+
+function validDraft(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)
+    || !Number.isInteger(saved.step) || saved.step < 1 || saved.step > 5
+    || !Array.isArray(saved.menuIds) || saved.menuIds.some(value => typeof value !== 'string')
+    || !saved.customer || typeof saved.customer !== 'object' || Array.isArray(saved.customer)) return false;
+  if (['couponId', 'staffId', 'date', 'time'].some(key => saved[key] !== undefined
+    && saved[key] !== null && typeof saved[key] !== 'string')) return false;
+  if (saved.staffChosen !== undefined && typeof saved.staffChosen !== 'boolean') return false;
+  if (saved.date && (!/^\d{4}-\d{2}-\d{2}$/.test(saved.date) || toKey(fromKey(saved.date)) !== saved.date)) return false;
+  if (saved.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(saved.time)) return false;
+  if (['name', 'kana', 'tel', 'email', 'visit', 'request'].some(key => saved.customer[key] !== undefined
+    && typeof saved.customer[key] !== 'string')) return false;
+  if (saved.customer.agree !== undefined && typeof saved.customer.agree !== 'boolean') return false;
+  if (saved.couponName !== undefined && typeof saved.couponName !== 'string') return false;
+  if (saved.menuNames !== undefined && (!Array.isArray(saved.menuNames)
+    || saved.menuNames.some(value => typeof value !== 'string'))) return false;
+  return saved.menuDetails === undefined || (Array.isArray(saved.menuDetails)
+    && saved.menuDetails.every(menu => menu && typeof menu.name === 'string'
+      && Number.isFinite(menu.price) && menu.price >= 0 && Number.isFinite(menu.minutes) && menu.minutes > 0
+      && typeof menu.isCoupon === 'boolean' && (menu.priceFrom === undefined || typeof menu.priceFrom === 'boolean')));
 }
 function clearDraft() {
   try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) { /* noop */ }
@@ -71,8 +98,10 @@ function saveProfile(c) {
 function loadProfile() {
   try {
     const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
-    if (!saved || !saved.name || !saved.tel) return null;
-    return saved;
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)
+      || PROFILE_FIELDS.some(key => saved[key] !== undefined && typeof saved[key] !== 'string')
+      || !saved.name || !saved.tel) return null;
+    return Object.fromEntries(PROFILE_FIELDS.map(key => [key, saved[key] || '']));
   } catch (e) { return null; }
 }
 function clearProfile() {
