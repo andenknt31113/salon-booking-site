@@ -20,7 +20,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20261001-mobile" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20261001-stable" />
 </head>
 <body data-page="menu">
   <div id="site-header"></div>
@@ -53,7 +53,7 @@
         </div>
         <!-- 掲載のタグで絞り込みます。タグを持たないおすすめメニュー（シート由来）の
              ときは、pages.js がこの箱ごと隠します。 -->
-        <div class="tabs" id="coupon-tabs" role="tablist" hidden></div>
+        <div class="tabs" id="coupon-tabs" role="group" aria-label="おすすめメニューの施術で絞り込む" hidden></div>
         <section class="coupon-list" id="coupon-list" aria-label="おすすめメニュー一覧">
     <article class="coupon">
       <img class="coupon-photo ph-photo-opt" src="assets/style11.jpg" alt="" />
@@ -316,7 +316,7 @@
           <span class="section-label">MENU</span>
           <h2 class="section-title">単品メニュー</h2>
         </div>
-        <div class="tabs" id="menu-tabs" role="tablist"></div>
+        <div class="tabs" id="menu-tabs" role="group" aria-label="単品メニューの種類で絞り込む"></div>
         <section id="menu-list" aria-label="単品メニュー一覧"><div class="menu-group" id="cat-cat0"><h3>カット</h3>
     <div class="menu-row">
       <img class="menu-row-photo ph-photo-opt" src="assets/style6.jpg" alt="" />
@@ -433,6 +433,6 @@
   <script src="assets/js/data.js?v=20260929-booking"></script>
   <script src="assets/js/published-menus.js"></script>
   <script src="assets/js/common.js?v=20260929-navigation"></script>
-  <script src="assets/js/pages.js?v=20261001-mobile"></script>
+  <script src="assets/js/pages.js?v=20261001-stable"></script>
 </body>
 </html>

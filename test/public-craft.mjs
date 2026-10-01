@@ -139,8 +139,10 @@ test('aspect-ratioに非対応でも実写真の寸法から高さを取り、�
     const image = document.querySelector('#home-photo img');
     return { photo: bounds('#home-photo'), image: bounds('#home-photo img'), container: bounds('.hero'),
       caption: bounds('#home-photo figcaption'), copy: bounds('.hero-inner'),
+      ratios: [getComputedStyle(document.querySelector('#home-photo')).aspectRatio, getComputedStyle(image).aspectRatio],
       ratio: image.naturalWidth / image.naturalHeight };
   });
+  assert.deepEqual(layout.ratios, ['auto', 'auto'], '写真と枠のCSS比率指定を無効にした条件で確認する');
   assert.ok(layout.photo.width >= layout.container.width - 1 && layout.photo.height > 0, '画像が流れの中で高さを確保する');
   assert.ok(Math.abs(layout.image.width / layout.image.height - layout.ratio) < 0.001, 'CSSの比率指定なしでも実写真の全体を見せる');
   assert.ok(layout.caption.width > layout.caption.height && layout.caption.bottom <= layout.copy.top, '写真名を縦に潰したり本文へ重ねたりしない');
@@ -148,8 +150,7 @@ test('aspect-ratioに非対応でも実写真の寸法から高さを取り、�
 }, {}, context => context.route('**/assets/css/home.css?*', async route => {
   const response = await route.fetch();
   const source = await response.text();
-  const unsupported = source.replace(/aspect-ratio:\s*1280\s*\/\s*1061;/g, '');
-  assert.notEqual(unsupported, source, '写真の比率指定だけを無効にした条件で確認する');
+  const unsupported = source + '\n.hero-media, .hero-photo { aspect-ratio: auto !important; }\n';
   return route.fulfill({ response, body: unsupported });
 })));
 

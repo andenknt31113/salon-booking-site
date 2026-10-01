@@ -36,9 +36,13 @@ body:not([data-page="reserve"]):not([data-page="mypage"]) .page-head h1 { font-f
 .page-jump a { padding: 10px 0; border: 0; border-bottom: 1px solid var(--text-2); color: var(--text); font-weight: 400; }
 .tabs { gap: 10px; margin-bottom: 36px; }
 .tab { min-height: 44px; }
+.tab[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); font-weight: 700; }
 :is(.input, .select, .textarea) { transition-property: border-color, box-shadow; }
 :is(.input, .select, .textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .site-footer :focus-visible { outline-color: var(--on-ink); }
+.coupon-photo, .menu-row-photo { display: block; visibility: hidden; }
+.has-photo > :is(.coupon-photo, .menu-row-photo) { visibility: visible; }
+.menu-row:has(.menu-row-photo) { grid-template-columns: 68px minmax(0, 1fr) auto; align-items: center; }
 
 body[data-page="gallery"] .style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 56px 32px; }
 body[data-page="gallery"] .style-card { display: flex; flex-direction: column; background: none; border: 0; }
@@ -67,7 +71,7 @@ body:has(.style-photo-dialog[open]) { overflow: hidden; }
 
 body[data-page="menu"] .coupon-list { gap: 0; border-bottom: 1px solid var(--line); }
 body[data-page="menu"] .coupon { padding: 32px 0; gap: 28px; background: none; border: 0; border-top: 1px solid var(--line); }
-body[data-page="menu"] .coupon.has-photo { grid-template-columns: 112px minmax(0, 1fr) auto; }
+body[data-page="menu"] .coupon:has(.coupon-photo) { grid-template-columns: 112px minmax(0, 1fr) auto; }
 body[data-page="menu"] .coupon-photo { width: 112px; height: 140px; border: 0; }
 body[data-page="menu"] .coupon h3 { font-size: 16px; font-weight: 500; line-height: 1.9; }
 body[data-page="menu"] .coupon-price { align-self: center; }
@@ -154,8 +158,8 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
   body[data-page="gallery"] .style-body { padding-top: 14px; }
   body[data-page="gallery"] .style-title { font-size: 14px; }
   body[data-page="gallery"] .style-book { width: 100%; }
-  body[data-page="menu"] .coupon, body[data-page="menu"] .coupon.has-photo { grid-template-columns: 72px minmax(0, 1fr); gap: 20px 16px; padding-block: 26px; }
-  body[data-page="menu"] .coupon:not(.has-photo) { grid-template-columns: 1fr; }
+  body[data-page="menu"] .coupon, body[data-page="menu"] .coupon:has(.coupon-photo) { grid-template-columns: 72px minmax(0, 1fr); gap: 20px 16px; padding-block: 26px; }
+  body[data-page="menu"] .coupon:not(:has(.coupon-photo)) { grid-template-columns: 1fr; }
   body[data-page="menu"] .coupon-photo { width: 72px; height: 90px; }
   body[data-page="menu"] .coupon h3 { font-size: 14px; }
   body[data-page="menu"] .coupon-price { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; text-align: left; white-space: normal; }
@@ -186,6 +190,9 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
 .booking-cancel-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .booking-cancel-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .booking-cancel-actions .btn { min-height: 44px; white-space: normal; flex: 1 1 180px; }
+@media (max-width: 640px) {
+  .menu-row:has(.menu-row-photo) { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 12px; }
+}
 @media (max-width: 359px) {
   .header-top { gap: 12px; }
   .header-top .brand-lockup { gap: 8px; }

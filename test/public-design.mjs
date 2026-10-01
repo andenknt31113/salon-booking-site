@@ -92,7 +92,7 @@ test('トップからスタイル一覧へ進み、分類の絞込みと予約�
     const filter = page.locator('#style-tabs button[data-len="白髪ぼかし"]');
     await filter.focus();
     await page.keyboard.press('Enter');
-    assert.equal(await filter.getAttribute('aria-selected'), 'true');
+    assert.equal(await filter.getAttribute('aria-pressed'), 'true');
     const titles = await page.locator('#style-list .style-title').allTextContents();
     assert.ok(titles.length > 0 && titles.length < allCount);
     assert.ok(titles.every(title => title.includes('白髪ぼかし')));
@@ -121,7 +121,7 @@ test('メニューの料金・条件と予約引継ぎを保ち、単品の分�
     assert.match(await page.locator('.page-head').innerText(), /税込.*追加料金/);
     await page.locator('.page-jump a[href="#single"]').click();
     await page.locator('#menu-tabs button').nth(1).click();
-    assert.equal(await page.locator('#menu-tabs button').nth(1).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#menu-tabs button').nth(1).getAttribute('aria-pressed'), 'true');
     assert.ok(await page.locator('#menu-list .menu-row').count() > 0);
     const target = page.locator('#coupon-list a[href^="reserve.html?menu="]').first();
     const href = await target.getAttribute('href');

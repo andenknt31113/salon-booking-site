@@ -285,11 +285,11 @@ function staffNoteHtml() {
 /* ---------- FAQ ---------- */
 function renderFaq(host) {
   if (!host) return;
-  host.innerHTML = SALON.faq.map((f, i) => `
+  setHtml(host, SALON.faq.map((f, i) => `
     <div class="faq-item" data-faq="${i}">
-      <button class="faq-q" type="button" aria-expanded="false">${esc(f.q)}</button>
-      <div class="faq-a"><span>${esc(SALON.draft && f.q === '予約は必要ですか？' ? 'ネット予約は準備中です。ご予約については店舗へお問い合わせください。' : String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
-    </div>`).join('');
+      <button class="faq-q" type="button" aria-expanded="false" aria-controls="${esc(host.id)}-answer-${i}">${esc(f.q)}</button>
+      <div class="faq-a" id="${esc(host.id)}-answer-${i}"><span>${esc(SALON.draft && f.q === '予約は必要ですか？' ? 'ネット予約は準備中です。ご予約については店舗へお問い合わせください。' : String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
+    </div>`).join(''));
 
   bindOnce('faq', () => host.addEventListener('click', e => {
     const btn = e.target.closest('.faq-q');
@@ -508,14 +508,32 @@ function initHome() {
   wireStylePhotos();
 }
 
+function renderFilterButtons(host, options, key, label) {
+  const attribute = `data-${key}`;
+  const previous = host.querySelector('.tab[aria-pressed="true"]')?.getAttribute(attribute);
+  const active = document.activeElement;
+  const focused = host.contains(active) && active.matches('.tab') ? active.getAttribute(attribute) : null;
+  const selected = options.some(option => option.value === previous) ? previous : options[0]?.value;
+  host.setAttribute('role', 'group');
+  host.setAttribute('aria-label', label);
+  setHtml(host, options.map(option => `<button class="tab" type="button" ${attribute}="${esc(option.value)}" aria-pressed="${option.value === selected}">${esc(option.label)}</button>`).join(''));
+  if (focused !== null) {
+    const buttons = [...host.querySelectorAll('.tab')];
+    const target = buttons.find(button => button.getAttribute(attribute) === focused)
+      || buttons.find(button => button.getAttribute(attribute) === selected);
+    target?.focus({ preventScroll: true });
+  }
+  return selected;
+}
+
 function initMenuPage() {
   initCouponFilter();
 
   const tabsHost = $('#menu-tabs');
   const listHost = $('#menu-list');
-  tabsHost.innerHTML = [{ id: 'all', name: 'すべて' }, ...SALON.menuCategories]
-    .map((c, i) => `<button class="tab" type="button" role="tab" data-cat="${esc(c.id)}" aria-selected="${i === 0}">${esc(c.name)}</button>`)
-    .join('');
+  const selected = renderFilterButtons(tabsHost,
+    [{ id: 'all', name: 'すべて' }, ...SALON.menuCategories].map(category => ({ value: category.id, label: category.name })),
+    'cat', '単品メニューの種類で絞り込む');
 
   /* 描くたびに SALON.menuCategories を読み直します。
      この関数はシートが届くともう一度走りますが、タブを押したときの処理は
@@ -528,12 +546,12 @@ function initMenuPage() {
     const target = catId === 'all' ? cats : cats.filter(c => c.id === catId);
     if (setHtml(listHost, target.map(menuGroupHtml).join(''))) wireImageFallbacks(listHost);
   };
-  draw('all');
+  draw(selected);
 
   bindOnce('menu-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
-    $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    $$('.tab', tabsHost).forEach(option => option.setAttribute('aria-pressed', String(option === tab)));
     draw(tab.dataset.cat);
   }));
 }
@@ -565,20 +583,22 @@ function initCouponFilter() {
     .flatMap(c => (Array.isArray(c.tags) ? c.tags : []))
     .map(t => String(t).trim()).filter(Boolean))];
 
+  let selected = 'すべて';
   if (tabsHost) {
     // タグが1種類しかなければ絞る意味がないので、そのときも出しません
     tabsHost.hidden = tags.length < 2;
-    tabsHost.innerHTML = tags.length < 2 ? '' : ['すべて', ...tags]
-      .map((t, i) => `<button class="tab" type="button" role="tab" data-tag="${esc(t)}" aria-selected="${i === 0}">${esc(t)}</button>`)
-      .join('');
+    const choice = renderFilterButtons(tabsHost,
+      tags.length < 2 ? [] : ['すべて', ...tags].map(tag => ({ value: tag, label: tag })),
+      'tag', 'おすすめメニューの施術で絞り込む');
+    selected = choice || selected;
   }
-  draw('すべて');
+  draw(selected);
 
   if (!tabsHost) return;
   bindOnce('coupon-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
-    $$('.tab', tabsHost).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+    $$('.tab', tabsHost).forEach(option => option.setAttribute('aria-pressed', String(option === tab)));
     draw(tab.dataset.tag);
   }));
 }
@@ -594,27 +614,21 @@ function initGalleryPage() {
   const host = $('#style-list');
   const tabsHost = $('#style-tabs');
   const lengths = ['すべて', ...new Set(SALON.styles.map(s => s.length))];
-  tabsHost.setAttribute('role', 'group');
-  tabsHost.setAttribute('aria-label', 'スタイルの種類で絞り込む');
-  tabsHost.innerHTML = lengths
-    .map((length, index) => `<button class="tab" type="button" data-len="${esc(length)}" aria-selected="${index === 0}" aria-pressed="${index === 0}">${esc(length)}</button>`)
-    .join('');
+  const selected = renderFilterButtons(tabsHost, lengths.map(length => ({ value: length, label: length })),
+    'len', 'スタイルの種類で絞り込む');
 
   const draw = len => {
     const list = len === 'すべて' ? SALON.styles : SALON.styles.filter(s => s.length === len);
     if (setHtml(host, list.map(styleCard).join(''))) wireImageFallbacks(host);
     wireStylePhotos(host);
   };
-  draw('すべて');
+  draw(selected);
   bindStyleBooking();
 
   bindOnce('style-tabs', () => tabsHost.addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
-    $$('.tab', tabsHost).forEach(option => {
-      option.setAttribute('aria-selected', String(option === tab));
-      option.setAttribute('aria-pressed', String(option === tab));
-    });
+    $$('.tab', tabsHost).forEach(option => option.setAttribute('aria-pressed', String(option === tab)));
     draw(tab.dataset.len);
   }));
 }
