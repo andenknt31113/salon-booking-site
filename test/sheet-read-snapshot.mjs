@@ -189,7 +189,10 @@ function fixture({ definitions = defaultSheets(), failure = null, occupied = fal
     MailApp: forbiddenService('MailApp'),
     UrlFetchApp: forbiddenService('UrlFetchApp'),
     CalendarApp: forbiddenService('CalendarApp'),
-    PropertiesService: forbiddenService('PropertiesService'),
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty(key) { assert.equal(key, 'BOOKING_CHANGE_RECOVERY'); return null; },
+      setProperty: forbidWrite('setProperty'), deleteProperty: forbidWrite('deleteProperty')
+    }) },
     DriveApp: forbiddenService('DriveApp')
   });
   SCRIPT.runInContext(context);

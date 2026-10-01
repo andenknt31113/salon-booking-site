@@ -595,33 +595,38 @@ const Availability = {
    Apps Script が { ok:false, error:... } を返したとき（シートの取り合いで
    待ちきれなかった等）に、届いていないのに成功として扱ってしまう。
 
-   通信そのものに失敗した場合は1度だけ入れ直す。
-   Apps Script は久しぶりの呼び出しで立ち上がりに時間がかかることがあり、
-   電波の悪い場所での1回きりの失敗も拾えるため。 */
-async function sendToEndpoint(payload, attempt = 0) {
+   応答が届かない場合も、店舗では保存済みの可能性があります。
+   自動で再送せず、予約番号を保持して台帳への照会につなげます。 */
+async function sendToEndpoint(payload) {
   if (!SALON.reservationEndpoint) return { ok: false, noEndpoint: true };
-
+  const DEFAULT_WRITE_TIMEOUT_MS = 45000;
+  const configured = SALON.bookingTransport && SALON.bookingTransport.writeTimeoutMs;
+  const timeoutMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_WRITE_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timer;
   try {
-    const res = await fetch(SALON.reservationEndpoint, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+    const request = (async () => {
+      const res = await fetch(SALON.reservationEndpoint, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const data = await res.json();
+      if (!res.ok || !data || typeof data.ok !== 'boolean'
+          || (data.ok && typeof data.message === 'string')) throw new Error();
+      return data;
+    })();
+    const deadline = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error()); }, timeoutMs);
     });
-    const data = await res.json();
-    // 形が違う応答（HTMLのエラーページ等）は失敗として扱う
-    if (!res.ok || !data || typeof data.ok !== 'boolean'
-        || (data.ok && typeof data.message === 'string')) {
-      return { ok: false, error: '店舗への反映結果を確認できません。予約確認ページで最新の状態を確認してください。' };
-    }
-    return data;
-  } catch (e) {
-    if (attempt < 1) {
-      await new Promise(r => setTimeout(r, 1500));
-      return sendToEndpoint(payload, attempt + 1);
-    }
-    console.warn('受信先への送信に失敗しました。この端末には保存されています。', e);
-    return { ok: false, error: '通信に失敗しました。' };
+    return await Promise.race([request, deadline]);
+  } catch {
+    return { ok: false, unknown: true,
+      error: '店舗への反映結果を確認できません。予約を取り直す前に、予約番号で最新の状態を確認してください。' };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

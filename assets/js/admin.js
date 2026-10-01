@@ -2211,12 +2211,48 @@ function fieldFor(col, value, target, index) {
    なので、どちらなのかを先に選ばせます。選んだ結果どうなるかも
    その場に文で出します。「終日」を選んだら時刻の欄自体を消すので、
    入れたまま残って効いてしまうこともありません。 */
+function closedRowProblem(row) {
+  const date = String(row['休業日'] || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || toKey(fromKey(date)) !== date) {
+    return { field: '休業日', message: '実在する日付を入力してください。' };
+  }
+  const start = row['開始'] == null ? '' : String(row['開始']).trim();
+  const end = row['終了'] == null ? '' : String(row['終了']).trim();
+  if (!start && !end) return null;
+  const clock = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!clock.test(start)) return { field: '開始', message: '開始時刻を入力してください。終日休みの場合は「終日休み」を選んでください。' };
+  if (!clock.test(end)) return { field: '終了', message: '終了時刻を入力してください。終日休みの場合は「終日休み」を選んでください。' };
+  if (end <= start) return { field: '終了', message: '終了時刻は開始時刻より後にしてください。日をまたぐ休みは日付ごとに分けてください。' };
+  return null;
+}
+
+function updateClosedValidation(index) {
+  const row = edits.closed[index];
+  if (!row) return;
+  const problem = closedRowProblem(row);
+  const note = $(`[data-closed-summary="${index}"]`);
+  if (note) {
+    note.id = `closed-summary-${index}`;
+    note.textContent = closedSummary(row);
+  }
+  $$(`#closed-rows [data-index="${index}"][data-col]`).forEach(field => {
+    if (problem && field.dataset.col === problem.field) {
+      field.setAttribute('aria-invalid', 'true');
+      field.setAttribute('aria-describedby', `closed-summary-${index}`);
+    } else {
+      field.removeAttribute('aria-invalid');
+      field.removeAttribute('aria-describedby');
+    }
+  });
+}
+
 function closedSummary(row) {
   const d = String(row['休業日'] || '').trim();
   const st = String(row['開始'] || '').trim();
   const en = String(row['終了'] || '').trim();
-  if (!d) return '日付を入れてください。入れるまで、この行は保存しても効きません。';
-  if (!st || !en) return `${d} は終日お休みになります。お客様はこの日を選べません。`;
+  const problem = closedRowProblem(row);
+  if (problem) return '入力をご確認ください。' + problem.message + ' 修正するまで保存できません。';
+  if (!st && !en) return `${d} は終日お休みになります。お客様はこの日を選べません。`;
   /* 営業時間を丸ごと覆う指定は、店の頭の中では「終日休み」です。
      ところが仕組みの上では「時間帯の指定がある日」なので、
      お客様のカレンダーにはその日が**選べる日として残ります**。
@@ -2245,6 +2281,7 @@ let ccalOffset = 0;   // 何か月ずらして見ているか
 function closedStateOf(key) {
   const hit = edits.closed.filter(r => String(r['休業日'] || '').trim() === key);
   if (!hit.length) return '';
+  if (hit.some(closedRowProblem)) return 'invalid';
   return hit.some(r => !String(r['開始'] || '').trim() || !String(r['終了'] || '').trim())
     ? 'all' : 'range';
 }
@@ -2279,14 +2316,14 @@ function renderClosedCalendar() {
     const live = liveCountOn(key);
     /* 過ぎた日は押せません。押しても意味が無いうえ、
        間違って過去の日を休みにすると、一覧に理由の分からない行が増えます。 */
-    const cls = ['ccal-day', state === 'all' ? 'is-off' : '', state === 'range' ? 'is-part' : '',
+    const cls = ['ccal-day', state === 'all' || state === 'invalid' ? 'is-off' : '', state === 'range' ? 'is-part' : '',
       past ? 'is-past' : '', key === today ? 'is-today' : ''].filter(Boolean).join(' ');
     cells.push(`<td>
       <button type="button" class="${cls}" ${past ? 'disabled' : ''}
               data-ccal="${key}" aria-pressed="${state === 'all'}"
-              aria-label="${year}年${month + 1}月${d}日${state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}${live ? `・予約${live}件` : ''}">
+              aria-label="${year}年${month + 1}月${d}日${state === 'invalid' ? '・休業の入力要確認' : state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}${live ? `・予約${live}件` : ''}">
         <span class="ccal-n">${d}</span>
-        ${state === 'all' ? '<span class="ccal-mark">休</span>'
+        ${state === 'invalid' ? '<span class="ccal-mark">要確認</span>' : state === 'all' ? '<span class="ccal-mark">休</span>'
           : state === 'range' ? '<span class="ccal-mark is-part">一部</span>'
           : live ? '' : '<span class="ccal-mark is-open">○</span>'}
         ${live ? `<span class="ccal-live">${live}件予約</span>` : ''}
@@ -2313,8 +2350,8 @@ function toggleClosedDay(key) {
   /* 時間帯だけの休みが入っている日は、押しても切り替えません。
      「14:00〜16:00だけ休み」を終日に変えるのか、消すのかが決められないためです。
      下の一覧まで送って、そこで直してもらいます。 */
-  if (state === 'range') {
-    alert(`${formatDateJa(key)} は「時間帯だけ休み」で登録されています。\n`
+  if (state === 'range' || state === 'invalid') {
+    alert(`${formatDateJa(key)} は${state === 'invalid' ? '休業の入力に確認が必要です。' : '「時間帯だけ休み」で登録されています。'}\n`
       + '下の一覧から直してください。');
     const i = edits.closed.findIndex(r => String(r['休業日'] || '').trim() === key);
     const el = $$('#closed-rows .booking-card')[i];
@@ -2347,7 +2384,7 @@ function renderClosed() {
   const rows = edits.closed;
   $('#closed-rows').innerHTML = rows.length
     ? rows.map((row, i) => {
-      const range = !!(String(row['開始'] || '').trim() && String(row['終了'] || '').trim());
+      const range = !!(String(row['開始'] || '').trim() || String(row['終了'] || '').trim());
       return `
         <div class="booking-card" style="border-left-color:var(--line);">
           ${fieldFor('休業日', row['休業日'], 'closed', i)}
@@ -2374,6 +2411,7 @@ function renderClosed() {
         </div>`;
     }).join('')
     : '<p class="empty-state">まだ登録がありません。下のボタンから追加してください。</p>';
+  rows.forEach((_row, index) => updateClosedValidation(index));
 }
 
 /* ============================================================
@@ -2807,7 +2845,7 @@ function renderReviews() {
 }
 
 /* ---------- 保存 ---------- */
-function showSaveError(target, message, rowIndex = -1) {
+function showSaveError(target, message, rowIndex = -1, invalidField = '') {
   const error = $('#save-error');
   error.textContent = message;
   error.style.display = 'block';
@@ -2821,6 +2859,19 @@ function showSaveError(target, message, rowIndex = -1) {
     note.className = 'admin-savebar-note is-error';
   }
   if (rowIndex >= 0) {
+    if (target === 'closed') {
+      updateClosedValidation(rowIndex);
+      const field = $(`#closed-rows [data-index="${rowIndex}"][data-col="${CSS.escape(invalidField || '休業日')}"]`);
+      if (field) {
+        field.setAttribute('aria-invalid', 'true');
+        field.setAttribute('aria-describedby', `closed-summary-${rowIndex}`);
+        const note = $(`[data-closed-summary="${rowIndex}"]`);
+        if (note) note.textContent = message;
+        field.scrollIntoView({ block: 'center' });
+        field.focus({ preventScroll: true });
+      }
+      return;
+    }
     const editor = document.querySelector(`[data-editor="${target}"]`);
     if (editor) {
       editor.scrollIntoView({ block: 'start' });
@@ -2842,6 +2893,15 @@ async function save(target) {
 
   const submitted = JSON.parse(JSON.stringify(edits[target]));
   const submittedRows = target === 'settings' ? [] : edits[target].slice();
+  if (target === 'closed') {
+    const invalidIndex = submitted.findIndex(closedRowProblem);
+    if (invalidIndex >= 0) {
+      const problem = closedRowProblem(submitted[invalidIndex]);
+      showSaveError(target, '休業日の' + (invalidIndex + 1) + '件目をご確認ください。'
+        + problem.message + ' 入力は残しています。', invalidIndex, problem.field);
+      return;
+    }
+  }
   if (target === 'menus' || target === 'coupons') {
     const invalidIndex = firstInvalidBookableMinutes(submitted);
     if (invalidIndex >= 0) {
@@ -2868,7 +2928,8 @@ async function save(target) {
 
   if (!res.ok) {
     showSaveError(target, res.error || '保存に失敗しました。',
-      res.invalidDuration && Number.isInteger(res.invalidRow) ? res.invalidRow : -1);
+      (res.invalidDuration || res.invalidClosed) && Number.isInteger(res.invalidRow) ? res.invalidRow : -1,
+      res.invalidField || '');
     // 別の端末で変更されていた場合は、読み込み直す手段をその場に出す
     if (res.stale) {
       err.insertAdjacentHTML('beforeend',
@@ -3098,8 +3159,7 @@ document.addEventListener('DOMContentLoaded', () => {
        打った先から追いつかないと、確かめるために保存する羽目になります。
        入力欄ごと描き直すとカーソルが飛ぶので、文だけ差し替えます。 */
     if (target === 'closed') {
-      const note = $(`[data-closed-summary="${el.dataset.index}"]`);
-      if (note) note.textContent = closedSummary(row);
+      updateClosedValidation(Number(el.dataset.index));
       if (el.dataset.col !== 'メモ') renderClosedCalendar();
     }
     /* 一覧の行だけ描き直します（入力欄には触りません）。

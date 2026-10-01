@@ -8,6 +8,7 @@ function environment({ fail = false, missingLedger = false } = {}) {
   let held = false;
   const reads = [];
   const context = vm.createContext({ Date, console: { error() {} },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ setMimeType: () => text }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: name => {
       assert.equal(name, '予約一覧');

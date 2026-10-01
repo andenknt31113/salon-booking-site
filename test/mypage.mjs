@@ -195,16 +195,22 @@ console.log('\n【MP4】キャンセルを押したが、店舗に届かなか�
   await p.locator('[data-cancel="LM-FAIL1"]').click();
   await p.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click(); await p.waitForTimeout(2500);
 
-  check('MP4', '送れなかったことを伝えている', /送信できませんでした/.test(said.join('\n')), true);
-  check('MP4', 'やり直しの道を書いている', /もう一度お試し|店舗までご連絡/.test(said.join('\n')), true);
+  check('MP4', '店舗への反映が未確認だと画面に残している',
+    /反映結果を確認できません/.test(await text(p, '#flash')), true);
+  check('MP4', '同じ予約番号で照会する道を書いている',
+    /予約番号.*確認/.test(await text(p, '#flash')), true);
   check('MP4', '送れなかったほうは、キャンセル済みにしていない',
     await p.locator('.booking-card.is-cancelled').count(), 1);
   check('MP4', 'この端末の記録も書き換えていない',
     await p.evaluate(() => JSON.parse(localStorage.getItem('salon.reservations.v1'))
       .find(r => r.code === 'LM-FAIL1').status), 'reserved');
-  check('MP4', '1件目の「承りました」を消している',
-    await p.locator('#flash').isVisible(), false);
-  check('MP4', 'もう一度押せる状態に戻している', await p.locator('[data-cancel]').isDisabled(), false);
+  check('MP4', '1件目の「承りました」を残さない',
+    /キャンセルを承りました/.test(await text(p, '#flash')), false);
+  check('MP4', '照会前には同じ取消を繰り返せない', await p.locator('[data-cancel]').count(), 0);
+  check('MP4', '未確認の予約を照会するボタンがある',
+    await p.locator('[data-check-booking="LM-FAIL1"]').count(), 1);
+  check('MP4', '未確認状態を控えにも残している', await p.evaluate(() => Store.all()
+    .find(reservation => reservation.code === 'LM-FAIL1').deliveryState), 'unknown');
   await post({ type: 'failmode', on: false });
   await p.context().close();
 }

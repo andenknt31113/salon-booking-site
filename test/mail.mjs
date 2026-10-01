@@ -45,10 +45,16 @@ function makeSheet(rows) {
     getRange: (row, col, nr, nc) => ({
       getValues: () => all().slice(row - 1, row - 1 + (nr || 1))
         .map(r => r.slice(col - 1, col - 1 + (nc || r.length))),
+      getFormulas: () => all().slice(row - 1, row - 1 + (nr || 1))
+        .map(line => line.slice(col - 1, col - 1 + (nc || line.length)).map(() => '')),
       setValue: v => { if (data[row - 2]) data[row - 2][col - 1] = v; },
       setFontWeight: () => ({ setBackground: () => {} }),
       setFontLine: () => ({ setFontColor: () => {} }),
-      setNote: () => {}, setValues: () => {}, clearContent: () => {}
+      setNote: () => {},
+      setValues: values => values.forEach((line, offset) => line.forEach((value, index) => {
+        if (data[row - 2 + offset]) data[row - 2 + offset][col - 1 + index] = value;
+      })),
+      clearContent: () => {}
     }),
     setFrozenRows: () => {}, setColumnWidth: () => {},
     getParent: () => ({ getSheetByName: () => null }),
@@ -72,7 +78,7 @@ function run(fnName, sheet, payload, patch) {
       deleteProperty: k => { delete props[k]; },
       getKeys: () => Object.keys(props) }) },
     LockService: { getScriptLock: () => ({ waitLock(){}, releaseLock(){} }) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: () => null, insertSheet: () => sheet }), getUi: () => { throw new Error('no ui'); } },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: () => null, insertSheet: () => sheet }), getUi: () => { throw new Error('no ui'); }, flush() {} },
     DriveApp: {},
     ContentService: { createTextOutput: t => ({ setMimeType: () => t }), MimeType: { JSON: 'json' } },
     Utilities: {

@@ -792,14 +792,14 @@ function downloadIcs(r) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/* 店舗に届かなかったときの文言。
-   「予約できました」とだけ出すと、お客様は来店するのに席が用意されない。 */
+/* 通信の失敗だけでは、店舗での受付結果は判断できません。 */
 function deliveryFailureMessage(sent, what) {
   return [
-    `申し訳ありません。ご${what}の内容を店舗に送信できませんでした。`,
+    sent.restored ? '変更を保存できなかったため、元の日時に戻りました。'
+      : `ご${what}の受付結果を確認できません。店舗では反映済みの可能性があります。`,
     sent.error ? `（${sent.error}）` : '',
     '',
-    'お手数ですが、少し時間をおいてもう一度お試しいただくか、',
+    '同じ予約番号で最新の状態を確認し、確認できないまま予約を取り直さないでください。',
     contactWay()
   ].filter(Boolean).join('\n');
 }
@@ -810,24 +810,25 @@ function showDeliveryWarning(sent) {
 
   /* 見出しも直します。
      警告の上に「✓ ご予約が完了しました」と大きく出ていると、
-     急いでいる方はそれだけ見て画面を閉じます。届いていないのですから、
+     急いでいる方はそれだけ見て画面を閉じます。受付結果が未確認なので、
      いちばん大きい文字が「完了」であってはいけません。 */
   const head = $('#h-done');
-  if (head) head.textContent = 'ご予約が店舗に届いていません';
+  if (head) head.textContent = 'ご予約の受付結果を確認できません';
   const icon = document.querySelector('#panel-6 .done-icon, [data-panel="6"] .done-icon');
   if (icon) { icon.textContent = '！'; icon.classList.add('is-warn'); }
   const desc = head && head.nextElementSibling;
-  if (desc) desc.textContent = 'お手数ですが、下記のご予約番号をお伝えのうえ、店舗までご連絡ください。';
+  if (desc) desc.textContent = '店舗では受付済みの可能性があります。下記の予約番号を控え、最新の状態をご確認ください。';
 
   box.hidden = false;
   box.innerHTML = `
     <b>ご確認ください</b>
     <span>
-      この端末にはご予約を保存しましたが、<strong>店舗への送信に失敗しました</strong>。
+      この端末には申込内容を控えましたが、<strong>店舗での受付結果は未確認です</strong>。
       ${sent.error ? `（${esc(sent.error)}）` : ''}
       お手数ですが、下記のご予約番号をお控えのうえ${SALON.tel ? `お電話（${esc(SALON.tel)}）で` : '店舗まで'}
-      ご連絡ください。席が確保できていない可能性がございます。
-    </span>`;
+      ご連絡ください。確認できないまま予約を取り直さないでください。
+    </span>
+    <a href="mypage.html#lookup-box">この予約番号で受付結果を確認する</a>`;
 }
 
 /* 選んだ時間がもう取れないときの言い方。理由ごとに変えます。 */
@@ -856,16 +857,21 @@ function slotStopMessage(reason) {
    選び直されると、送っている内容と画面が食い違うため）。 */
 let submitting = false;
 
-function setSubmitting(on) {
+function setSubmitting(on, phase = 'send') {
+  const wasSubmitting = submitting;
   submitting = on;
   const note = $('#sending-note');
-  if (note) note.hidden = !on;
+  if (note) {
+    note.hidden = !on;
+    if (on) note.textContent = phase === 'availability' ? '最新の空席状況を確認しています。'
+      : '店舗へ送信しています。返事を待っていますので、もう一度予約を送らずにお待ちください。';
+  }
   const btn = $('#submit-reservation');
   if (!btn) return;
   btn.disabled = on;
   btn.textContent = on ? '送信中…'
     : (changing ? 'この日時に変更する' : 'この内容で予約する');
-  if (on) btn.scrollIntoView({ block: 'center' });
+  if (on && !wasSubmitting) btn.scrollIntoView({ block: 'center' });
 }
 
 async function submitReservation() {
@@ -874,7 +880,7 @@ async function submitReservation() {
     $('#catalog-status').focus();
     return;
   }
-  setSubmitting(true);
+  setSubmitting(true, 'availability');
 
   // 選択中に他のお客様が同じ枠を押さえていないか、最新の状況で確認する
   await Remote.load(true);
@@ -892,6 +898,7 @@ async function submitReservation() {
 
   let reservation;
   let changeUnchanged = false;
+  setSubmitting(true);
   if (changing) {
     // 予約番号はそのまま。日時だけ差し替える。
     reservation = { ...changing, date: state.date, time: state.time,
@@ -908,18 +915,25 @@ async function submitReservation() {
       // 別端末から照会して変更する場合の本人確認
       tel: changing.lookupTel || (changing.customer && changing.customer.tel) || ''
     });
-    /* 店舗に届かなかったときは、日時を書き換えずに知らせる。
-       画面だけ変えると、お客様は変更できたつもりで元の時間に来てしまう。 */
+    /* 結果不明のときは、控えの日時を書き換えず照会へ案内します。 */
     if (!sent.ok && !sent.noEndpoint) {
-      setSubmitting(false);
-      // 受付期限切れ・枠の埋まりは、送信できなかったのとは理由が違う
-      alert(sent.deadline || sent.taken || sent.stale ? sent.error : deliveryFailureMessage(sent, '変更'));
-      if (sent.taken) { state.time = null; await Remote.load(true); goTo(3); }
-      return;
+      if (sent.restored || sent.deadline || sent.taken || sent.stale || sent.cancelled
+        || sent.invalid || sent.closed || sent.scheduleChanged) {
+        setSubmitting(false);
+        alert(sent.restored ? deliveryFailureMessage(sent, '変更') : sent.error);
+        if (sent.taken) { state.time = null; await Remote.load(true); goTo(3); }
+        return;
+      }
+      Store.reschedule(changing.code, { ...changing, delivered: false,
+        deliveryState: 'unknown', deliveryError: sent.error || '' });
+      showDeliveryWarning(sent);
+    } else {
+      changeUnchanged = sent.unchanged === true;
+      Store.reschedule(changing.code, { ...reservation, delivered: sent.ok,
+        deliveryState: sent.ok ? 'confirmed' : 'unknown' });
     }
-    changeUnchanged = sent.unchanged === true;
     reservation.delivered = sent.ok;
-    Store.reschedule(changing.code, reservation);
+    reservation.deliveryState = sent.ok ? 'confirmed' : 'unknown';
   } else {
     reservation = buildReservation();
     // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
@@ -956,13 +970,14 @@ async function submitReservation() {
       return;
     }
     reservation.delivered = sent.ok;
+    reservation.deliveryState = sent.ok ? 'confirmed' : 'unknown';
     reservation.deliveryError = sent.ok ? '' : (sent.error || '');
     Store.add(reservation);
     // 受信先を設定しているのに届かなかった場合は、完了画面で正直に伝える
     if (!sent.ok && !sent.noEndpoint) showDeliveryWarning(sent);
   }
 
-  if (changing) {
+  if (changing && reservation.delivered) {
     $('#h-done').textContent = changeUnchanged ? 'すでにこの日時でご予約済みです' : '日時を変更しました';
     const desc = $('#h-done').nextElementSibling;
     if (desc) desc.textContent = changeUnchanged
@@ -982,7 +997,10 @@ async function submitReservation() {
 
   // 完了画面の「カレンダーに追加」に、いま取れた予約を渡す
   const calBtn = $('#add-to-calendar');
-  if (calBtn) calBtn.onclick = () => downloadIcs(reservation);
+  if (calBtn) {
+    calBtn.disabled = !reservation.delivered;
+    calBtn.onclick = reservation.delivered ? () => downloadIcs(reservation) : null;
+  }
 
   renderDoneFollow(reservation);
   renderLineInvite();
@@ -1014,9 +1032,10 @@ function renderDoneFollow(r) {
          メールが届かない場合も、予約番号でご予約を確認できます。迷惑メールフォルダもご確認ください。</span>` : '';
   host.innerHTML = mail
     + '<span>予約番号はコピーするか、画面を保存してお控えください。メールが届かない・番号が分からない場合は、<a href="mypage.html#reservation-help">予約確認ページのご案内</a>をご確認ください。確認できないまま新しく予約し直さないでください。</span>'
-    + `<span>ご都合が変わった場合は、<b>${esc(limit)}まで</b>
+    + (r.delivered ? `<span>ご都合が変わった場合は、<b>${esc(limit)}まで</b>
          「予約内容を確認する」から日時の変更・キャンセルができます。
-         それ以降は${contactWay({ html: true })}</span>`;
+         それ以降は${contactWay({ html: true })}</span>`
+      : '<span>受付結果が未確認です。「予約内容を確認する」から最新の状態を確認してから、変更・キャンセルしてください。</span>');
 }
 
 /* 予約番号を控える。

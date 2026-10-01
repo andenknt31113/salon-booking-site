@@ -13,6 +13,7 @@
 
 const SALON = {
   adminAuth: { requestTimeoutMs: 30000, popupWaitNoticeMs: 15000 },
+  bookingTransport: { writeTimeoutMs: 45000 },
   bookingLaunchApproved: true,
   /* 所要時間の目安と通常メニュー一覧が未確定のあいだは true。
      draftNote に書いた文言が画面上部の帯に出ます。

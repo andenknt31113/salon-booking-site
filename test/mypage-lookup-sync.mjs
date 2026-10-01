@@ -111,14 +111,17 @@ test('取消に接続案内だけが返った場合は、完了表示や取消�
       await route.fulfill({ json: { ok: true, message: '受信先として動作しています' } });
     });
     await page.locator('[data-cancel]').click();
-    const errorDialog = page.waitForEvent('dialog');
     await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
-    await errorDialog;
-    await page.waitForFunction(() => !document.querySelector('[data-cancel]').disabled);
+    await page.locator('#flash').waitFor({ state: 'visible' });
     assert.equal(cancellations, 1);
     assert.equal((await page.evaluate(() => Store.all()))[0].status, 'reserved');
     assert.equal(await page.locator('.booking-card.is-cancelled').count(), 0);
-    assert.ok(notices.some(message => message.includes('反映結果を確認できません')));
+    assert.deepEqual(notices, [], '結果不明は画面に残し、消える警告だけで伝えない');
+    assert.match(await page.locator('#flash').innerText(), /反映結果を確認できません/);
+    assert.equal((await page.evaluate(() => Store.all()))[0].deliveryState, 'unknown');
+    assert.equal(await page.locator('.status-chip').textContent(), '受付未確認');
+    assert.equal(await page.locator('[data-cancel], [data-change]').count(), 0,
+      '状態を照会するまで同じ取消を繰り返せない');
     assert.doesNotMatch(await page.locator('#flash').innerText(), /キャンセルを承りました/);
   } finally { await page.context().close(); }
 });

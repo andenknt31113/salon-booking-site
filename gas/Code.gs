@@ -376,12 +376,16 @@ const CLOSED_HEADERS = ['休業日', '開始', '終了', 'メモ'];
    ============================================================ */
 const REQUEST_LOCK_TIMEOUT_MS = 20000;
 
-function withLedgerLock_(operation, timing) {
+function withLedgerLock_(operation, timing, authorize) {
   const lock = LockService.getScriptLock();
   const started = Date.now();
   lock.waitLock(REQUEST_LOCK_TIMEOUT_MS);
   if (timing) timing.lockMs = Date.now() - started;
-  try { return operation(); }
+  try {
+    if (authorize) authorize();
+    recoverBookingChange_();
+    return operation();
+  }
   finally { lock.releaseLock(); }
 }
 
@@ -420,7 +424,8 @@ function doPost(e) {
       if (data.type === 'change')       return doChange_(getSheet_(), data);
       if (data.type === 'review')       return doReview_(getSheet_(), data);
       return doReserve_(getSheet_(), data, true);
-    }, timing);
+    }, timing, ['adminLogin', 'adminData', 'adminSave', 'adminUpload', 'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange']
+      .indexOf(data.type) >= 0 ? () => requireAdmin_(data) : null);
     if (timing) result.timing = Object.assign(timing, { totalMs: Date.now() - started });
     return json_(result);
 
@@ -428,7 +433,9 @@ function doPost(e) {
     console.error(err);
     /* 画面にそのまま出る文字です。「Error: 」が頭に付いたままだと、
        店の人には何のことか分かりません。 */
-    return json_({ ok: false, error: String(err && err.message ? err.message : err).replace(/^Error:\s*/, '') });
+    return json_({ ok: false, error: String(err && err.message ? err.message : err).replace(/^Error:\s*/, ''),
+      ...(err && err.restored ? { restored: true } : {}),
+      ...(err && err.unknown ? { unknown: true } : {}) });
   }
 }
 
@@ -1736,9 +1743,7 @@ function doChange_(sheet, d) {
   const email = String(before[col('メール')] || '');
   const menuText = String(before[col('メニュー')] || '');
 
-  sheet.getRange(row, col('来店日') + 1).setValue(newDate);
-  sheet.getRange(row, col('開始') + 1).setValue(newTime);
-  sheet.getRange(row, col('終了') + 1).setValue(addMinutes_(newTime, minutes));
+  writeBookingWindow_(sheet, row, d.code, [newDate, newTime, addMinutes_(newTime, minutes)]);
 
   /* カレンダーの予定も入れ直す。
      addToCalendar_ の引数は（予約の中身, お客様, メニュー文）の3つ。
@@ -1829,6 +1834,108 @@ function doChange_(sheet, d) {
   recordMailStatus_(sheet, row, '日時変更', shopMailStatus, customerMailStatus);
 
   return { ok: true, calendarWarning: calendarWarning };
+}
+
+const BOOKING_CHANGE_JOURNAL = 'BOOKING_CHANGE_RECOVERY';
+const BOOKING_WINDOW_HEADERS = ['来店日', '開始', '終了'];
+const BOOKING_CHANGE_RECOVERY_ERROR = '日時変更と元の日時への復旧を確認できません。予約を取り直さず、店舗・制作担当者へ連絡して台帳を確認してください。';
+
+function bookingWindowValue_(value, formula) {
+  if (formula) return { formula: formula };
+  return value instanceof Date ? { dateMs: value.getTime() } : { value: value };
+}
+
+function bookingWindowUpdates_(sheet, row, values) {
+  const head = headerRow_(sheet);
+  const groups = [];
+  BOOKING_WINDOW_HEADERS.map((name, index) => {
+    if (head.indexOf(name) < 0 || head.indexOf(name) !== head.lastIndexOf(name)) {
+      throw new Error('予約日時の列を確認できません。');
+    }
+    return { column: head.indexOf(name) + 1, value: values[index] };
+  }).sort((left, right) => left.column - right.column).forEach(entry => {
+    const group = groups[groups.length - 1];
+    if (group && entry.column === group.column + group.values.length) group.values.push(entry.value);
+    else groups.push({ column: entry.column, values: [entry.value] });
+  });
+  return groups.map(group => ({
+    range: sheet.getRange(row, group.column, 1, group.values.length), values: [group.values]
+  }));
+}
+
+function verifyBookingWindow_(sheet, row, expected) {
+  const head = headerRow_(sheet);
+  const range = sheet.getRange(row, 1, 1, head.length);
+  const values = range.getValues()[0];
+  const formulas = range.getFormulas()[0];
+  return BOOKING_WINDOW_HEADERS.every((name, index) => {
+    const current = bookingWindowValue_(values[head.indexOf(name)], formulas[head.indexOf(name)]);
+    if (expected[index].formula || current.formula) return expected[index].formula === current.formula;
+    const normalize = name === '来店日' ? normalizeDate_ : normalizeTime_;
+    const original = Number.isFinite(expected[index].dateMs) ? new Date(expected[index].dateMs) : expected[index].value;
+    const wanted = normalize(original);
+    return wanted ? normalize(values[head.indexOf(name)]) === wanted
+      : JSON.stringify(current) === JSON.stringify(expected[index]);
+  });
+}
+
+function recoverBookingChange_(sheet) {
+  const props = PropertiesService.getScriptProperties();
+  const raw = props.getProperty(BOOKING_CHANGE_JOURNAL);
+  if (!raw) return;
+  try {
+    const record = JSON.parse(raw);
+    if (!record || typeof record.code !== 'string' || !Array.isArray(record.previous)
+        || record.previous.length !== BOOKING_WINDOW_HEADERS.length) throw new Error();
+    sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+    if (!sheet) throw new Error();
+    const col = colIndex_(sheet);
+    if (readRows_(sheet).filter(values => codeKey_(values[col('予約番号')]) === codeKey_(record.code)).length !== 1) {
+      throw new Error();
+    }
+    const row = findRowByCode_(sheet, record.code);
+    if (row < 2) throw new Error();
+    const values = record.previous.map(value => {
+      if (value && typeof value.formula === 'string') return value.formula;
+      if (value && Number.isFinite(value.dateMs)) return new Date(value.dateMs);
+      if (!value || !Object.prototype.hasOwnProperty.call(value, 'value')) throw new Error();
+      return typeof value.value === 'string' && value.value.startsWith('=') ? "'" + value.value : value.value;
+    });
+    bookingWindowUpdates_(sheet, row, values).forEach(update => update.range.setValues(update.values));
+    SpreadsheetApp.flush();
+    if (!verifyBookingWindow_(sheet, row, record.previous)) throw new Error();
+    props.deleteProperty(BOOKING_CHANGE_JOURNAL);
+    if (props.getProperty(BOOKING_CHANGE_JOURNAL)) throw new Error();
+  } catch (error) {
+    throw Object.assign(new Error(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
+  }
+}
+
+function writeBookingWindow_(sheet, row, code, values) {
+  const head = headerRow_(sheet);
+  const range = sheet.getRange(row, 1, 1, head.length);
+  const before = range.getValues()[0];
+  const formulas = range.getFormulas()[0];
+  const previous = BOOKING_WINDOW_HEADERS.map(name =>
+    bookingWindowValue_(before[head.indexOf(name)], formulas[head.indexOf(name)]));
+  const updates = bookingWindowUpdates_(sheet, row, values);
+  const props = PropertiesService.getScriptProperties();
+  const journal = JSON.stringify({ code: code, previous: previous });
+  props.setProperty(BOOKING_CHANGE_JOURNAL, journal);
+  if (props.getProperty(BOOKING_CHANGE_JOURNAL) !== journal) {
+    throw new Error('変更前の日時を記録できません。元の日時は変更していません。');
+  }
+  try {
+    updates.forEach(update => update.range.setValues(update.values));
+    SpreadsheetApp.flush();
+    if (!verifyBookingWindow_(sheet, row, values.map(value => bookingWindowValue_(value, '')))) throw new Error();
+    props.deleteProperty(BOOKING_CHANGE_JOURNAL);
+    if (props.getProperty(BOOKING_CHANGE_JOURNAL)) throw new Error();
+  } catch (error) {
+    recoverBookingChange_(sheet);
+    throw Object.assign(new Error('日時変更に失敗したため、元の日時に戻しました。入力内容を残して、時間をおいてお試しください。'),
+      { restored: true });
+  }
 }
 
 /* 変更・キャンセルの受付期限内か。
@@ -2128,6 +2235,22 @@ function allStamps_(ss) {
   return out;
 }
 
+function closedRowProblem_(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    return { field: '休業日', message: '休業日の形式をご確認ください。' };
+  }
+  const date = String(row['休業日'] || '').trim();
+  if (!validDateKey_(date)) return { field: '休業日', message: '実在する日付を入力してください。' };
+  const start = row['開始'] == null ? '' : String(row['開始']).trim();
+  const end = row['終了'] == null ? '' : String(row['終了']).trim();
+  if (!start && !end) return null;
+  const clock = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!clock.test(start)) return { field: '開始', message: '開始時刻を00:00〜23:59で入力してください。終日休みは開始・終了を両方空にしてください。' };
+  if (!clock.test(end)) return { field: '終了', message: '終了時刻を00:00〜23:59で入力してください。終日休みは開始・終了を両方空にしてください。' };
+  if (end <= start) return { field: '終了', message: '終了時刻は開始時刻より後にしてください。日をまたぐ休みは日付ごとに分けてください。' };
+  return null;
+}
+
 /** 管理者ページからの保存。シートまるごと書き換える */
 function doAdminSave_(d) {
   requireAdmin_(d);
@@ -2135,6 +2258,14 @@ function doAdminSave_(d) {
     ? d.rows && typeof d.rows === 'object' && !Array.isArray(d.rows)
     : Array.isArray(d.rows);
   if (!validRows) return { ok: false, error: '保存する内容の形式を確認できません。元の内容は変更していません。' };
+  if (d.target === 'closed') {
+    for (let rowIndex = 0; rowIndex < d.rows.length; rowIndex++) {
+      const problem = closedRowProblem_(d.rows[rowIndex]);
+      if (problem) return { ok: false, invalidClosed: true, invalidRow: rowIndex,
+        invalidField: problem.field,
+        error: '休業日の' + (rowIndex + 1) + '件目をご確認ください。' + problem.message + ' 元の休業設定は変更していません。' };
+    }
+  }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   /* 開いてから保存するまでのあいだに、別の端末から保存されていないか。
@@ -3351,6 +3482,9 @@ function ensureHeaders_(ss, name, headers) {
    ・タイプ → 日付ベースのタイマー（例：午後6時〜7時）
    ============================================================ */
 function sendReminders() {
+  if (PropertiesService.getScriptProperties().getProperty(BOOKING_CHANGE_JOURNAL)) {
+    throw new Error(BOOKING_CHANGE_RECOVERY_ERROR);
+  }
   const sheet = getSheet_();
   const last = sheet.getLastRow();
   if (last < 2) return;

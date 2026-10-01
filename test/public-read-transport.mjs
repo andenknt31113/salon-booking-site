@@ -11,6 +11,7 @@ function backendFixture() {
   let held = false;
   const actions = [];
   const context = vm.createContext({ Date,
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     console: { error() {} },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ setMimeType: () => body }) },
     HtmlService: { XFrameOptionsMode: { ALLOWALL: '許可' }, createHtmlOutput: html => ({

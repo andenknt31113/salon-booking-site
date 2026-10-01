@@ -14,6 +14,24 @@ function isCancelled(r) {
   return r.status === 'cancelled' || r.status === 'キャンセル';
 }
 
+function isUnconfirmed(reservation) {
+  return reservation.deliveryState === 'unknown' || reservation.delivered === false;
+}
+
+function checkBookingAction(code) {
+  return `<p class="booking-detail">店舗の受付結果が未確認です。変更・取消や予約の取り直しの前に、最新の状態をご確認ください。</p>`
+    + `<button class="btn btn-outline btn-sm" type="button" data-check-booking="${esc(code)}">この予約番号で受付結果を確認する</button>`;
+}
+
+function markBookingUnconfirmed(code) {
+  const record = Store.find(code);
+  if (record) Store.reschedule(code, { ...record, delivered: false, deliveryState: 'unknown' });
+  if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) {
+    lastLookup = { ...lastLookup, delivered: false, deliveryState: 'unknown' };
+  }
+  refreshView(true);
+}
+
 /** 予約の終わりの時刻（分）。endTime が無い古い記録は開始時刻で代用する */
 function endMinutes(r) {
   const end = toMinutes(r.endTime || '');
@@ -50,7 +68,7 @@ const refusedByDeadline = new Set();
 
 /** 変更・キャンセルができるか */
 function isCancellable(r) {
-  if (isCancelled(r) || isPast(r)) return false;
+  if (isUnconfirmed(r) || isCancelled(r) || isPast(r)) return false;
   if (refusedByDeadline.has(normalizeCode(r.code))) return false;
   return Date.now() < deadlineOf(r.date).getTime();
 }
@@ -59,6 +77,9 @@ function isCancellable(r) {
    どの場合も「期限を過ぎました」と出すのは事実と違いますし、
    すでにキャンセル済みの方に電話をかけさせることになります。 */
 function stopReasonText(r) {
+  if (isUnconfirmed(r)) {
+    return '店舗の受付結果が未確認です。この予約番号で最新の状態を確認してから、変更・キャンセルしてください。';
+  }
   if (isCancelled(r)) {
     return 'このご予約は、すでにキャンセルを承っております。';
   }
@@ -127,6 +148,7 @@ function busy(btn, on, label) {
    （renderLookupResult）の両方に出ます。同じ札を2か所に書き写していたころは、
    片方だけ言い方を直すと、同じご予約が画面によって違う状態に見えました。 */
 function statusChipHtml(r) {
+  if (isUnconfirmed(r)) return '<span class="status-chip is-unconfirmed">受付未確認</span>';
   if (isCancelled(r)) return '<span class="status-chip is-cancelled">キャンセル済み</span>';
   if (isPast(r)) return '<span class="status-chip is-past">ご来店済み</span>';
   return '<span class="status-chip">予約確定</span>';
@@ -138,11 +160,13 @@ function bookingCard(r) {
   const chip = statusChipHtml(r);
 
   // ご来店後は、ご感想をお願いする
-  const reviewLink = (past && !cancelled)
+  const reviewLink = (past && !cancelled && !isUnconfirmed(r))
     ? `<button class="btn btn-outline btn-sm" type="button" data-review="${esc(r.code)}">ご感想を書く</button>`
     : '';
 
-  const actions = isCancellable(r)
+  const actions = isUnconfirmed(r)
+    ? checkBookingAction(r.code)
+    : isCancellable(r)
     ? changeBtn(r.code)
       + `<button class="btn btn-ghost btn-sm" type="button" data-cancel="${esc(r.code)}">この予約をキャンセルする</button>`
     : (!cancelled && !past)
@@ -274,7 +298,7 @@ function renderLookupResult(r) {
       <p class="booking-detail">メニュー：${esc(r.menuText)}</p>
       <p class="booking-detail">ご担当：${esc(r.staffName)}</p>
       ${totalLine(r)}
-      ${canCancel
+      ${isUnconfirmed(r) ? `<div class="booking-actions">${checkBookingAction(r.code)}</div>` : canCancel
         ? `<div class="booking-actions">
              ${changeBtn(r.code)}
              <button class="btn btn-ghost btn-sm" type="button" data-lookup-cancel="${esc(r.code)}">この予約をキャンセルする</button>
@@ -289,7 +313,7 @@ function renderLookupResult(r) {
    毎分まるごと描き直すと、読んでいる途中で画面が跳ねます。
    中身が変わったときだけ描き直すための目印です。 */
 function viewSignature() {
-  const of = r => `${r.code}/${isCancelled(r) ? 1 : 0}${isPast(r) ? 1 : 0}${isCancellable(r) ? 1 : 0}`;
+  const of = r => `${r.code}/${isCancelled(r) ? 1 : 0}${isPast(r) ? 1 : 0}${isCancellable(r) ? 1 : 0}${isUnconfirmed(r) ? 1 : 0}`;
   return filterCode + '|' + Store.all().map(of).join(',')
     + '|' + (lastLookup ? of(lastLookup) : '');
 }
@@ -321,7 +345,8 @@ function syncLookupRecord(reservation, tel) {
   const { date, time, endTime, totalMinutes, staffName, totalPrice } = reservation;
   if (record.totalPrice !== totalPrice) record.totalLabel = '';
   Object.assign(record, { date, time, endTime, totalMinutes, staffName, totalPrice,
-    status: isCancelled(reservation) ? 'cancelled' : 'reserved' });
+    status: isCancelled(reservation) ? 'cancelled' : 'reserved',
+    delivered: true, deliveryState: 'confirmed', deliveryError: '' });
   Store.save(records);
 }
 
@@ -412,6 +437,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 照会フォーム
   $('#lookup-btn').addEventListener('click', doLookup);
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('[data-check-booking]');
+    if (!button || $('#lookup-btn').disabled) return;
+    const code = button.dataset.checkBooking;
+    const reservation = Store.find(code)
+      || (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code) ? lastLookup : null);
+    if (!reservation) return;
+    $('#lookup-code').value = code;
+    $('#lookup-tel').value = reservation.customer?.tel || reservation.lookupTel || '';
+    $('#lookup-box').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if ($('#lookup-tel').value) await doLookup();
+    else $('#lookup-tel').focus();
+  });
   /* 予約番号の欄でも Enter で照会します。
      番号を打ったあと、そのまま確定キー（改行）を押す方がいます。
      電話番号の欄だけに付けておくと、その方は何も起きない画面を見ます。 */
@@ -473,9 +511,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!res.ok && !res.noEndpoint) {
-      alert('キャンセルを店舗に送信できませんでした。'
-        + (res.error ? `\n（${res.error}）` : '')
-        + '\n\nお手数ですが、もう一度お試しいただくか、店舗までご連絡ください。');
+      markBookingUnconfirmed(code);
+      showFlash('キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
       return;
     }
     /* 台帳への反映は済んでいます。ここで照会をやり直すと、直後に電波が
@@ -564,9 +601,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!res.ok && !res.noEndpoint) {
-      alert('キャンセルを店舗に送信できませんでした。'
-        + (res.error ? `\n（${res.error}）` : '')
-        + '\n\nお手数ですが、もう一度お試しいただくか、店舗までご連絡ください。');
+      markBookingUnconfirmed(code);
+      showFlash('キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
       return;
     }
     Store.cancel(code);
