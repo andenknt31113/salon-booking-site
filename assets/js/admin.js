@@ -861,11 +861,11 @@ async function checkAdminChange(button) {
   button.disabled = true;
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = true; });
   status.textContent = '台帳の最新の日時を確認しています…';
-  const result = await adminPost({ type: 'adminData' });
+  const result = await adminPost({ type: 'adminData', reservationsOnly: true });
   activeChange.pending = false;
   button.disabled = false;
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = false; });
-  if (!result.ok) {
+  if (!validReservationRefresh(result)) {
     status.textContent = '台帳を確認できませんでした。再送せず、時間をおいて確認してください。';
     return;
   }
@@ -3009,6 +3009,14 @@ function showReservationFreshness() {
   $('#reservation-freshness').textContent = `最終読込：${new Date().toLocaleString('ja-JP')}（自動更新ではありません）`;
 }
 
+function validReservationRefresh(result) {
+  return result?.ok === true
+    && Array.isArray(result.reservations)
+    && result.reservations.every(row => row && !Array.isArray(row) && typeof row.code === 'string')
+    && Array.isArray(result.closedDates)
+    && result.closedDates.every(row => row && !Array.isArray(row) && typeof row.休業日 === 'string');
+}
+
 function hasUnsavedReservationNotes() {
   if (pendingNoteSaves.size) return true;
   return $$('[data-note-box]').some(box => {
@@ -3039,8 +3047,8 @@ async function refreshReservations() {
   button.disabled = true;
   status.textContent = '最新の予定を読み込んでいます。';
   try {
-    const result = await adminPost({ type: 'adminData' });
-    if (!result.ok) throw new Error('読み込み失敗');
+    const result = await adminPost({ type: 'adminData', reservationsOnly: true });
+    if (!validReservationRefresh(result)) throw new Error('読み込み失敗');
     if (hasUnsavedReservationNotes() || activeChange) {
       status.textContent = '編集中の予約があるため更新を保留しました。保存後に読み込んでください。';
       return;

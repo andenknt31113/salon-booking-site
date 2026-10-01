@@ -2130,6 +2130,7 @@ function doAdminData_(d) {
   requireAdmin_(d);
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
+  if (d.reservationsOnly === true) return readAdminReservations_(ss);
   /* 設定シートに足りない項目があれば、ここで足しておきます。
 
      管理ページは、画面に出ている項目をまとめて保存します。シートに無い項目が
@@ -2160,6 +2161,31 @@ function doAdminData_(d) {
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS),
     settings: readSettings_(ss),
     stamps: allStamps_(ss)
+  };
+}
+
+function readAdminReservations_(ss) {
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '予約台帳を確認できません。' };
+  const headers = sheetHeader_(sheet, []);
+  const required = ['予約番号', '来店日', '開始', '終了', 'お名前', '電話番号', '状態'];
+  if (required.some(header => !headers.includes(header))
+      || headers.some((header, index) => header && headers.indexOf(header) !== index)) {
+    return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
+  }
+  const closed = ss.getSheetByName(CLOSED_SHEET);
+  if (closed && closed.getLastRow() > 0) {
+    const closedHeaders = sheetHeader_(closed, []);
+    if (CLOSED_HEADERS.some(header => !closedHeaders.includes(header))
+        || closedHeaders.some((header, index) => header && closedHeaders.indexOf(header) !== index)) {
+      return { ok: false, error: '休業日の見出しを確認できません。表示中の予定は更新していません。' };
+    }
+  }
+  return {
+    ok: true,
+    reservations: readRows_(sheet).map(row => adminReservation_(row, header => headers.indexOf(header)))
+      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)),
+    closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS)
   };
 }
 
