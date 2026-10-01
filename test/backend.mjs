@@ -1499,7 +1499,7 @@ console.log('\n【シート】営業時間と定休日を読めない間は予�
   existing.getParent = () => ({ getSheetByName(name) {
     if (name !== '設定') return null;
     settingsReads++;
-    if (settingsReads === 2) throw new Error('試験用の設定読取失敗');
+    if (settingsReads === 1) throw new Error('試験用の設定読取失敗');
     return null;
   } });
   const changed = attempt('doChange_', existing, { code: 'LM-AAAAA', tel: '09011112222',

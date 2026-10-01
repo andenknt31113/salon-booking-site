@@ -1680,11 +1680,12 @@ function doChange_(sheet, d) {
   if (!admin && !validDateKey_(normalizeDate_(before[col('来店日')]))) {
     return { ok: false, invalid: true, error: UNKNOWN_VISIT_DATE_ERROR };
   }
+  const settings = readBookingSettings_(sheet);
   /* 変更前の来店日で判定する（間近の予約を遠い日へ逃がすのも受付期限の対象）。
      キャンセルと同じで、これはお客様の締め切りです。
      「今日の2時を4時にしてほしい」という電話に、店が応えられなくなります。 */
-  if (!admin && !withinDeadline_(before[col('来店日')])) {
-    return { ok: false, deadline: true, error: deadlineMessage_() };
+  if (!admin && !withinDeadline_(before[col('来店日')], settings)) {
+    return { ok: false, deadline: true, error: deadlineMessage_(settings) };
   }
 
   const newDate = normalizeDate_(d.date);
@@ -1712,11 +1713,11 @@ function doChange_(sheet, d) {
   if (!Number.isInteger(minutes) || minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
     return { ok: false, invalid: true, error: '所要時間が正しくありません。' };
   }
-  const hrs = openHours_(sheet);
+  const hrs = openHours_(sheet, settings);
   if (startMin < hrs.open || startMin > hrs.last || startMin + minutes > hrs.close) {
     return { ok: false, scheduleChanged: true, error: '営業時間外のご予約は承れません。' };
   }
-  if (isClosedWeekday_(sheet, newDate)) {
+  if (isClosedWeekday_(sheet, newDate, settings)) {
     return { ok: false, scheduleChanged: true, error: 'その日は定休日のため、ご予約を承れません。' };
   }
 
@@ -1785,7 +1786,7 @@ function doChange_(sheet, d) {
         visit: String(before[col('来店回数')] || ''),
         request: String(before[col('ご要望')] || '')
       },
-      menuText);
+      menuText, settings);
     if (eventId) {
       try {
         sheet.getRange(row, calendarColumn).setValue(eventId);
@@ -1811,7 +1812,7 @@ function doChange_(sheet, d) {
     `ご予約の確認： ${SITE_URL}mypage.html`,
     '',
     `${SALON_NAME}`,
-    salonSignature_({ address: false })
+    salonSignature_({ address: false }, settings)
   ].filter(Boolean).join('\n'));
 
   notifyLine_([
@@ -1831,7 +1832,7 @@ function doChange_(sheet, d) {
       `お名前　：${name} 様`,
       `メニュー：${menuText}`,
       calendarWarning ? 'カレンダー連携は未確認です。予約台帳を確認してください。' : ''
-    ].filter(Boolean).join('\n')
+    ].filter(Boolean).join('\n'), settings
   );
 
   recordMailStatus_(sheet, row, '日時変更', shopMailStatus, customerMailStatus);
@@ -1944,10 +1945,10 @@ function writeBookingWindow_(sheet, row, code, values) {
 /* 変更・キャンセルの受付期限内か。
    画面側でも判定していますが、期限の直前にページを開いたまま
    しばらくしてから押されると、画面の判定はすり抜けます。 */
-function withinDeadline_(dateKey) {
+function withinDeadline_(dateKey, settings) {
   const d = normalizeDate_(dateKey);
   if (!validDateKey_(d)) return false;
-  const rule = cancelDeadline_();
+  const rule = cancelDeadline_(settings);
   const parts = d.split('-');
   const limit = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
   limit.setDate(limit.getDate() - rule.daysBefore);
@@ -1963,9 +1964,9 @@ function deadlineLabel_(settings) {
     : rule.daysBefore + '日前の' + rule.hour + '時';
 }
 
-function deadlineMessage_() {
-  const tel = salonTel_();
-  const when = deadlineLabel_();
+function deadlineMessage_(settings) {
+  const tel = salonTel_(settings);
+  const when = deadlineLabel_(settings);
   return 'ネットでの変更・キャンセルは' + when + 'までとなっております。'
     + 'お手数ですが店舗までご連絡ください。'
     + (tel ? '（TEL ' + tel + '）' : '');
@@ -2049,14 +2050,15 @@ function doCancel_(sheet, d) {
   if (!admin && !validDateKey_(normalizeDate_(before[col('来店日')]))) {
     return { ok: false, error: UNKNOWN_VISIT_DATE_ERROR };
   }
+  const settings = readBookingSettings_(sheet);
   /* 受付期限（前日18時）は、お客様の締め切りです。店には掛けません。
 
      当日の「今日は行けなくなりました」という電話が、いちばん多いキャンセルです。
      ここで店まで断っていると、その予約は台帳に残ったままになり、
      空いたはずの枠がネット予約からも埋まりません。
      店は電話で話を聞いたうえで押しているので、締め切りを見る意味がありません。 */
-  if (!admin && !withinDeadline_(before[col('来店日')])) {
-    return { ok: false, deadline: true, error: deadlineMessage_() };
+  if (!admin && !withinDeadline_(before[col('来店日')], settings)) {
+    return { ok: false, deadline: true, error: deadlineMessage_(settings) };
   }
 
   /* 日時とお名前は台帳から読む。
@@ -2098,7 +2100,7 @@ function doCancel_(sheet, d) {
     `ご予約はこちら： ${SITE_URL}`,
     '',
     `${SALON_NAME}`,
-    salonSignature_({ address: false })
+    salonSignature_({ address: false }, settings)
   ].filter(Boolean).join('\n'));
 
   notifyLine_([
@@ -2117,7 +2119,7 @@ function doCancel_(sheet, d) {
       `お名前　：${name} 様`,
       '',
       'キャンセルにより枠が空きました。'
-    ].concat(calendarWarning ? ['カレンダー連携は未確認です。予約台帳を確認してください。'] : []).join('\n')
+    ].concat(calendarWarning ? ['カレンダー連携は未確認です。予約台帳を確認してください。'] : []).join('\n'), settings
   );
 
   recordMailStatus_(sheet, row, 'キャンセル', shopMailStatus, customerMailStatus);

@@ -28,7 +28,8 @@ function fixture() {
   context.isTaken_ = () => false;
   context.writeBookingWindow_ = () => { writes++; throw new Error('拒否前に書込された'); };
   return { context, record, writes: () => writes,
-    change: request => context.doChange_({}, { ...REQUEST, ...request }) };
+    change: request => context.doChange_({ getParent: () => ({ getSheetByName: () => null }) },
+      { ...REQUEST, ...request }) };
 }
 
 const cases = [
