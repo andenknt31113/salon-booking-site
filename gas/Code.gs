@@ -237,10 +237,10 @@ const CANCEL_DEADLINE_KEYS = ['変更・キャンセル期限（何日前）', '
 const UNKNOWN_VISIT_DATE_ERROR = 'ご予約の来店日を確認できません。お手数ですが店舗までご連絡ください。';
 
 /** いまの受付期限。設定シートを見て、読めなければ上の控えを使う */
-function cancelDeadline_() {
+function cancelDeadline_(settings) {
   const out = { daysBefore: CANCEL_DEADLINE_DAYS_BEFORE, hour: CANCEL_DEADLINE_HOUR };
   let st;
-  try { st = readSettings_(SpreadsheetApp.getActiveSpreadsheet()) || {}; } catch (e) { return out; }
+  try { st = settings || readSettings_(SpreadsheetApp.getActiveSpreadsheet()) || {}; } catch (e) { return out; }
   const d = settingInt_(st, CANCEL_DEADLINE_KEYS[0], 0, 30);
   const h = settingInt_(st, CANCEL_DEADLINE_KEYS[1], 0, 23);
   if (d !== null) out.daysBefore = d;
@@ -673,10 +673,13 @@ function timeToMin_(v) {
     最終受付は「最後に始められる時刻」です。お客様の画面はここまでしか
     枠を出しません。受け口が見ていないと、設定を変える前に開いていた画面から
     送られた予約が、受付を締めたあとの時間に入ります。 */
-function openHours_(sheet) {
-  let st = {};
-  try { st = readSettings_(sheet.getParent()) || {}; }
+function readBookingSettings_(sheet) {
+  try { return readSettings_(sheet.getParent()) || {}; }
   catch (error) { throw new Error('営業時間・定休日の設定を確認できません。時間をおいてお試しいただくか、店舗へお電話ください。'); }
+}
+
+function openHours_(sheet, settings) {
+  const st = settings || readBookingSettings_(sheet);
   const open = timeToMin_(st['営業開始']);
   const close = timeToMin_(st['営業終了']);
   const last = timeToMin_(st['最終受付']);
@@ -694,10 +697,8 @@ const DEFAULT_CLOSE = '22:00';
    画面側（common.js）と同じ読み方です。 */
 const WEEKDAY_JA_GAS = ['日', '月', '火', '水', '木', '金', '土'];
 
-function closedWeekdays_(sheet) {
-  let st = {};
-  try { st = readSettings_(sheet.getParent()) || {}; }
-  catch (error) { throw new Error('営業時間・定休日の設定を確認できません。時間をおいてお試しいただくか、店舗へお電話ください。'); }
+function closedWeekdays_(sheet, settings) {
+  const st = settings || readBookingSettings_(sheet);
   const raw = String(st['定休曜日'] == null ? '' : st['定休曜日']).trim();
   if (!raw) return [];
   const out = [];
@@ -709,8 +710,8 @@ function closedWeekdays_(sheet) {
 }
 
 /** その日が定休曜日か（日本時間の曜日で見ます） */
-function isClosedWeekday_(sheet, dateKey) {
-  const days = closedWeekdays_(sheet);
+function isClosedWeekday_(sheet, dateKey, settings) {
+  const days = closedWeekdays_(sheet, settings);
   if (!days.length) return false;
   const p = String(dateKey).split('-').map(Number);
   if (!p[0]) return false;
@@ -768,7 +769,7 @@ function nowMinJst_() {
 /* 予約の内容を確かめる。問題があれば理由を返します。
    お客様の画面はここを通る前に同じ確認をしていますが、
    画面を通さない送信のために、ここでも見ます。 */
-function checkReserve_(sheet, d) {
+function checkReserve_(sheet, d, settings) {
   const c = d.customer || {};
 
   const date = normalizeDate_(d.date);
@@ -787,14 +788,14 @@ function checkReserve_(sheet, d) {
     return '所要時間が正しくありません。';
   }
 
-  const h = openHours_(sheet);
+  const h = openHours_(sheet, settings);
   if (start < h.open || start > h.last || start + minutes > h.close) {
     return '営業時間外のご予約は承れません。';
   }
 
   /* 毎週の定休日。お客様の画面には出していない日ですが、
      設定を変える前に開いていた画面からは、まだ送られてきます。 */
-  if (isClosedWeekday_(sheet, date)) {
+  if (isClosedWeekday_(sheet, date, settings)) {
     return 'その日は定休日のため、ご予約を承れません。';
   }
 
@@ -912,7 +913,8 @@ function doReserve_(sheet, d, verifyCatalog) {
     const menuError = verifyReservationMenus_(sheet.getParent(), d);
     if (menuError) return { ok: false, catalogChanged: true, error: menuError };
   }
-  const bad = checkReserve_(sheet, d);
+  const settings = readBookingSettings_(sheet);
+  const bad = checkReserve_(sheet, d, settings);
   if (bad) {
     const scheduleChanged = bad === '営業時間外のご予約は承れません。'
       || bad === 'その日は定休日のため、ご予約を承れません。';
@@ -975,7 +977,7 @@ function doReserve_(sheet, d, verifyCatalog) {
     'カレンダーID': ''
   }));
 
-  const eventId = addToCalendar_(d, c, menuText);
+  const eventId = addToCalendar_(d, c, menuText, settings);
   let calendarWarning = !!CALENDAR_ID && !eventId;
   if (eventId) {
     try {
@@ -1008,7 +1010,7 @@ function doReserve_(sheet, d, verifyCatalog) {
       `来店回数：${or_(c.visit)}`,
       `合計金額：${priceLine}`,
       `ご要望　：${or_(c.request, 'なし')}`
-    ].concat(calendarWarning ? ['', 'カレンダー連携は未確認です。予約台帳を確認してください。'] : []).join('\n')
+    ].concat(calendarWarning ? ['', 'カレンダー連携は未確認です。予約台帳を確認してください。'] : []).join('\n'), settings
   );
 
   notifyLine_([
@@ -1022,7 +1024,7 @@ function doReserve_(sheet, d, verifyCatalog) {
     calendarWarning ? 'カレンダー連携は未確認です。予約台帳を確認してください。' : ''
   ].filter(Boolean).join('\n'));
 
-  const lineUrl = lineAddUrl_();
+  const lineUrl = lineAddUrl_(settings);
   const customerMailStatus = mailCustomer_(c.email, `ご予約を承りました（${d.date} ${d.time}）`, [
     `${or_(c.name, 'お客様')} 様`,
     '',
@@ -1042,13 +1044,13 @@ function doReserve_(sheet, d, verifyCatalog) {
     'ご予約番号と電話番号を入力すると、どの端末からでもご確認いただけます。',
     /* 期限は設定シートから読みます。ここに「前日18時」と書いていたころは、
        店が期限を変えても、このメールだけが古い締切を案内し続けていました。 */
-    deadlineLabel_() + 'を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
+    deadlineLabel_(settings) + 'を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
     '',
     lineUrl ? '【お店のLINE公式アカウント】' : '',
     lineUrl || '',
     lineUrl ? '友だち追加はこちらから。ご予約の確認・変更は、このサイトの予約確認ページをご利用ください。' : '',
     `${SALON_NAME}`,
-    salonSignature_()
+    salonSignature_(null, settings)
   ].filter(Boolean).join('\n'));
 
   recordMailStatus_(sheet, null, '新規予約', shopMailStatus, customerMailStatus);
@@ -1059,7 +1061,7 @@ function doReserve_(sheet, d, verifyCatalog) {
 /* ============================================================
    Googleカレンダー連携（CALENDAR_ID が空なら何もしない）
    ============================================================ */
-function addToCalendar_(d, c, menuText) {
+function addToCalendar_(d, c, menuText, settings) {
   if (!CALENDAR_ID) return '';
   try {
     const cal = CALENDAR_ID === 'primary'
@@ -1084,7 +1086,7 @@ function addToCalendar_(d, c, menuText) {
           `ご要望：${or_(c.request, 'なし', LIMITS.request)}`,
           `金額：${Number(d.totalPrice).toLocaleString()}円`
         ].join('\n'),
-        location: salonAddress_()
+        location: salonAddress_(settings)
       }
     );
     return event.getId();
@@ -1953,8 +1955,8 @@ function withinDeadline_(dateKey) {
 }
 
 /** 「前日18時」のような、受付期限の言い方（画面側 mypage.js の deadlineLabel と同じ形） */
-function deadlineLabel_() {
-  const rule = cancelDeadline_();
+function deadlineLabel_(settings) {
+  const rule = cancelDeadline_(settings);
   return rule.daysBefore === 1
     ? '前日' + rule.hour + '時'
     : rule.daysBefore + '日前の' + rule.hour + '時';
@@ -2524,9 +2526,9 @@ function writeSheetRows_(ss, name, headers, rows) {
    管理ページから貼れる場所に置いておかないと、
    LINEを開設した日に、コードを触れる人を待つことになるためです。
    シートが空のときだけ、上の LINE_ADD_URL を使います。 */
-function lineAddUrl_() {
+function lineAddUrl_(settings) {
   try {
-    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['LINE友だち追加URL'] || '').trim();
+    const v = String((settings || readSettings_(SpreadsheetApp.getActiveSpreadsheet()))['LINE友だち追加URL'] || '').trim();
     if (/^https?:\/\//i.test(v)) return v;
   } catch (e) { /* シートが読めないときは下の定数で */ }
   return LINE_ADD_URL;
@@ -2574,26 +2576,26 @@ function draftMessage_() {
     + (tel ? 'お手数ですが、お電話（' + tel + '）でお問い合わせください。' : '');
 }
 
-function salonTel_() {
+function salonTel_(settings) {
   try {
-    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['電話番号'] || '').trim();
+    const v = String((settings || readSettings_(SpreadsheetApp.getActiveSpreadsheet()))['電話番号'] || '').trim();
     if (v) return v;
   } catch (e) { /* シートが読めないときは下の定数で */ }
   return SALON_TEL;
 }
-function salonAddress_() {
+function salonAddress_(settings) {
   try {
-    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['住所'] || '').trim();
+    const v = String((settings || readSettings_(SpreadsheetApp.getActiveSpreadsheet()))['住所'] || '').trim();
     if (v) return v;
   } catch (e) { /* シートが読めないときは下の定数で */ }
   return SALON_ADDRESS;
 }
 /** メールの末尾に付ける「TEL ◯◯」と住所。番号が空なら住所だけになります。
     { address: false } を渡すと番号だけ（変更・キャンセルのお知らせで使います）。 */
-function salonSignature_(opt) {
-  const tel = salonTel_();
+function salonSignature_(opt, settings) {
+  const tel = salonTel_(settings);
   const withAddress = !opt || opt.address !== false;
-  return [tel ? 'TEL ' + tel : '', withAddress ? salonAddress_() : '']
+  return [tel ? 'TEL ' + tel : '', withAddress ? salonAddress_(settings) : '']
     .filter(Boolean).join('\n');
 }
 
@@ -2763,9 +2765,9 @@ function findRowByCode_(sheet, code) {
    どれも、その日のうちに直せないと予約が誰にも届きません。
 
    カンマ・読点・空白・改行のどれで区切っても読みます。手で書く場所なので。 */
-function notifyList_() {
+function notifyList_(settings) {
   let raw = '';
-  try { raw = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['通知先メール'] || '').trim(); }
+  try { raw = String((settings || readSettings_(SpreadsheetApp.getActiveSpreadsheet()))['通知先メール'] || '').trim(); }
   catch (e) { /* シートが読めないときは下の定数で */ }
   if (!raw) raw = NOTIFY_EMAIL;
   const seen = {};
@@ -2784,8 +2786,8 @@ function notifyList_() {
   return out;
 }
 
-function notify_(subject, body) {
-  const to = notifyList_();
+function notify_(subject, body, settings) {
+  const to = notifyList_(settings);
   if (!to.length) return '宛先なし';
   try {
     MailApp.sendEmail(to.join(','), `${SALON_NAME} ${subject}`, body);
