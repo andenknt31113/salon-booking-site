@@ -42,6 +42,7 @@ test('全画面幅で6つの主ナビと予約済みの入口を横スクロー�
     const { context, page, errors } = await openPage('gallery', width);
     try {
       const nav = page.locator('.site-nav');
+      if (width <= 700) await page.getByRole('button', { name: 'サイトメニュー', exact: true }).click();
       assert.deepEqual(await nav.locator('a').allTextContents(), ['サロンTOP', 'スタイル', 'メニュー・料金', 'スタッフ', 'アクセス', '口コミ']);
       assert.equal(await nav.locator('a[href="reserve.html"], a[href="mypage.html"]').count(), 0, '新規・既存の手続きと店の紹介を混在させない');
       assert.equal(await nav.locator('[aria-current="page"]').getAttribute('href'), 'gallery.html');
@@ -84,6 +85,7 @@ test('全画面幅で6つの主ナビと予約済みの入口を横スクロー�
 test('トップ以外のページからもアクセスを開き、店舗地図へ到達する', async () => {
   const { context, page, errors } = await openPage('menu');
   try {
+    await page.getByRole('button', { name: 'サイトメニュー', exact: true }).click();
     await page.locator('.site-nav a[href="index.html#info"]').click();
     assert.equal(new URL(page.url()).pathname, '/index.html');
     assert.equal(new URL(page.url()).hash, '#info');

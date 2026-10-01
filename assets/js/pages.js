@@ -150,7 +150,8 @@ function wireStylePhotos(root = document) {
     button.setAttribute('aria-label', `${photo.alt}の写真を拡大`);
     button.innerHTML = '<span>写真を拡大</span>';
     button.disabled = !photo.complete || !photo.naturalWidth;
-    photo.addEventListener('load', () => { button.disabled = false; button.hidden = false; });
+    if (button.disabled) button.setAttribute('aria-hidden', 'true');
+    photo.addEventListener('load', () => { button.disabled = false; button.hidden = false; button.removeAttribute('aria-hidden'); });
     photo.addEventListener('error', () => { button.disabled = true; button.hidden = true; });
     button.addEventListener('click', () => openStylePhoto(button));
     thumb.append(button);

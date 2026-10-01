@@ -7,6 +7,7 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const BOOKING_LAUNCH_READY = SALON.bookingLaunchApproved === true && SALON.draft === false;
+const PUBLIC_NAV_QUERY = '(max-width: 700px)';
 SALON.draft = !BOOKING_LAUNCH_READY;
 
 /* ---------- フォーマット ---------- */
@@ -1346,6 +1347,12 @@ function renderHeader() {
   if (!host) return;
   const page = currentPage();
   if (page === 'admin.html') { renderAdminHeader(host); return; }
+  const compact = matchMedia(PUBLIC_NAV_QUERY).matches;
+  const previousToggle = $('#site-menu-toggle', host);
+  const keepMenuOpen = previousToggle?.getAttribute('aria-expanded') === 'true';
+  const activeElement = document.activeElement;
+  const toggleFocused = activeElement === previousToggle;
+  const focusedHref = host.contains(activeElement) ? activeElement.getAttribute('href') : null;
   const initials = SALON.mark
     || SALON.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()
     || 'SL';
@@ -1358,7 +1365,8 @@ function renderHeader() {
     ? `<div class="draft-banner">${esc(SALON.draftNote || '準備中：内容は仮のものです')}</div>`
     : '';
 
-  setHtml(host, `
+  const changed = setHtml(host, `
+    <a class="skip-link" href="#main-content">本文へ移動</a>
     ${draft}
     <header class="site-header">
       <div class="container header-top">
@@ -1376,10 +1384,76 @@ function renderHeader() {
         </div>
       </div>
       <div class="container header-navigation">
-        <nav class="site-nav" aria-label="メインメニュー"><ul>${nav}</ul></nav>
+        <button type="button" id="site-menu-toggle" class="site-menu-toggle" aria-controls="site-main-menu" aria-expanded="${!compact}"${compact ? '' : ' hidden'}>サイトメニュー<span class="site-menu-icon" aria-hidden="true">＋</span></button>
+        <nav id="site-main-menu" class="site-nav" aria-label="メインメニュー"${compact ? ' hidden' : ''}><ul>${nav}</ul></nav>
         <a class="reservation-link" href="mypage.html"${page === 'mypage.html' ? ' aria-current="page"' : ''}>予約済みの方<span>確認・変更・キャンセル</span></a>
       </div>
     </header>`);
+  if (changed) {
+    setPublicMenuOpen(host, !compact || keepMenuOpen);
+    const replacement = toggleFocused ? $('#site-menu-toggle', host)
+      : focusedHref ? $$('a', host).find(link => link.getAttribute('href') === focusedHref) : null;
+    replacement?.focus({ preventScroll: true });
+  }
+}
+
+function setPublicMenuOpen(host, open) {
+  const toggle = $('#site-menu-toggle', host);
+  const nav = $('#site-main-menu', host);
+  if (!toggle || !nav) return;
+  if (toggle.getAttribute('aria-expanded') !== String(open)) toggle.setAttribute('aria-expanded', String(open));
+  if (nav.hidden !== !open) nav.hidden = !open;
+}
+
+function wirePublicNavigation() {
+  const host = $('#site-header');
+  if (!host || !$('#site-menu-toggle', host) || host.__publicNavWired) return;
+  host.__publicNavWired = true;
+  const media = matchMedia(PUBLIC_NAV_QUERY);
+  host.addEventListener('click', event => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const toggle = event.target.closest('#site-menu-toggle');
+    if (toggle) {
+      setPublicMenuOpen(host, toggle.getAttribute('aria-expanded') !== 'true');
+      return;
+    }
+    const link = event.target.closest('a');
+    if (!link) return;
+    if (link.classList.contains('skip-link')) {
+      if (media.matches) setPublicMenuOpen(host, false);
+      $('#main-content')?.focus({ preventScroll: true });
+      return;
+    }
+    if (!media.matches || !link.closest('.site-nav')) return;
+    const destination = new URL(link.href);
+    if (destination.origin === location.origin && destination.pathname === location.pathname && destination.hash) {
+      setPublicMenuOpen(host, false);
+      const target = document.getElementById(destination.hash.slice(1));
+      if (target) {
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      }
+    }
+  });
+  host.addEventListener('keydown', event => {
+    const toggle = $('#site-menu-toggle', host);
+    if (event.key !== 'Escape' || !media.matches || toggle?.getAttribute('aria-expanded') !== 'true') return;
+    event.preventDefault();
+    setPublicMenuOpen(host, false);
+    toggle.focus({ preventScroll: true });
+  });
+  media.addEventListener('change', () => {
+    const toggle = $('#site-menu-toggle', host);
+    const nav = $('#site-main-menu', host);
+    const activeElement = document.activeElement;
+    toggle.hidden = false;
+    if (media.matches && nav.contains(activeElement)) toggle.focus({ preventScroll: true });
+    setPublicMenuOpen(host, !media.matches);
+    if (!media.matches && activeElement === toggle) {
+      ($('a[aria-current="page"]', nav) || $('a', nav))?.focus({ preventScroll: true });
+    }
+    toggle.hidden = !media.matches;
+  });
 }
 
 function renderFooter() {
@@ -1521,6 +1595,7 @@ if (typeof PUBLISHED_MENUS !== 'undefined' && PUBLISHED_MENUS) {
 
 document.addEventListener('DOMContentLoaded', () => {
   renderHeader();
+  wirePublicNavigation();
   renderFooter();
   wireImageFallbacks();
   applyDocumentTitle();

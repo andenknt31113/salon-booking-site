@@ -115,7 +115,7 @@ test('店内写真の読込が遅くても、写真・文章の順番と位置�
 });
 
 for (const name of ['index', 'gallery']) {
-  test(`${name}：写真到着前も拡大の案内を保ち、読込が終わるまで開かない`, async () => {
+  test(`${name}：写真到着前は拡大操作を隠し、読込が終わってから案内する`, async () => {
     let releasePhoto;
     const pendingPhoto = new Promise(resolve => { releasePhoto = resolve; });
     try {
@@ -123,10 +123,12 @@ for (const name of ['index', 'gallery']) {
         const card = page.locator('.style-card').first();
         const button = card.locator('.style-photo-open');
         await card.scrollIntoViewIfNeeded();
-        assert.equal(await button.isVisible(), true, '読込後に案内の文字が突然増えない');
+        assert.deepEqual(await button.evaluate(element => ({ opacity: getComputedStyle(element).opacity,
+          pointer: getComputedStyle(element).pointerEvents, hidden: element.getAttribute('aria-hidden') })),
+          { opacity: '0', pointer: 'none', hidden: 'true' }, '使えない拡大案内を目・クリック・読み上げに出さない');
         assert.equal(await button.isDisabled(), true, 'まだ届いていない写真を開けない');
-        const text = await card.innerText();
-        const size = await button.boundingBox();
+        const text = await card.locator('.style-body').innerText();
+        const size = await button.evaluate(element => element.getBoundingClientRect().toJSON());
         await button.evaluate(element => element.click());
         assert.equal(await page.locator('.style-photo-dialog').count(), 0);
         releasePhoto();
@@ -134,9 +136,15 @@ for (const name of ['index', 'gallery']) {
           const photo = document.querySelector('.style-card img.ph-photo');
           return photo?.complete && photo.naturalWidth > 0;
         });
+        await button.waitFor({ state: 'visible' });
+        await page.waitForFunction(button => !button.disabled, await button.elementHandle());
         assert.equal(await button.isEnabled(), true);
-        assert.equal(await card.innerText(), text, '到着後も一覧の案内・本文を差し替えない');
-        assert.deepEqual(await button.boundingBox(), size, '到着前後で操作の位置を変えない');
+        assert.deepEqual(await button.evaluate(element => ({ opacity: getComputedStyle(element).opacity,
+          pointer: getComputedStyle(element).pointerEvents, hidden: element.getAttribute('aria-hidden') })),
+          { opacity: '1', pointer: 'auto', hidden: null }, '写真到着後に実際に見えて操作できる案内にする');
+        assert.equal(await card.locator('.style-body').innerText(), text, '到着後も一覧の案内・本文を差し替えない');
+        assert.deepEqual(await button.evaluate(element => element.getBoundingClientRect().toJSON()), size,
+          '到着前後で操作の位置を変えない');
         await button.click();
         assert.equal(await page.locator('.style-photo-dialog').count(), 1);
         await page.getByRole('button', { name: '閉じる', exact: true }).click();
@@ -260,6 +268,7 @@ for (const name of ['index', 'gallery']) {
     const button = page.locator('.style-photo-open').first();
     await page.locator('.style-thumb').first().scrollIntoViewIfNeeded();
     await button.waitFor({ state: 'visible' });
+    await page.waitForFunction(button => !button.disabled, await button.elementHandle());
     const photo = page.locator('.style-thumb img.ph-photo').first();
     const source = await photo.getAttribute('src');
     const position = await page.evaluate(() => scrollY);
