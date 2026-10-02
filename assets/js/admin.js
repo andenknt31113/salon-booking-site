@@ -655,8 +655,8 @@ async function saveNote(btn) {
 }
 
 function mailNeedsAttention(r) {
-  return /送信失敗|宛先なし/.test(String(r.shopMailStatus || ''))
-    || /送信失敗/.test(String(r.customerMailStatus || ''));
+  return /送信失敗|宛先なし|結果不明|要確認/.test(String(r.shopMailStatus || ''))
+    || /送信失敗|結果不明|要確認/.test(String(r.customerMailStatus || ''));
 }
 
 function renderMailAlert() {
@@ -676,7 +676,32 @@ function mailStatusHtml(r) {
   const customer = String(r.customerMailStatus || '');
   if (!shop && !customer) return '';
   const needsAttention = mailNeedsAttention(r);
-  return `<p class="${needsAttention ? 'booking-request' : 'booking-detail'}">メール送信処理：店舗 ${esc(shop || '記録なし')}／お客様 ${esc(customer || '記録なし')}<br><small>送信処理の結果です。受信箱への到着は確認していません。</small></p>`;
+  const queued = /配送待ち|配送処理中/.test(shop + customer);
+  return `<p data-mail-status="${esc(r.code)}" class="${needsAttention ? 'booking-request' : 'booking-detail'}">メール送信処理：店舗 ${esc(shop || '記録なし')}／お客様 ${esc(customer || '記録なし')}<br><small>${queued ? '予約は保存済みです。メールは別の処理で配送します。' : '送信処理の結果です。'}受信箱への到着は確認していません。</small></p>`;
+}
+
+const MAIL_STATUS_MAX_LENGTH = 200;
+
+function applyMailStatusUpdate(rows) {
+  if (!Array.isArray(rows) || rows.some(row => !row || typeof row.code !== 'string'
+      || typeof row.name !== 'string' || typeof row.date !== 'string' || typeof row.time !== 'string'
+      || typeof row.endTime !== 'string' || typeof row.status !== 'string'
+      || typeof row.shopMailStatus !== 'string' || typeof row.customerMailStatus !== 'string'
+      || row.shopMailStatus.length > MAIL_STATUS_MAX_LENGTH || row.customerMailStatus.length > MAIL_STATUS_MAX_LENGTH)
+      || new Set(rows.map(row => row.code)).size !== rows.length) return false;
+  let changed = false;
+  rows.forEach(row => {
+    const reservation = (adminData.reservations || []).find(current => current.code === row.code);
+    if (!reservation || ['name', 'date', 'time', 'endTime', 'status'].some(field => reservation[field] !== row[field])) return;
+    if (reservation.shopMailStatus === row.shopMailStatus && reservation.customerMailStatus === row.customerMailStatus) return;
+    reservation.shopMailStatus = row.shopMailStatus;
+    reservation.customerMailStatus = row.customerMailStatus;
+    $$('[data-mail-status]').filter(element => element.dataset.mailStatus === row.code)
+      .forEach(element => { element.outerHTML = mailStatusHtml(reservation); });
+    changed = true;
+  });
+  if (changed) renderMailAlert();
+  return true;
 }
 
 function reservationCard(r) {
