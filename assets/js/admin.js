@@ -443,6 +443,7 @@ function closedAllDay(date) {
 let showPast = false;
 let renderedReservationFilters = {};
 let renderedCustomerFilters = {};
+let customersNeedRender = true;
 
 function renderReservations() {
   reconcilePhoneResult();
@@ -1631,6 +1632,8 @@ function closeCustomerProfile(record) {
 }
 
 function renderCustomers() {
+  customersNeedRender = true;
+  if ($('.admin-pane[data-pane="customers"]').hidden) return;
   if (!guardNoteFilters(renderedCustomerFilters)) return;
   const expanded = $('#customer-rows .customer-record[open]')?.dataset.customerTel;
   const q = ($('#customer-search') || {}).value || '';
@@ -1654,6 +1657,7 @@ function renderCustomers() {
     $('#customer-rows').innerHTML = (adminData.reservations || []).length
       ? '<p class="empty-state">該当するお客様はいません。</p>'
       : '<p class="empty-state">ご予約が入ると、ここにお客様が並びます。</p>';
+    customersNeedRender = false;
     return;
   }
 
@@ -1680,6 +1684,7 @@ function renderCustomers() {
         </details>
       </article>`;
   }).join('');
+  customersNeedRender = false;
 }
 
 /* ============================================================
@@ -3177,6 +3182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('admin-edit-mode', editorTabs.open);
     $$('.tab', $('#admin-tabs')).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     $$('.admin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab.dataset.pane; });
+    if (tab.dataset.pane === 'customers' && customersNeedRender) renderCustomers();
     /* 数字は、店舗情報タブで入れた手数料率をそのまま使います。
        開いたときに描き直さないと、入れた直後に見に来た店主の画面に
        「手数料率が入っていません」が残ります。 */

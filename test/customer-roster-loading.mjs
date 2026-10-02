@@ -57,11 +57,30 @@ for (const design of ['', '?design=a']) {
         await route.fulfill({ response, body: JSON.stringify(body) });
       });
       await page.goto(base + '/admin.html' + design);
+      await page.evaluate(() => {
+        const build = buildCustomers;
+        window.customerBuilds = 0;
+        buildCustomers = () => { window.customerBuilds++; return build(); };
+      });
       await page.locator('#passcode').fill(password);
       await page.locator('#remember-me').setChecked(false);
       await page.locator('#gate-btn').click();
       await page.locator('#dashboard:not([hidden])').waitFor();
+      assert.equal(await page.locator('.customer-record').count(), 0, '予定を開く時点では隠れた名簿を作らない');
+      assert.equal(await page.evaluate(() => window.customerBuilds), 0, '予定表示のために顧客の全履歴を集計しない');
       await page.locator('#admin-tabs [data-pane="customers"]').click();
+      assert.equal(await page.evaluate(() => window.customerBuilds), 1);
+      await page.locator('#admin-tabs [data-pane="reserve"]').click();
+      rows.push({ ...rows[VISITS_PER_CUSTOMER], code: 'LM-ROSTER-UPDATE', date: nextDate });
+      await page.locator('#refresh-reservations').click();
+      await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+      assert.equal(await page.evaluate(() => window.customerBuilds), 1, '予定を更新しても隠れた名簿は再集計しない');
+      await page.locator('#admin-tabs [data-pane="customers"]').click();
+      assert.equal(await page.evaluate(() => window.customerBuilds), 2, '名簿を開いたとき最新の取得結果を集計する');
+      assert.match(await page.locator(`.customer-record[data-customer-tel="${rows[VISITS_PER_CUSTOMER].tel}"]`).innerText(), /今後・施術中 1件/);
+      await page.locator('#admin-tabs [data-pane="reserve"]').click();
+      await page.locator('#admin-tabs [data-pane="customers"]').click();
+      assert.equal(await page.evaluate(() => window.customerBuilds), 2, '取得結果が変わらないタブ切替では作り直さない');
       const measurement = await page.evaluate(() => {
         const start = performance.now();
         renderCustomers();
