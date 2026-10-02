@@ -57,19 +57,18 @@ test('公開メニューは通信の返事前から選べるが、未確認の�
     await page.locator('#coupon-choices .selectable').first().click();
     assert.equal(await page.locator('#coupon-choices .selectable').first().getAttribute('aria-pressed'), 'true');
     const chosen = await page.locator('#coupon-choices .is-selected .selectable-title').innerText();
-    await page.locator('[data-next="2"]').first().click();
+    assert.equal(await page.locator('[data-next="2"]').first().isDisabled(), true);
     assert.equal(await page.locator('[data-next="3"]').first().isDisabled(), true);
     await page.evaluate(() => goTo(3));
-    assert.equal(await page.evaluate(() => state.step), 2);
+    assert.equal(await page.evaluate(() => state.step), 1);
     await page.evaluate(() => submitReservation());
     assert.deepEqual(requests, ['menu'], '日時確認・書込よりも先に最新メニューを確認する');
     releaseMenu();
     await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
-    assert.equal(await page.locator('[data-next="3"]').first().isEnabled(), true);
-    await page.locator('[data-prev="1"]').first().click();
+    assert.equal(await page.locator('[data-next="2"]').first().isEnabled(), true);
     assert.equal(await page.locator('#coupon-choices .is-selected .selectable-title').innerText(), chosen, '同じ料金・時間なら選択を維持');
     await page.locator('[data-next="2"]').first().click();
-    await page.locator('[data-next="3"]').first().click();
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
     assert.ok(await page.locator('button[data-date][data-time]:not([disabled])').count() > 0);
   });
 });
@@ -96,7 +95,7 @@ for (const change of ['price', 'minutes', 'priceFrom', 'remove']) {
     await withPendingCatalog(async ({ page, catalog, releaseMenu }) => {
       assert.equal(await page.locator('#reserve-layout').isVisible(), true);
       await page.locator('#coupon-choices .selectable').first().click();
-      await page.locator('[data-next="2"]').first().click();
+      assert.equal(await page.locator('[data-next="2"]').first().isDisabled(), true);
       if (change === 'remove') catalog.coupons.shift();
       else if (change === 'priceFrom') catalog.coupons[0].priceFrom = !catalog.coupons[0].priceFrom;
       else catalog.coupons[0][change] += 10;
@@ -170,10 +169,11 @@ test('メニューと空席の同時応答は1回の通信で日時まで進み�
   await withPendingCatalog(async ({ page, catalog, releaseMenu, requests }) => {
     catalog.booked = [];
     await page.locator('#coupon-choices .selectable').first().click();
-    await page.locator('[data-next="2"]').first().click();
+    assert.equal(await page.locator('[data-next="2"]').first().isDisabled(), true);
     releaseMenu();
     await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
-    await page.locator('[data-next="3"]').first().click();
+    await page.locator('[data-next="2"]').first().click();
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
     assert.ok(await page.locator('button[data-date][data-time]:not([disabled])').count() > 0);
     assert.deepEqual(requests, ['menu'], '空席のための2度目の往復をしない');
     await page.evaluate(() => Remote.load(true));

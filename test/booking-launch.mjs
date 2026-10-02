@@ -34,9 +34,10 @@ test('公開設定を試験内で上書きしなくても受付が開始され�
     await page.goto(base + '/index.html');
     assert.equal((await page.locator('.hero a[href="reserve.html"]').innerText()).trim(), '空き時間を見る');
     await page.locator('.hero a[href="reserve.html"]').click();
+    await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('[data-next="2"]').first().click();
-    await page.locator('[data-next="3"]').first().click();
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
     await page.locator('button[data-date][data-time]:not([disabled])').last().click();
     await page.locator('[data-next="4"]').first().click();
     await page.locator('#f-name').fill('受付試験');

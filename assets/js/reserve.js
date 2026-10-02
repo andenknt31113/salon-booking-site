@@ -293,6 +293,19 @@ function initStep1() {
    すでに直っている言い方に、予約画面もそろえます）。 */
 const soloStylist = () => SALON.staff.length <= 1;
 
+function skipStaffStep() {
+  const staff = SALON.staff[0];
+  return !changing && SALON.staff.length === 1 && !!staff
+    && typeof staff.id === 'string' && !!staff.id.trim()
+    && typeof staff.name === 'string' && !!staff.name.trim()
+    && Number(staff.nominationFee || 0) === 0;
+}
+
+function bookingStepTarget(step) {
+  if (step !== 2 || !skipStaffStep()) return step;
+  return state.step >= 3 ? 1 : 3;
+}
+
 function renderStaffLead() {
   const head = $('#h-step2');
   const lead = $('#staff-lead');
@@ -307,7 +320,12 @@ function renderStaffLead() {
   const chip = $('#step2-label');
   if (chip) chip.textContent = solo ? 'ご担当' : 'スタッフ';
   const btn = $('#to-staff');
-  if (btn) btn.textContent = solo ? 'ご担当の確認へ進む' : 'スタッフ選択へ進む';
+  if (btn) btn.textContent = skipStaffStep() ? '日時選択へ進む' : solo ? 'ご担当の確認へ進む' : 'スタッフ選択へ進む';
+  const calendarStaff = $('#calendar-staff');
+  if (calendarStaff) {
+    calendarStaff.hidden = !skipStaffStep();
+    calendarStaff.textContent = skipStaffStep() ? `ご担当：${SALON.staff[0].name}（マンツーマン）` : '';
+  }
 }
 
 function renderStaffChoices() {
@@ -1141,15 +1159,19 @@ function renderStep() {
   $$('.reserve-panel').forEach(p => {
     p.classList.toggle('is-active', Number(p.dataset.panel) === state.step);
   });
+  let visibleStep = 0;
   $$('.step').forEach(s => {
     const n = Number(s.dataset.step);
+    s.hidden = n === 2 && skipStaffStep();
+    if (!s.hidden) visibleStep++;
+    $('b', s).textContent = `STEP ${visibleStep}`;
     s.classList.toggle('is-current', n === state.step);
     s.classList.toggle('is-done', n < state.step);
     // 変更モードで通らないステップは、押せないことが分かるように薄くする
     s.classList.toggle('is-skipped', !!changing && (n === 1 || n === 2 || n === 4));
     if (n === state.step) s.setAttribute('aria-current', 'step');
     else s.removeAttribute('aria-current');
-    $('button', s).disabled = n >= state.step || s.classList.contains('is-skipped');
+    $('button', s).disabled = s.hidden || n >= state.step || s.classList.contains('is-skipped');
   });
   $('#steps').style.display = state.step === 6 ? 'none' : '';
   $('#summary').style.display = state.step === 6 ? 'none' : '';
@@ -1164,7 +1186,7 @@ function renderStep() {
 /* label が関数なのは、1名の店では「スタッフの選択」という言い方が
    合わないためです（選びようがありません）。 */
 const STEP_CTA = {
-  1: { to: 2, label: () => (soloStylist() ? 'ご担当の確認へ' : 'スタッフの選択へ'),
+  1: { to: 2, label: () => (skipStaffStep() ? '日時の選択へ' : soloStylist() ? 'ご担当の確認へ' : 'スタッフの選択へ'),
        ok: () => hasMenu(), hint: 'メニューをお選びください' },
   2: { to: 3, label: () => '日時の選択へ', ok: () => state.staffChosen, hint: 'ご担当をお選びください' },
   3: { to: 4, label: () => 'お客様情報の入力へ', ok: () => !!(state.date && state.time), hint: 'ご来店日時をお選びください' },
@@ -1182,9 +1204,12 @@ function renderStepCta() {
   const cta = STEP_CTA[state.step];
   if (!cta || (changing && state.step !== 3)) { host.hidden = true; return; }
 
-  const waiting = cta.to >= 3 && !catalogVerified();
+  const waiting = bookingStepTarget(cta.to) >= 3 && !catalogVerified();
   const ready = cta.ok() && !waiting;
   const info = waiting ? '最新の料金・受付条件を確認中です' : ready ? stepCtaInfo() : (cta.hint || '');
+  $$('[data-next="2"]', $('#reserve-layout')).forEach(button => {
+    button.disabled = !hasMenu() || (skipStaffStep() && !catalogVerified());
+  });
   $$('[data-next="3"]', $('#reserve-layout')).forEach(button => { button.disabled = !catalogVerified(); });
   $$('[data-next="4"]', $('#reserve-layout')).forEach(button => { button.disabled = !(state.date && state.time) || !catalogVerified(); });
   const description = $('.step-cta-info', host);
@@ -1210,6 +1235,7 @@ function stepCtaInfo() {
 }
 
 function goTo(step) {
+  step = bookingStepTarget(step);
   if (step >= 3 && (!catalogVerified() || (SALON.draft && !changing))) {
     $('#catalog-status').focus();
     return;
@@ -1377,10 +1403,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // スタイリストが1名なら、その人を初めから選んでおく
-  if (SALON.staff.length === 1 && !state.staffChosen) {
+  if (SALON.staff.length === 1 && !changing
+      && (!state.staffChosen || (skipStaffStep() && state.staffId !== SALON.staff[0].id))) {
+    const changedStaff = state.staffChosen && state.staffId !== SALON.staff[0].id;
     state.staffId = SALON.staff[0].id;
     state.staffChosen = true;
+    if (changedStaff) {
+      resetDateTime();
+      if (state.step >= 3) state.step = 3;
+    }
   }
+  if (skipStaffStep() && state.step === 2) state.step = 1;
 
   initStep1();
   initStep2();
@@ -1425,7 +1458,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     document.body.classList.remove('catalog-unverified');
     if (source !== 'sheet') return;
-    const previous = state.step >= 3 && !selectionEdited && draft && Array.isArray(draft.menuDetails)
+    const previous = !selectionEdited && draft && Array.isArray(draft.menuDetails)
       ? draft.menuDetails : selectedMenus(previewCoupons, previewMenus);
     const coupon = previous.find(menu => menu.isCoupon);
     const menus = previous.filter(menu => !menu.isCoupon);

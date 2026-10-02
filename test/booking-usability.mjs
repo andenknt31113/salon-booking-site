@@ -44,7 +44,7 @@ async function withCalendar(run, width = 390) {
     await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('[data-next="2"]').first().click();
-    await page.locator('[data-next="3"]').first().click();
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
     await run(page);
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
     assert.deepEqual(writes, [], '閲覧・入力・確認では予約や台帳を書き込まない');

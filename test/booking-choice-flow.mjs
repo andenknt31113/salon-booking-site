@@ -25,7 +25,7 @@ after(async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
-async function withBooking(run, { width = 390, paused = false } = {}) {
+async function withBooking(run, { width = 390, paused = false, staffFee = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 844 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   const errors = [];
   const writes = [];
@@ -49,6 +49,12 @@ async function withBooking(run, { width = 390, paused = false } = {}) {
     await page.goto(`${base}/reserve.html`);
     await page.waitForFunction(() => Catalog.loaded);
     if (!paused) await page.waitForFunction(() => Remote.loaded);
+    if (staffFee) await page.evaluate(fee => {
+      SALON.staff[0].nominationFee = fee;
+      renderStaffLead();
+      renderStaffChoices();
+      renderStep();
+    }, staffFee);
     await run(page);
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
     assert.deepEqual(writes, [], '選択・入力・確認の途中では台帳へ書き込まない');
@@ -58,7 +64,7 @@ async function withBooking(run, { width = 390, paused = false } = {}) {
 async function selectDate(page) {
   await page.locator('#coupon-choices .selectable').first().click();
   await page.locator('#step-cta button').click();
-  await page.locator('#step-cta button').click();
+  assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
   await page.locator('#cal-body .slot:not(:disabled)').first().click();
 }
 
@@ -83,7 +89,7 @@ test('おすすめの選択・解除・切替でボタンを作り直さず、�
   assert.equal(await page.locator('#coupon-choices [aria-pressed="true"]').count(), 1, 'おすすめは一つだけ');
 }));
 
-test('ご担当を押しても操作位置を保ち、担当と日時の受付条件を変えない', () => withBooking(async page => {
+test('追加料金の担当確認でも操作位置を保ち、担当と日時の受付条件を変えない', () => withBooking(async page => {
   await page.locator('#coupon-choices .selectable').first().click();
   await page.locator('#step-cta button').click();
   const staff = page.locator('#staff-choices .selectable').first();
@@ -94,7 +100,7 @@ test('ご担当を押しても操作位置を保ち、担当と日時の受付�
   assert.equal(await staff.getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('#staff-choices [data-staff=""]').count(), 0, '一人サロンに指名なしを追加しない');
   assert.equal(await page.locator('#step-cta button').isEnabled(), true);
-}));
+}, { staffFee: 500 }));
 
 test('単品の分類は押下状態で案内し、同じ内容の再描画で分類・選択・フォーカスを保つ', () => withBooking(async page => {
   const filters = page.locator('#menu-cat-tabs');
@@ -167,8 +173,8 @@ for (const width of [320, 390, 768, 1280]) {
       await page.screenshot({ path: join(process.env.TEST_ARTIFACT_DIR, `reservation-choice-${width}.png`) });
     }
     await action.click();
-    assert.equal(await page.locator('[data-panel="2"]').isVisible(), true);
-    assert.equal(await page.locator('#h-step2').evaluate(element => element === document.activeElement), true);
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
+    assert.equal(await page.locator('#h-step3').evaluate(element => element === document.activeElement), true);
   }, { width }));
 }
 
@@ -177,6 +183,7 @@ test('手順の戻る操作をキーボードで使え、未入力の先の手�
   await page.locator('#step-cta button').click();
   const steps = page.locator('#steps');
   assert.equal(await steps.locator('button').count(), 5);
+  assert.equal(await steps.locator('button:visible').count(), 4);
   assert.equal(await steps.locator('[aria-current="step"]').count(), 1);
   assert.equal(await steps.locator('[aria-current="step"]').getAttribute('data-step'), '4');
   assert.equal(await steps.locator('[data-step="5"] button').isDisabled(), true);
@@ -259,7 +266,7 @@ for (const choice of [
     assert.equal(await button.getAttribute(`data-${choice.key}`), selected);
     assert.equal(await button.getAttribute('aria-pressed'), 'true');
     assert.equal(await button.evaluate(element => element === document.activeElement), true);
-  }));
+  }, { staffFee: choice.key === 'staff' ? 500 : 0 }));
 }
 
 for (const width of [320, 390, 768, 1280]) {

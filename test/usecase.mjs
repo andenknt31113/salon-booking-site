@@ -49,7 +49,7 @@ async function book(p, { name, tel, menuIndex = 0, slotIndex = 0, start = '' }) 
   }
   await p.locator('#coupon-choices .selectable').nth(menuIndex).click(); await p.waitForTimeout(400);
   await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(700);
-  await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(900);
+  check('予約手順', 'メニューから直接日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   const slots = p.locator('button[data-date][data-time]:not([disabled])');
   const slot = slots.nth(slotIndex);
   const date = await slot.getAttribute('data-date');
@@ -396,7 +396,7 @@ console.log('\n【UC13】2回目のお客様が、前回の入力のまま予約
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
   await p.locator('#coupon-choices .selectable').nth(1).click(); await p.waitForTimeout(400);
   await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(700);
-  await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(900);
+  check('UC13', '再来店でも直接日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').nth(27).click(); await p.waitForTimeout(400);
   await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(500);
 
@@ -422,7 +422,7 @@ console.log('\n【UC13】2回目のお客様が、前回の入力のまま予約
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1400);
   await p.locator('#coupon-choices .selectable').nth(1).click(); await p.waitForTimeout(300);
   await p.locator('[data-next="2"]').first().click(); await p.waitForTimeout(600);
-  await p.locator('[data-next="3"]').first().click(); await p.waitForTimeout(800);
+  check('UC13', '入力し直す場合も直接日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').nth(30).click(); await p.waitForTimeout(300);
   await p.locator('[data-next="4"]').first().click(); await p.waitForTimeout(400);
   await p.click('#profile-clear'); await p.waitForTimeout(300);
@@ -713,7 +713,7 @@ console.log('\n【UC18】入力の途中で画面が読み込み直される');
   const chosen = (await p.locator('#coupon-choices .selectable').first()
     .locator('.selectable-title').innerText()).trim();
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').nth(60).click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
 
@@ -743,7 +743,7 @@ console.log('\n【UC19】日本語入力のまま、全角で打ってしまう�
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').nth(40).click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
 
@@ -801,7 +801,7 @@ console.log('\n【UC20】長いメニューと、閉店の時刻');
 
   await p.locator('#coupon-choices .selectable').nth(longest.i).click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
 
   const duration = await p.evaluate(() => totalMinutes());
   const slots = await p.$$eval('button[data-date][data-time]', els => els.map(e => ({
@@ -854,7 +854,7 @@ console.log('\n【UC21】Apps Script を入れ直して、公開設定を間違�
   });
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   const slot = p.locator('button[data-date][data-time]:not([disabled])').nth(20);
   await slot.click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
@@ -952,7 +952,7 @@ console.log('\n【UC23】営業終了を早めたら、その時間の枠が消�
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
 
   const latest = await p.evaluate(() => {
     const times = [...document.querySelectorAll('button[data-date][data-time]')].map(b => b.dataset.time);
@@ -1005,7 +1005,7 @@ console.log('\n【UC24】朝に開いたカレンダーを、昼に見る');
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
 
   /* 今日ぶんで、いちばん早く取れる枠を選びます。時刻を決め打ちにすると、
      先のシナリオがそこを埋めていたときに落ちます。 */
@@ -1055,14 +1055,16 @@ console.log('\n【UC25】1人1席の店に、「指名」という選択はな�
   check('UC25', '「スタッフの選択へ」と言っていない', /スタッフの選択/.test(step1Btn), false);
 
   await p.locator('#step-cta button').click(); await p.waitForTimeout(800);
-  const lead = (await p.locator('#h-step2').innerText()) + '\n' + (await p.locator('#staff-lead').innerText());
+  check('UC25', '担当の確認画面を挟まず日時を選べる', await p.locator('[data-panel="3"]').isVisible(), true);
+  check('UC25', '手順は四つだけ', await p.locator('#steps .step:visible').count(), 4);
+  const lead = (await p.locator('#h-step3').innerText()) + '\n' + (await p.locator('#calendar-staff').innerText());
   check('UC25', '「ご指名」と書いていない', /指名/.test(lead), false);
   check('UC25', '他に空いているスタッフがいるように書いていない', /空いているスタッフ/.test(lead), false);
   check('UC25', '1名でお受けしていると伝えている', /マンツーマン|1名/.test(lead), true);
   check('UC25', '選択肢に「指名なし」は出さない', await p.locator('[data-staff=""]').count(), 0);
   /* かからない指名料を「¥0」と書いても、読む理由がありません */
   check('UC25', 'かからない指名料を並べていない',
-    /指名料/.test(await p.locator('#staff-choices').innerText()), false);
+    /指名料/.test(await p.locator('#calendar-staff').innerText()), false);
   console.log('   案内文:', lead.replace(/\n/g, ' '));
   await p.context().close();
 }
@@ -1083,7 +1085,7 @@ console.log('\n【UC26】出ない記号を探させない／表が横に動く�
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1400);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
 
   const legend = await p.locator('#cal-legend').innerText();
   const shown = await p.evaluate(() =>
@@ -1127,7 +1129,7 @@ console.log('\n【UC27】応答が返ってくるまで、押せたことが分�
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').nth(20).click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
   await p.fill('#f-name', '電波 細子'); await p.fill('#f-kana', 'デンパ');
@@ -1210,7 +1212,7 @@ console.log('\n【UC29】受付結果が未確認のときは、メール送信�
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1300);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').nth(30).click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
   await p.fill('#f-name', '不達 太郎'); await p.fill('#f-kana', 'フタツ');
@@ -1285,7 +1287,7 @@ console.log('\n【UC31】スタイル名をご要望欄まで運ぶ');
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1800);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(300);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1200);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
 
@@ -1305,7 +1307,7 @@ console.log('\n【UC31】スタイル名をご要望欄まで運ぶ');
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
   await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(300);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-  await p.locator('#step-cta button').click(); await p.waitForTimeout(1200);
+  check('予約手順', '担当確認を挟まず日時へ進む', await p.locator('[data-panel="3"]').isVisible(), true);
   await p.locator('button[data-date][data-time]:not([disabled])').first().click(); await p.waitForTimeout(400);
   await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
   await p.fill('#f-request', 'つむじが割れやすいので、そこだけ相談したいです。');

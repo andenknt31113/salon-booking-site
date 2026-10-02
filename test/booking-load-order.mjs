@@ -41,7 +41,9 @@ test('メニューを先に表示し、空席取得を待たせてもメニュ�
     assert.equal(requests[0].initialAvailability, true);
     assert.equal(await page.locator('#reserve-layout').isVisible(), true, '通信待ちでも公開メニューを選べる');
     await page.locator('#coupon-choices .selectable').first().click();
-    await page.locator('[data-next="2"]').first().click();
+    assert.equal(await page.locator('[data-next="2"]').first().isDisabled(), true);
+    await page.evaluate(() => goTo(2));
+    assert.equal(await page.evaluate(() => state.step), 1);
     assert.equal(await page.locator('[data-next="3"]').first().isDisabled(), true, '最新料金の確認前は日時へ進まない');
     releaseMenu();
     await availabilityRequest;
@@ -49,7 +51,7 @@ test('メニューを先に表示し、空席取得を待たせてもメニュ�
     assert.equal(await page.locator('#catalog-change-notice').isVisible(), true);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('[data-next="2"]').first().click();
-    await page.locator('[data-next="3"]').first().click();
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
     assert.equal(await page.locator('button[data-date][data-time]:not([disabled])').count(), 0, '空席の返事前は枠を選べない');
     releaseAvailability();
     await page.waitForFunction(() => Remote.loaded);
@@ -86,7 +88,7 @@ test('日時選択の下書きを開き直しても、画面復帰がメニュ�
     await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('[data-next="2"]').first().click();
-    await page.locator('[data-next="3"]').first().click();
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
     await page.waitForFunction(() => Remote.loaded);
     await page.route('**/exec', async route => {
       const payload = route.request().postDataJSON();

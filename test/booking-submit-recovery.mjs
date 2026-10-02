@@ -91,7 +91,7 @@ async function fillReservation(page, base) {
     && Catalog.loaded && Remote.loaded);
   await page.locator('#coupon-choices .selectable').first().click();
   await page.locator('[data-next="2"]').first().click();
-  await page.locator('[data-next="3"]').first().click();
+  assert.equal(await page.locator('[data-panel="3"]').isVisible(), true);
   await page.waitForFunction(() => document.querySelector('button[data-date][data-time]:not([disabled])'));
   const slot = await page.evaluate(() => {
     const earliest = new Date();

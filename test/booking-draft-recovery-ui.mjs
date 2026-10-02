@@ -48,7 +48,7 @@ for (const [label, stored] of cases) {
       await page.locator('[data-panel="1"].is-active').waitFor({ timeout: 3000 });
       await page.locator('#coupon-choices .selectable').first().click();
       await page.locator('[data-next="2"]').first().click();
-      await page.locator('[data-panel="2"].is-active').waitFor();
+      await page.locator('[data-panel="3"].is-active').waitFor();
       assert.equal(await page.locator('#saved-profile').evaluate(element => element.hidden), true);
       assert.equal(await page.locator('[data-field="name"]').evaluate(element => element.hidden), false);
       assert.equal(await page.evaluate(() => state.customer.agree), false);
