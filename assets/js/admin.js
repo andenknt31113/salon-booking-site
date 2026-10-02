@@ -1782,12 +1782,18 @@ function openMinutesOn(dateKey, hours, holidays) {
 
    これから先の日は数えません。まだ来ていない日は空いていて当たり前で、
    混ぜるとどの月も月初は「がらがら」に見えます。 */
-function occupancy(m) {
+function occupancy(m, list = monthBookings(m.key)) {
   const hours = numbersHours();
   const holidays = acalHolidays();
   const today = toKey(new Date());
   const lastDay = new Date(m.year, m.month, 0).getDate();
-  const list = monthBookings(m.key);
+  const bookingsByDate = new Map();
+  list.forEach(booking => {
+    const date = booking.date;
+    const dayBookings = bookingsByDate.get(date) || [];
+    dayBookings.push(booking);
+    bookingsByDate.set(date, dayBookings);
+  });
   let open = 0, used = 0, days = 0, until = '';
 
   for (let d = 1; d <= lastDay; d++) {
@@ -1798,7 +1804,7 @@ function occupancy(m) {
     if (!o) continue;
     days++;
     open += o;
-    used += list.filter(r => r.date === k).reduce((s, r) => {
+    used += (bookingsByDate.get(k) || []).reduce((s, r) => {
       const t = toMinutes(String(r.time || ''));
       // 時刻の読めない行は数えません（分からないものを埋めない）
       if (!Number.isFinite(t)) return s;
@@ -1894,8 +1900,8 @@ function numbersRepeat(m, site) {
 }
 
 /* 4. 席がどれだけ埋まっているか */
-function numbersOccupancy(m) {
-  const o = occupancy(m);
+function numbersOccupancy(m, bookings) {
+  const o = occupancy(m, bookings);
   if (o.rate === null) {
     return numCard(`${m.label}の稼働率`, '分かりません', '', '',
       o.days === 0 && !o.until
@@ -2011,7 +2017,7 @@ function numbersUnknown() {
 
 function renderNumbers() {
   const host = $('#numbers-body');
-  if (!host || !adminData) return;
+  if (!host || !adminData || $('.admin-pane[data-pane="numbers"]').hidden) return;
   const m = monthOf(numbersMonth);
   const prev = monthOf(numbersMonth - 1);
   const all = monthBookings(m.key);
@@ -2024,7 +2030,7 @@ function renderNumbers() {
     numbersCount(m, prev, site, siteBefore),
     numbersSources(m, all),
     numbersRepeat(m, site),
-    numbersOccupancy(m),
+    numbersOccupancy(m, all),
     numbersSavings(m, site),
     numbersLinks(),
     numbersUnknown()
