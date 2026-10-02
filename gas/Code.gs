@@ -378,6 +378,8 @@ const REQUEST_LOCK_TIMEOUT_MS = 20000;
 const POST_REQUEST_TYPES = ['adminAuthConfig', 'googleAdmin', 'menu', 'adminLogin', 'adminData',
   'adminSave', 'adminUpload', 'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange',
   'availability', 'lookup', 'cancel', 'change', 'review', 'reserve'];
+const LEGACY_ADMIN_REQUEST_TYPES = ['adminLogin', 'adminData', 'adminSave', 'adminUpload',
+  'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange'];
 
 function withLedgerLock_(operation, timing, authorize) {
   const lock = LockService.getScriptLock();
@@ -411,6 +413,8 @@ function doPost(e) {
         : { ok: false, error: 'Google管理者の接続設定が未完了です。' });
     }
     if (data.type === 'googleAdmin')  return json_(doGoogleAdmin_(data));
+    const authorize = LEGACY_ADMIN_REQUEST_TYPES.indexOf(data.type) >= 0 ? () => requireAdmin_(data) : null;
+    if (authorize && PropertiesService.getScriptProperties().getProperty('ADMIN_GOOGLE_ONLY') === 'true') authorize();
     const timing = data.type === 'menu' && data.measure === true ? {} : null;
     const started = Date.now();
     const result = withLedgerLock_(function () {
@@ -430,8 +434,7 @@ function doPost(e) {
       if (data.type === 'change')       return doChange_(getSheet_(), data);
       if (data.type === 'review')       return doReview_(getSheet_(), data);
       return doReserve_(getSheet_(), data, true);
-    }, timing, ['adminLogin', 'adminData', 'adminSave', 'adminUpload', 'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange']
-      .indexOf(data.type) >= 0 ? () => requireAdmin_(data) : null);
+    }, timing, authorize);
     if (timing) result.timing = Object.assign(timing, { totalMs: Date.now() - started });
     return json_(result);
 
