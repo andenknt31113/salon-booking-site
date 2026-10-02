@@ -27,6 +27,7 @@ for (const design of ['', '?design=a']) {
     page.on('pageerror', error => errors.push(error.message));
     let status = '配送待ち';
     let brokenMailStatus = false;
+    let brokenNotification = false;
     try {
       await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)
         ? route.continue() : route.abort());
@@ -44,6 +45,10 @@ for (const design of ['', '?design=a']) {
         if (request.notificationsOnly === true) {
           body.mailStatuses = true;
           if (brokenMailStatus) body.reservations.find(row => row.code === booking.code).shopMailStatus = null;
+          if (brokenNotification) {
+            delete body.mailStatuses;
+            body.reservations[0].code = '';
+          }
         }
         await route.fulfill({ response, body: JSON.stringify(body) });
       });
@@ -61,6 +66,22 @@ for (const design of ['', '?design=a']) {
         `queue-pending-${process.env.TEST_BROWSER || 'chromium'}-${design ? 'a' : 'original'}.png`) });
       await card.locator('[data-note-summary]').click();
       await card.locator('[data-note-input]').fill('配送確認中も残す下書き');
+      brokenNotification = true;
+      await page.evaluate(() => AdminNotifications.check());
+      assert.equal(await page.locator('#notification-health').isVisible(), true);
+      assert.match(await page.locator('#notification-status').textContent(), /自動確認を停止/);
+      assert.equal(await page.locator('#notification-count').textContent(), '未読0件');
+      assert.equal(await card.locator('[data-note-input]').inputValue(), '配送確認中も残す下書き');
+      if (process.env.TEST_SCREENSHOT_DIR) {
+        await page.locator('#booking-notifications > summary').click();
+        await page.locator('#booking-notifications').screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
+          `notification-invalid-${process.env.TEST_BROWSER || 'chromium'}-${design ? 'a' : 'original'}.png`) });
+      }
+      brokenNotification = false;
+      await page.evaluate(() => AdminNotifications.check());
+      assert.equal(await page.locator('#notification-health').isVisible(), false);
+      assert.equal(await page.locator('#notification-count').textContent(), '未読0件');
+      assert.equal(await card.locator('[data-note-input]').inputValue(), '配送確認中も残す下書き');
       brokenMailStatus = true;
       await page.evaluate(() => AdminNotifications.check());
       assert.match(await page.locator('#notification-status').textContent(), /自動確認を停止/);

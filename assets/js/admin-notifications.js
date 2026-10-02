@@ -6,6 +6,18 @@ const AdminNotifications = (() => {
   let opening = false;
   let paused = false;
 
+  function validRows(rows) {
+    if (!Array.isArray(rows)) return false;
+    const fields = ['code', 'name', 'date', 'time', 'endTime', 'status'];
+    const codes = new Set();
+    return rows.every(row => {
+      if (!row || fields.some(field => typeof row[field] !== 'string')
+          || !row.code.trim() || codes.has(row.code)) return false;
+      codes.add(row.code);
+      return true;
+    });
+  }
+
   function snapshot(rows) {
     return new Map(rows.map(row => [row.code, {
       code: row.code, name: row.name || 'お名前なし', date: row.date,
@@ -60,7 +72,7 @@ const AdminNotifications = (() => {
     $('#notification-check').disabled = true;
     try {
       const result = await adminPost({ type: 'adminData', notificationsOnly: true });
-      if (!result.ok || !Array.isArray(result.reservations)) throw new Error('通知を確認できません');
+      if (!result.ok || !validRows(result.reservations)) throw new Error('通知を確認できません');
       if (result.mailStatuses === true && !applyMailStatusUpdate(result.reservations)) {
         throw new Error('メール配送の状態を確認できません');
       }
