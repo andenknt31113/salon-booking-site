@@ -889,15 +889,16 @@ function doReserve_(sheet, d, verifyCatalog) {
      書いてあるので、そのとおりに振る舞います。詳しくは draftMode_。 */
   if (draftMode_()) return { ok: false, draft: true, error: draftMessage_() };
 
+  const reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
   if (typeof d.code !== 'string' || !/^[A-Za-z0-9-]{1,20}$/.test(d.code)
-      || !codeKey_(d.code)) d.code = issueCode_(sheet);
+      || !codeKey_(d.code)) d.code = issueCode_(sheet, reservationSnapshot);
 
   const menuText = (Array.isArray(d.menus) ? d.menus : [])
     .map(m => m && m.name).filter(Boolean).join(' / ') || String(d.menuText || '').trim();
-  const dup = findRowByCode_(sheet, d.code);
+  const dup = findRowByCode_(sheet, d.code, reservationSnapshot);
   if (dup !== -1) {
-    const hcol = colIndex_(sheet);
-    const before = readRow_(sheet, dup);
+    const hcol = colIndex_(sheet, reservationSnapshot.head);
+    const before = reservationSnapshot.rows[dup - 2];
     const tel = digits_(c.tel);
     const sameCustomer = /^0\d{9,10}$/.test(tel)
       && digits_(before[hcol('電話番号')]) === tel;
@@ -926,7 +927,7 @@ function doReserve_(sheet, d, verifyCatalog) {
     }
     if (sameCustomer) return { ok: false, conflict: true,
       error: '同じ予約番号の内容が台帳と一致しません。予約確認ページで現在の内容を確認してください。' };
-    d.code = issueCode_(sheet);
+    d.code = issueCode_(sheet, reservationSnapshot);
   }
 
   /* 送られてきた内容そのものの確認。
@@ -958,7 +959,7 @@ function doReserve_(sheet, d, verifyCatalog) {
   }
 
   if (isTaken_(sheet, normalizeDate_(d.date), normalizeTime_(d.time),
-               Number(d.totalMinutes) || 30, d.staffId || '', d.code)) {
+               Number(d.totalMinutes) || 30, d.staffId || '', d.code, reservationSnapshot)) {
     return {
       ok: false,
       taken: true,
@@ -971,7 +972,7 @@ function doReserve_(sheet, d, verifyCatalog) {
 
      並べる順番は台帳の見出しに合わせます。店の人が列を足していても、
      それぞれの値が正しい列に入るようにするためです。 */
-  const reservationHeaders = headerRow_(sheet);
+  const reservationHeaders = reservationSnapshot.head;
   const reservationValues = rowFor_(sheet, {
     '予約番号': d.code,
     '受付日時': formatTime_(d.createdAt),
@@ -2031,8 +2032,8 @@ function occupiedWindow_(row, col) {
 }
 
 /* その枠が既に埋まっているか（自分自身の予約は除く） */
-function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode) {
-  const snapshot = readSheetSnapshot_(sheet, HEADERS);
+function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode, reservationSnapshot) {
+  const snapshot = reservationSnapshot || readSheetSnapshot_(sheet, HEADERS);
   if (!validBookingHeaders_(snapshot.head, { requireCode: !!codeKey_(ownCode) })) {
     throw new Error(BOOKING_HEADERS_ERROR);
   }
@@ -2786,8 +2787,8 @@ function headerRow_(sheet) {
 }
 
 /** 見出しの名前から列番号（0始まり）を返す関数を作ります */
-function colIndex_(sheet) {
-  const head = headerRow_(sheet);
+function colIndex_(sheet, headers) {
+  const head = headers || headerRow_(sheet);
   return function (name) {
     const i = head.indexOf(name);
     return i >= 0 ? i : HEADERS.indexOf(name);
@@ -2859,14 +2860,14 @@ function getSheet_() {
 }
 
 /* 台帳にまだ無い予約番号を作る */
-function issueCode_(sheet) {
+function issueCode_(sheet, snapshot) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   for (let n = 0; n < 50; n++) {
     let code = 'LM-';
     for (let i = 0; i < 5; i++) {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    if (findRowByCode_(sheet, code) === -1) return code;
+    if (findRowByCode_(sheet, code, snapshot) === -1) return code;
   }
   throw new Error('予約番号を発行できませんでした。時間をおいて同じ受付を再試行してください。');
 }
@@ -2885,13 +2886,15 @@ function codeKey_(v) {
     .toUpperCase();
 }
 
-function findRowByCode_(sheet, code) {
+function findRowByCode_(sheet, code, snapshot) {
   const key = codeKey_(code);
   if (!key) return -1;              // 空欄が空行に当たらないようにします
-  const last = sheet.getLastRow();
+  if (snapshot && !validBookingHeaders_(snapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  const last = snapshot ? snapshot.rows.length + 1 : sheet.getLastRow();
   if (last < 2) return -1;
-  const codeColumn = colIndex_(sheet)('予約番号') + 1;
-  const codes = sheet.getRange(2, codeColumn, last - 1, 1).getValues();
+  const codeColumn = colIndex_(sheet, snapshot && snapshot.head)('予約番号') + 1;
+  const codes = snapshot ? snapshot.rows.map(record => [record[codeColumn - 1]])
+    : sheet.getRange(2, codeColumn, last - 1, 1).getValues();
   let matchedRow = -1;
   codes.forEach((record, index) => {
     if (codeKey_(record[0]) !== key) return;
