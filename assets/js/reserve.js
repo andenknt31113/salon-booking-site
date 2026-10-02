@@ -698,8 +698,8 @@ function reservationSummaryRows() {
   const fee = nominationFee();
   return [
     ['ご来店日時', `${formatDateJa(state.date)} ${state.time} 〜 ${end}（約${formatDuration(totalMinutes())}）`],
-    ['ご担当', staffLabel(state.staffId) + (fee > 0 ? `（指名料 ${yen(fee)}）` : '')],
-    ['メニュー', menus.map(m => `${m.name}（${priceText(m)}）`).join('<br />')],
+    ['ご担当', esc(staffLabel(state.staffId)) + (fee > 0 ? `（指名料 ${yen(fee)}）` : '')],
+    ['メニュー', menus.map(m => `${esc(m.name)}（${priceText(m)}）`).join('<br />')],
     ['合計金額', `<strong style="font-size:17px;color:var(--accent);">${totalText()}</strong>${totalPrice() ? '（税込）' : ''}`],
     ['お名前', `${esc(state.customer.name)}（${esc(state.customer.kana)}）様`],
     ['電話番号', esc(state.customer.tel)],
@@ -1047,12 +1047,12 @@ async function submitReservation() {
 
   $('#done-code').textContent = reservation.code;
   $('#done-body').innerHTML = [
-    ['ご来店日時', `${formatDateJa(reservation.date)} ${reservation.time}〜`],
-    ['ご担当', reservation.staffName],
+    ['ご来店日時', esc(`${formatDateJa(reservation.date)} ${reservation.time}〜`)],
+    ['ご担当', esc(reservation.staffName)],
     ['メニュー', reservation.menus
       ? reservation.menus.map(m => esc(m.name)).join('<br />')
       : esc(reservation.menuText || '')],
-    ['合計金額', `${reservation.totalLabel || yen(reservation.totalPrice)}${reservation.totalPrice ? '（税込）' : ''}`]
+    ['合計金額', `${esc(reservation.totalLabel || yen(reservation.totalPrice))}${reservation.totalPrice ? '（税込）' : ''}`]
   ].map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('');
 
   // 完了画面の「カレンダーに追加」に、いま取れた予約を渡す
