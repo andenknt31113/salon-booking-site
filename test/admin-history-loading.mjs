@@ -35,6 +35,7 @@ function fixture(rows = [PAST, TODAY], { throws = false } = {}) {
   const context = vm.createContext({ Promise, Set, JSON,
     adminData: { reservations: structuredClone(rows), closedDates: [], settings: { label: '保持する設定' } },
     reservationDetailsRead: null, reservationDetailsError: '', dashboardGeneration: 1,
+    customerDetailsReads: new Map(),
     activeChange: null, unsaved: false,
     hasUnsavedReservationNotes: () => context.unsaved,
     adminPost: payload => {

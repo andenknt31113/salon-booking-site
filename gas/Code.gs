@@ -2226,10 +2226,17 @@ function doAdminLogin_(d) {
 /** 管理者ページに必要な情報をまとめて返す */
 function doAdminData_(d) {
   requireAdmin_(d);
+  const hasReservationCodes = Object.prototype.hasOwnProperty.call(d, 'reservationCodes');
+  if (hasReservationCodes && (d.reservationsOnly !== true || d.briefPast === true || d.notificationsOnly === true
+      || !Array.isArray(d.reservationCodes) || !d.reservationCodes.length
+      || d.reservationCodes.some(code => typeof code !== 'string' || !code.trim())
+      || new Set(d.reservationCodes).size !== d.reservationCodes.length)) {
+    return { ok: false, error: '取得する予約番号を確認できません。管理画面を読み込み直してください。' };
+  }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
   if (d.reservationsOnly === true) {
-    const result = readAdminReservations_(ss);
+    const result = readAdminReservations_(ss, hasReservationCodes ? d.reservationCodes : undefined);
     if (d.briefPast === true && result.ok) result.reservations = briefPastReservations_(result.reservations);
     return result;
   }
@@ -2304,15 +2311,35 @@ function briefPastReservations_(reservations) {
   return reservations;
 }
 
-function readAdminReservations_(ss) {
+function readAdminReservations_(ss, reservationCodes) {
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '予約台帳を確認できません。' };
   const snapshot = readSheetSnapshot_(sheet, []);
   const headers = snapshot.head;
   const required = ['予約番号', '来店日', '開始', '終了', 'お名前', '電話番号', '状態'];
+  if (reservationCodes !== undefined) required.push(NOTE_HEADER, 'ご要望');
   if (required.some(header => !headers.includes(header))
       || headers.some((header, index) => header && headers.indexOf(header) !== index)) {
     return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
+  }
+  let reservationRows = snapshot.rows;
+  if (reservationCodes !== undefined) {
+    const requested = new Set(reservationCodes);
+    const found = new Set();
+    const codeColumn = headers.indexOf('予約番号');
+    reservationRows = [];
+    for (const row of snapshot.rows) {
+      const code = String(row[codeColumn]);
+      if (!requested.has(code)) continue;
+      if (found.has(code)) {
+        return { ok: false, error: '取得する予約番号が台帳で重複しています。管理画面を読み込み直してください。' };
+      }
+      found.add(code);
+      reservationRows.push(row);
+    }
+    if (found.size !== requested.size) {
+      return { ok: false, error: '取得する予約番号が台帳に見つかりません。管理画面を読み込み直してください。' };
+    }
   }
   const closed = ss.getSheetByName(CLOSED_SHEET);
   const closedSnapshot = readSheetSnapshot_(closed, []);
@@ -2323,7 +2350,6 @@ function readAdminReservations_(ss) {
       return { ok: false, error: '休業日の見出しを確認できません。表示中の予定は更新していません。' };
     }
   }
-  const reservationRows = snapshot.rows;
   return {
     ok: true,
     reservations: applyBookingEmailSummary_(reservationRows.map(row => adminReservation_(row, header => headers.indexOf(header)))

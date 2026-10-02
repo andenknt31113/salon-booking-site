@@ -69,7 +69,7 @@ for (const design of ['', '?design=a']) {
           return route.continue();
         }
         reads.push({ startupOnly: payload.startupOnly, briefPast: payload.briefPast,
-          reservationsOnly: payload.reservationsOnly });
+          reservationsOnly: payload.reservationsOnly, reservationCodes: payload.reservationCodes });
         const response = await route.fetch();
         const body = await response.json();
         if (payload.startupOnly) {
@@ -90,7 +90,8 @@ for (const design of ['', '?design=a']) {
           await new Promise(resolve => { finishDetails = resolve; });
           return route.fulfill({ response, json: detailAttempt <= 2
             ? { ok: false, error: '架空の履歴取得障害' }
-            : { ok: true, reservations: rows.map(row => ({ ...row })), closedDates: [] } });
+            : { ok: true, reservations: rows.filter(row => !payload.reservationCodes
+              || payload.reservationCodes.includes(row.code)).map(row => ({ ...row })), closedDates: body.closedDates } });
         }
         return route.fulfill({ response, json: body });
       });
@@ -119,34 +120,57 @@ for (const design of ['', '?design=a']) {
       await page.locator('#admin-tabs [data-pane="numbers"]').click();
       assert.equal(reads.length, 2, '数字に必要な全件の情報は最初からあり、重いメモは追加取得しない');
       await page.locator('#admin-tabs [data-pane="customers"]').click();
-      await page.locator('#customer-rows [data-retry-history]').click();
+      await page.locator('#customer-rows .customer-record').first().waitFor({ timeout: TEST_TIMEOUT_MS });
+      assert.match(await page.locator('#customer-count').innerText(), /名簿 250件/);
+      assert.equal(reads.length, 2, '名簿を開くだけでは全員のメモを取得しない');
+      const customer = page.locator('.customer-record[data-customer-tel="09000000001"]');
+      await customer.locator('[data-customer-history]').click();
       await page.waitForFunction(() => document.querySelector('#customer-rows').textContent.includes('読み込んでいます'));
-      await page.waitForFunction(() => !!window.document.querySelector('#customer-rows [data-retry-history]') === false);
       await waitUntil(() => detailAttempt === 2);
       assert.equal(detailAttempt, 2);
+      assert.equal(reads[2].reservationCodes.length, HISTORY_COUNT / CUSTOMER_COUNT,
+        '選んだ方の未取得メモだけを要求し、本日分や他のお客様を混ぜない');
+      assert.ok(reads[2].reservationCodes.every(code => Number(code.slice(4)) % CUSTOMER_COUNT === 1));
       assert.equal(await page.locator('#customer-rows [data-note-input]').count(), 0, '未取得のメモを空欄の編集欄にしない');
       await page.locator('#admin-tabs [data-pane="reserve"]').click();
       await page.locator('#admin-tabs [data-pane="customers"]').click();
       assert.equal(detailAttempt, 2, 'タブ往復しても同じ取得を増やさない');
       finishDetails();
-      await page.locator('#customer-rows [data-retry-history]').waitFor();
+      await customer.locator('[data-retry-customer-history]').waitFor();
       assert.match(await page.locator('#customer-rows').innerText(), /確認できません/);
       assert.equal(await page.locator('#customer-rows [data-note-input]').count(), 0);
       assert.equal(await page.evaluate(() => adminData.reservations.length), HISTORY_COUNT + 1);
-      await page.locator('#customer-rows [data-retry-history]').click();
+      await customer.locator('[data-retry-customer-history]').click();
       await waitUntil(() => detailAttempt === 3);
       assert.equal(detailAttempt, 3);
+      await page.locator('#admin-tabs [data-pane="closed"]').click();
+      await page.locator('[data-add="closed"]').click();
+      const closedRow = page.locator('#closed-rows .booking-card').last();
+      await closedRow.locator('[data-col="休業日"]').fill('2026-10-10');
+      await page.locator('[data-save="closed"]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-save="closed"]').disabled);
+      assert.match(await page.locator('#save-ok').innerText(), /休業日を保存しました/);
+      await page.locator('#admin-tabs [data-pane="customers"]').click();
       finishDetails();
-      await page.locator('#customer-rows .customer-record').first().waitFor({ timeout: TEST_TIMEOUT_MS });
-      assert.match(await page.locator('#customer-count').innerText(), /名簿 250件/);
-      const customer = page.locator('.customer-record[data-customer-tel="09000000001"]');
-      await customer.locator('[data-customer-history]').click();
+      await customer.locator('[data-note-input]').first().waitFor({ state: 'attached' });
+      assert.equal(await page.evaluate(() => adminData.closedDates.some(row => row.休業日 === '2026-10-10')), true,
+        '詳細取得中に保存した休業日を、遅い応答で巻き戻さない');
+      assert.equal(await page.evaluate(() => adminData.reservations.filter(row => row.detailsPending).length),
+        HISTORY_COUNT - HISTORY_COUNT / CUSTOMER_COUNT, '他の249名のメモは未取得のまま');
       assert.match(await customer.locator('.customer-profile').innerText(), /保存済みの施術メモ1/);
       assert.match(await customer.locator('.customer-profile').innerText(), /過去のご要望1/);
       assert.match(await customer.locator('.customer-profile').innerText(), /すべての予約を見る（21件/);
+      if (process.env.TEST_SCREENSHOT_DIR) {
+        await mkdir(process.env.TEST_SCREENSHOT_DIR, { recursive: true });
+        await customer.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `customer-profile-${design ? 'a' : 'original'}.png`), fullPage: false });
+      }
       await page.locator('#admin-tabs [data-pane="reserve"]').click();
       const downloadEvent = page.waitForEvent('download');
       await page.locator('#export-csv').click();
+      await waitUntil(() => detailAttempt === 4);
+      assert.equal(reads[4].reservationCodes, undefined, '全件CSVは省略なしの全量取得を使う');
+      finishDetails();
       const download = await downloadEvent;
       const csv = await readFile(await download.path(), 'utf8');
       assert.ok(csv.includes('保存済みの施術メモ4999'));
@@ -164,7 +188,7 @@ for (const design of ['', '?design=a']) {
         await mkdir(process.env.TEST_SCREENSHOT_DIR, { recursive: true });
         await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `brief-history-${design ? 'a' : 'original'}.png`), fullPage: true });
       }
-      assert.deepEqual(writes, []);
+      assert.deepEqual(writes, ['adminSave'], '指定した架空の休業保存以外は書き込まない');
       assert.deepEqual(errors, []);
     } finally {
       finishDetails?.();

@@ -56,6 +56,8 @@ const editorReads = new Map();
 let dashboardGeneration = 0;
 let reservationDetailsRead = null;
 let reservationDetailsError = '';
+const customerDetailsReads = new Map();
+const customerDetailsErrors = new Map();
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -357,6 +359,8 @@ async function openDashboard(remembered = false) {
   dashboardGeneration += 1;
   reservationDetailsRead = null;
   reservationDetailsError = '';
+  customerDetailsReads.clear();
+  customerDetailsErrors.clear();
   pendingEditors.clear();
   editorReads.clear();
   for (const target of ['styles', 'reviews']) {
@@ -1667,6 +1671,16 @@ function customerSchedule(visits, now = new Date()) {
 }
 
 function customerProfileHtml(customer) {
+  if (hasPendingReservationDetails(customer.visits)) {
+    const key = telKey(customer.tel);
+    const reading = customerDetailsReads.has(key) || reservationDetailsRead;
+    const message = customerDetailsErrors.get(key) || (reading
+      ? '選んだお客様のメモ・ご要望を読み込んでいます。名簿の件数・日時は取得済みです。'
+      : 'この方のメモ・ご要望はまだ読み込んでいません。名簿の件数・日時は取得済みです。');
+    return `<div class="empty-state" role="status"><p>${esc(message)}</p>${!reading
+      ? `<button class="btn btn-outline btn-sm" type="button" data-retry-customer-history="${esc(key)}">この方の履歴を${customerDetailsErrors.has(key) ? 'もう一度' : ''}読み込む</button>` : ''}</div>
+      <button class="btn btn-outline btn-sm customer-close" type="button" data-customer-close>詳細を閉じて名簿に戻る</button>`;
+  }
   const schedule = customer.schedule || customerSchedule(customer.visits);
   const latest = schedule.previous;
   const shared = customer.names.length > 1;
@@ -1723,12 +1737,6 @@ function closeCustomerProfile(record) {
 function renderCustomers() {
   customersNeedRender = true;
   if ($('.admin-pane[data-pane="customers"]').hidden) return;
-  if (hasPendingReservationDetails()) {
-    $('#customer-count').textContent = '予約の件数・日時は取得済みです。履歴のメモ・ご要望を確認します。';
-    $('#customer-rows').innerHTML = reservationDetailsMessage();
-    if (!reservationDetailsError) loadReservationDetails();
-    return;
-  }
   if (!guardNoteFilters(renderedCustomerFilters)) return;
   const expanded = $('#customer-rows .customer-record[open]')?.dataset.customerTel;
   const q = ($('#customer-search') || {}).value || '';
@@ -3186,6 +3194,74 @@ function hasPendingReservationDetails(rows = adminData?.reservations || []) {
   return rows.some(row => row.detailsPending === true);
 }
 
+function renderCustomerDetails(key) {
+  const record = $$('.customer-record[open]').find(row => row.dataset.customerTel === key);
+  if (!record) return;
+  const customer = buildCustomers().find(person => telKey(person.tel) === key);
+  if (!customer) return;
+  const profile = record.querySelector('.customer-profile');
+  if (profile.querySelector('[data-note-input]') && (hasUnsavedReservationNotes() || activeChange)) return;
+  const focused = profile.contains(document.activeElement);
+  profile.innerHTML = customerProfileHtml(customer);
+  if (focused) record.querySelector('[data-customer-history]').focus({ preventScroll: true });
+}
+
+function loadCustomerDetails(key) {
+  const previousRows = adminData.reservations;
+  const selected = previousRows.filter(row => telKey(row.tel) === key && row.detailsPending === true);
+  if (!selected.length) return Promise.resolve(true);
+  if (customerDetailsReads.has(key)) return customerDetailsReads.get(key);
+  if (reservationDetailsRead) {
+    const generation = dashboardGeneration;
+    return reservationDetailsRead.then(() => generation === dashboardGeneration ? loadCustomerDetails(key) : false);
+  }
+  if (hasUnsavedReservationNotes() || activeChange) {
+    customerDetailsErrors.set(key, '編集中の予約を保存または閉じてから、この方の履歴を読み込んでください。');
+    renderCustomerDetails(key);
+    return Promise.resolve(false);
+  }
+  const generation = dashboardGeneration;
+  const snapshots = new Map(selected.map(row => [row.code, JSON.stringify(row)]));
+  const originals = new Map(selected.map(row => [row.code, row]));
+  customerDetailsErrors.delete(key);
+  const reading = Promise.resolve().then(async () => {
+    try {
+      const result = await adminPost({ type: 'adminData', reservationsOnly: true,
+        reservationCodes: selected.map(row => row.code) });
+      if (generation !== dashboardGeneration) return false;
+      if (!validReservationRefresh(result) || result.reservations.length !== selected.length
+          || result.reservations.some(row => !snapshots.has(row.code) || row.detailsPending !== undefined
+            || typeof row.note !== 'string' || typeof row.request !== 'string')) throw new Error('履歴の応答を確認できません。');
+      const metadata = ['code', 'date', 'time', 'endTime', 'menu', 'staffName', 'price', 'name', 'tel', 'email', 'visit', 'source', 'status'];
+      const currentRows = new Set(adminData.reservations);
+      if (hasUnsavedReservationNotes() || activeChange || adminData.reservations !== previousRows
+          || selected.some(row => !currentRows.has(row) || JSON.stringify(row) !== snapshots.get(row.code))
+          || result.reservations.some(row => metadata.some(field => row[field] !== originals.get(row.code)[field]))) {
+        customerDetailsErrors.set(key, '読み込み中に予定や入力が変わったため、履歴の更新を保留しました。入力を保存し、予定を確認してからもう一度読み込んでください。');
+        return false;
+      }
+      result.reservations.forEach(row => {
+        const original = originals.get(row.code);
+        original.note = row.note;
+        original.request = row.request;
+        delete original.detailsPending;
+      });
+      renderReservations();
+      return true;
+    } catch {
+      if (generation === dashboardGeneration) customerDetailsErrors.set(key,
+        'この方のメモ・ご要望を確認できません。取得済みの件数・日時は保持しています。もう一度読み込んでください。');
+      return false;
+    } finally {
+      if (customerDetailsReads.get(key) === reading) customerDetailsReads.delete(key);
+      if (generation === dashboardGeneration) renderCustomerDetails(key);
+    }
+  });
+  customerDetailsReads.set(key, reading);
+  renderCustomerDetails(key);
+  return reading;
+}
+
 function reservationDetailsMessage() {
   const message = reservationDetailsError || '履歴のメモ・ご要望を読み込んでいます。予約の件数・日時は取得済みです。';
   return `<div class="empty-state" role="status"><p>${esc(message)}</p>${reservationDetailsError
@@ -3195,6 +3271,11 @@ function reservationDetailsMessage() {
 function loadReservationDetails() {
   if (!hasPendingReservationDetails()) return Promise.resolve(true);
   if (reservationDetailsRead) return reservationDetailsRead;
+  if (customerDetailsReads.size) {
+    const generation = dashboardGeneration;
+    return Promise.all([...customerDetailsReads.values()])
+      .then(() => generation === dashboardGeneration ? loadReservationDetails() : false);
+  }
   if (hasUnsavedReservationNotes() || activeChange) {
     reservationDetailsError = '編集中の予約を保存または閉じてから、履歴を読み込んでください。';
     renderReservations();
@@ -3469,6 +3550,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 行の追加・削除・保存
   document.addEventListener('click', async e => {
+    const retryCustomerHistory = e.target.closest('[data-retry-customer-history]');
+    if (retryCustomerHistory) { await loadCustomerDetails(retryCustomerHistory.dataset.retryCustomerHistory); return; }
     const retryHistory = e.target.closest('[data-retry-history]');
     if (retryHistory) { await loadReservationDetails(); return; }
     const mail = e.target.closest('[data-mail-code]');
@@ -3497,9 +3580,12 @@ document.addEventListener('DOMContentLoaded', () => {
         $$('.customer-record[open]').forEach(closeCustomerProfile);
         record.querySelector('.customer-profile').innerHTML = customerProfileHtml(selectedCustomer);
         record.open = true;
+        if (hasPendingReservationDetails(selectedCustomer.visits)) loadCustomerDetails(record.dataset.customerTel);
       }
-      customer.focus({ preventScroll: true });
-      customer.scrollIntoView({ block: 'nearest' });
+      const summary = $$('.customer-record').find(row => row.dataset.customerTel === record.dataset.customerTel)
+        ?.querySelector('[data-customer-history]');
+      summary?.focus({ preventScroll: true });
+      summary?.scrollIntoView({ block: 'nearest' });
       return;
     }
 
