@@ -105,7 +105,7 @@ test('正常な空台帳と休業シート未作成は、予約・休業とも�
 });
 
 function clientFixture(response) {
-  const selected = ['validReservationRefresh', 'hasUnsavedReservationNotes', 'refreshReservations', 'checkAdminChange'];
+  const selected = ['validReservationRefresh', 'hasPendingReservationDetails', 'hasUnsavedReservationNotes', 'refreshReservations', 'checkAdminChange'];
   const functions = selected.map(name => {
     const match = adminSource.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, 'm'));
     return match ? match[0] : '';
@@ -141,6 +141,18 @@ test('予約の更新は軽量取得を使い、編集中の設定・メニュ�
   assert.equal(app.adminData.stamps, stamps);
   assert.equal(app.context.edits, app.edits);
   assert.equal(app.button.disabled, false);
+});
+
+test('詳細未取得の起動データを更新する場合だけ軽量な過去詳細を指定し、件数を保持する', async () => {
+  const rows = [{ code: 'LM-FRESH', date: '2030-01-02', detailsPending: true }, { code: 'LM-NEW', note: '', request: '' }];
+  const app = clientFixture({ ok: true, reservations: rows, closedDates: [] });
+  app.adminData.reservations[0].detailsPending = true;
+  const menus = app.adminData.menus;
+  await app.context.refreshReservations();
+  assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true, briefPast: true }]);
+  assert.equal(app.adminData.reservations.length, 2);
+  assert.equal(app.adminData.reservations[0].detailsPending, true);
+  assert.equal(app.adminData.menus, menus);
 });
 
 test('欠けた取得応答で表示中の予約・休業を消さず、再確認を案内する', async () => {

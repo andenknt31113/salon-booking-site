@@ -54,6 +54,8 @@ const pendingSaves = new Set();
 const pendingEditors = new Set();
 const editorReads = new Map();
 let dashboardGeneration = 0;
+let reservationDetailsRead = null;
+let reservationDetailsError = '';
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -330,7 +332,7 @@ function forgetDevice() {
 }
 
 async function openDashboard(remembered = false) {
-  const res = await adminPost({ type: 'adminData', startupOnly: true });
+  const res = await adminPost({ type: 'adminData', startupOnly: true, briefPast: true });
   if (!res.ok) {
     let message = res.error || '読み込みに失敗しました。';
     if (remembered && !res.transportError && res.error === 'パスワードが違います。') {
@@ -353,6 +355,8 @@ async function openDashboard(remembered = false) {
   }
   adminData = res;
   dashboardGeneration += 1;
+  reservationDetailsRead = null;
+  reservationDetailsError = '';
   pendingEditors.clear();
   editorReads.clear();
   for (const target of ['styles', 'reviews']) {
@@ -537,6 +541,11 @@ function renderReservations() {
   const pastKeys = dateFilter ? [] : sorted.filter(d => d < today);
   const pastCount = pastKeys.reduce((n, d) => n + byDate.get(d).length, 0);
   const keys = (pastKeys.length && !showPast) ? sorted.filter(d => d >= today) : sorted;
+  if (keys.some(date => hasPendingReservationDetails(byDate.get(date)))) {
+    $('#admin-rows').innerHTML = reservationDetailsMessage();
+    if (!reservationDetailsError) loadReservationDetails();
+    return;
+  }
 
   /* 過去は捨てずに、押せば出します。「先月の◯◯さんは何をしたか」を
      見たいことがありますし、消えていると台帳から落ちたように見えます。 */
@@ -1232,16 +1241,24 @@ function focusBooking(code) {
   }
   const r = (adminData.reservations || []).find(x => x.code === code);
   if (!r) return;
+  if (r.detailsPending === true) {
+    const generation = dashboardGeneration;
+    loadReservationDetails().then(loaded => {
+      if (generation !== dashboardGeneration) return;
+      if (loaded) focusBooking(code);
+      else alert(reservationDetailsError || '履歴を確認できません。予約をもう一度選んでください。');
+    });
+    return;
+  }
 
   /* 絞り込みが効いていると、飛んだ先にカードがありません。
      押しても何も起きないように見えるので、その1件が出るところまで条件を戻します。 */
   const status = $('#filter-status').value;
   if (status !== 'all' && (status === 'cancelled') !== isCancelled(r)) $('#filter-status').value = 'all';
-  if ($('#filter-date').value && $('#filter-date').value !== r.date) $('#filter-date').value = '';
-  if (r.date < toKey(new Date())) showPast = true;
+  $('#filter-date').value = r.date;
 
   setReserveView('list');
-  renderReservations();
+  onFilterChange();
 
   const card = $$('#admin-rows [data-code]').find(el => el.dataset.code === code);
   if (!card) return;
@@ -1690,6 +1707,12 @@ function closeCustomerProfile(record) {
 function renderCustomers() {
   customersNeedRender = true;
   if ($('.admin-pane[data-pane="customers"]').hidden) return;
+  if (hasPendingReservationDetails()) {
+    $('#customer-count').textContent = '予約の件数・日時は取得済みです。履歴のメモ・ご要望を確認します。';
+    $('#customer-rows').innerHTML = reservationDetailsMessage();
+    if (!reservationDetailsError) loadReservationDetails();
+    return;
+  }
   if (!guardNoteFilters(renderedCustomerFilters)) return;
   const expanded = $('#customer-rows .customer-record[open]')?.dataset.customerTel;
   const q = ($('#customer-search') || {}).value || '';
@@ -3089,7 +3112,16 @@ function saveResultMessage(target) {
 }
 
 /* ---------- CSV ---------- */
-function exportCsv() {
+async function exportCsv() {
+  const generation = dashboardGeneration;
+  if (hasPendingReservationDetails(filteredReservations())) {
+    const loaded = await loadReservationDetails();
+    if (generation !== dashboardGeneration) return;
+    if (!loaded) {
+      alert(reservationDetailsError || '履歴を確認できません。CSV出力をもう一度お試しください。');
+      return;
+    }
+  }
   const list = filteredReservations();
   if (!list.length) { alert('出力できる予約がありません。'); return; }
   /* 施術メモも出します。店が自分の控えとして書き出すものなので、
@@ -3124,11 +3156,82 @@ function showReservationFreshness() {
 }
 
 function validReservationRefresh(result) {
+  const rows = result?.reservations;
   return result?.ok === true
-    && Array.isArray(result.reservations)
-    && result.reservations.every(row => row && !Array.isArray(row) && typeof row.code === 'string')
+    && Array.isArray(rows)
+    && rows.every(row => row && !Array.isArray(row) && typeof row.code === 'string' && row.code.trim()
+      && (row.detailsPending === undefined || row.detailsPending === true && row.note === undefined && row.request === undefined))
+    && new Set(rows.map(row => row.code)).size === rows.length
     && Array.isArray(result.closedDates)
     && result.closedDates.every(row => row && !Array.isArray(row) && typeof row.休業日 === 'string');
+}
+
+function hasPendingReservationDetails(rows = adminData?.reservations || []) {
+  return rows.some(row => row.detailsPending === true);
+}
+
+function reservationDetailsMessage() {
+  const message = reservationDetailsError || '履歴のメモ・ご要望を読み込んでいます。予約の件数・日時は取得済みです。';
+  return `<div class="empty-state" role="status"><p>${esc(message)}</p>${reservationDetailsError
+    ? '<button class="btn btn-outline btn-sm" type="button" data-retry-history>履歴をもう一度読み込む</button>' : ''}</div>`;
+}
+
+function loadReservationDetails() {
+  if (!hasPendingReservationDetails()) return Promise.resolve(true);
+  if (reservationDetailsRead) return reservationDetailsRead;
+  if (hasUnsavedReservationNotes() || activeChange) {
+    reservationDetailsError = '編集中の予約を保存または閉じてから、履歴を読み込んでください。';
+    renderReservations();
+    renderCustomers();
+    return Promise.resolve(false);
+  }
+  const generation = dashboardGeneration;
+  const previousRows = adminData.reservations;
+  const previousSnapshot = JSON.stringify(previousRows);
+  const previousClosed = adminData.closedDates;
+  const previousClosedSnapshot = JSON.stringify(previousClosed);
+  const expectedCodes = new Set(previousRows.map(row => row.code));
+  reservationDetailsError = '';
+  const reading = Promise.resolve().then(async () => {
+    try {
+      const result = await adminPost({ type: 'adminData', reservationsOnly: true });
+      if (generation !== dashboardGeneration) return false;
+      if (!validReservationRefresh(result) || hasPendingReservationDetails(result.reservations)
+          || result.reservations.some(row => typeof row.note !== 'string' || typeof row.request !== 'string')) {
+        throw new Error('履歴の全量応答を確認できません。');
+      }
+      const receivedCodes = new Set(result.reservations.map(row => row.code));
+      if ([...expectedCodes].some(code => !receivedCodes.has(code))) throw new Error('履歴の欠落を確認してください。');
+      if (hasUnsavedReservationNotes() || activeChange || adminData.reservations !== previousRows
+          || JSON.stringify(adminData.reservations) !== previousSnapshot
+          || adminData.closedDates !== previousClosed || JSON.stringify(adminData.closedDates) !== previousClosedSnapshot) {
+        reservationDetailsError = '読み込み中に予定や入力が変わったため、履歴の更新を保留しました。入力を保存して、もう一度読み込んでください。';
+        return false;
+      }
+      adminData.reservations = result.reservations;
+      adminData.closedDates = result.closedDates;
+      renderStats();
+      renderReservations();
+      renderAdminCalendar();
+      renderCustomers();
+      renderNumbers();
+      showReservationFreshness();
+      return true;
+    } catch {
+      if (generation === dashboardGeneration) reservationDetailsError = '履歴のメモ・ご要望を確認できません。取得済みの件数・日時は保持しています。もう一度読み込んでください。';
+      return false;
+    } finally {
+      if (reservationDetailsRead === reading) reservationDetailsRead = null;
+      if (generation === dashboardGeneration && hasPendingReservationDetails()) {
+        renderReservations();
+        renderCustomers();
+      }
+    }
+  });
+  reservationDetailsRead = reading;
+  renderReservations();
+  renderCustomers();
+  return reading;
 }
 
 function hasUnsavedReservationNotes() {
@@ -3161,7 +3264,8 @@ async function refreshReservations() {
   button.disabled = true;
   status.textContent = '最新の予定を読み込んでいます。';
   try {
-    const result = await adminPost({ type: 'adminData', reservationsOnly: true });
+    const result = await adminPost({ type: 'adminData', reservationsOnly: true,
+      ...(hasPendingReservationDetails() ? { briefPast: true } : {}) });
     if (!validReservationRefresh(result)) throw new Error('読み込み失敗');
     if (hasUnsavedReservationNotes() || activeChange) {
       status.textContent = '編集中の予約があるため更新を保留しました。保存後に読み込んでください。';
@@ -3339,6 +3443,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 行の追加・削除・保存
   document.addEventListener('click', async e => {
+    const retryHistory = e.target.closest('[data-retry-history]');
+    if (retryHistory) { await loadReservationDetails(); return; }
     const mail = e.target.closest('[data-mail-code]');
     if (mail) { focusBooking(mail.dataset.mailCode); return; }
     const past = e.target.closest('[data-toggle-past]');

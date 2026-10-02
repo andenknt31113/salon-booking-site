@@ -2228,7 +2228,11 @@ function doAdminData_(d) {
   requireAdmin_(d);
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
-  if (d.reservationsOnly === true) return readAdminReservations_(ss);
+  if (d.reservationsOnly === true) {
+    const result = readAdminReservations_(ss);
+    if (d.briefPast === true && result.ok) result.reservations = briefPastReservations_(result.reservations);
+    return result;
+  }
   if (d.editorTarget !== undefined) {
     if (!['styles', 'reviews'].includes(d.editorTarget)) return { ok: false, error: '編集対象を確認できません。' };
     const headers = d.editorTarget === 'styles' ? STYLE_HEADERS : REVIEW_HEADERS;
@@ -2284,7 +2288,20 @@ function doAdminData_(d) {
     result.styles = readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, snapshots.styles);
     result.reviews = readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, snapshots.reviews);
   }
+  if (d.startupOnly === true && d.briefPast === true) result.reservations = briefPastReservations_(result.reservations);
   return result;
+}
+
+function briefPastReservations_(reservations) {
+  const today = todayKey_();
+  reservations.forEach(reservation => {
+    if (!validDateKey_(reservation.date) || reservation.date >= today
+        || (!reservation.note && !reservation.request)) return;
+    delete reservation.note;
+    delete reservation.request;
+    reservation.detailsPending = true;
+  });
+  return reservations;
 }
 
 function readAdminReservations_(ss) {

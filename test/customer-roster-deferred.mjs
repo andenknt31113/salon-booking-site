@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
 const render = source.match(/function renderCustomers\(\) {[\s\S]*?\n}\n/)[0];
+const pending = source.match(/function hasPendingReservationDetails\([^]*?\n}/)[0];
 
 function fixture({ hidden = false, blocked = false } = {}) {
   const pane = { hidden };
@@ -20,7 +21,7 @@ function fixture({ hidden = false, blocked = false } = {}) {
     guardNoteFilters: () => { calls.push('guard'); return !blocked; },
     buildCustomers: () => { calls.push('build'); return []; },
     searchKey: value => value, telKey: value => value });
-  vm.runInContext(render, context);
+  vm.runInContext(pending + '\n' + render, context);
   return { context, rows, pane, calls };
 }
 

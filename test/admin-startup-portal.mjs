@@ -27,12 +27,22 @@ test('Google入口は起動用データを要求し、管理HTMLは同じ応答�
   const app = fixture();
   await app.context.loadAdmin();
   assert.equal(app.calls.length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(app.calls[0])), { action: 'adminData', payload: { startupOnly: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(app.calls[0])), { action: 'adminData', payload: { startupOnly: true, briefPast: true } });
   const seed = app.context.initialAdminData;
-  assert.equal(await app.request({ type: 'adminData', startupOnly: true }), seed);
+  assert.equal(await app.request({ type: 'adminData', startupOnly: true, briefPast: true }), seed);
   assert.equal(app.calls.length, 1);
-  await app.request({ type: 'adminData', startupOnly: true });
+  await app.request({ type: 'adminData', startupOnly: true, briefPast: true });
   assert.equal(app.calls.length, 2);
+});
+
+test('過去の詳細を省略した初回応答は、詳細の全量を求める要求へ流用しない', async () => {
+  const seed = { ok: true, reservations: [{ code: 'LM-HISTORY', detailsPending: true }], pendingEditors: ['styles', 'reviews'] };
+  const app = fixture(seed);
+  for (const payload of [{ type: 'adminData' }, { type: 'adminData', startupOnly: true },
+    { type: 'adminData', reservationsOnly: true }]) assert.notEqual(await app.request(payload), seed);
+  assert.equal(app.calls.length, 3);
+  assert.equal(await app.request({ type: 'adminData', startupOnly: true, briefPast: true }), seed);
+  assert.equal(app.calls.length, 3);
 });
 
 test('部分データを通常の全件取得・単一編集・通知・予約更新の代わりに渡さない', async () => {
