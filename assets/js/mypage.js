@@ -528,7 +528,9 @@ document.addEventListener('DOMContentLoaded', () => {
     busy(btn, true);
     pendingBookingActions.add(normalizeCode(code));
     const originalReceipt = markBookingUnconfirmed(code, r.lookupTel);
-    const res = await sendToEndpoint({ type: 'cancel', code, tel: r.lookupTel });
+    const res = await sendToEndpoint({ type: 'cancel', code, tel: r.lookupTel,
+      fromDate: r.date, fromTime: r.time });
+    lookupVersion++;
     pendingBookingActions.delete(normalizeCode(code));
     clearFlash();
     busy(btn, false, 'この予約をキャンセルする');
@@ -547,7 +549,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!res.ok) {
       markBookingUnconfirmed(code, r.lookupTel);
-      showFlash('キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
+      showFlash(res.stale || res.invalid
+        ? 'キャンセルは行われていません。' + (res.error || '最新の予約内容をご確認ください。')
+          + '同じ予約番号で最新の状態を確認してから、次の操作をしてください。'
+        : 'キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
       return;
     }
     /* 台帳への反映は済んでいます。ここで照会をやり直すと、直後に電波が
@@ -555,7 +560,6 @@ document.addEventListener('DOMContentLoaded', () => {
        手元の表示だけ書き換えます。 */
     const cancelled = { ...r, status: 'キャンセル', delivered: true, deliveryState: 'confirmed', deliveryError: '' };
     if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) lastLookup = cancelled;
-    lookupVersion++;
     syncLookupRecord(cancelled, r.lookupTel);
     refreshView(true);
     showFlash('キャンセルを承りました。');
@@ -628,7 +632,8 @@ document.addEventListener('DOMContentLoaded', () => {
     busy(btn, true);
     pendingBookingActions.add(normalizeCode(code));
     const originalReceipt = markBookingUnconfirmed(code);
-    const res = await sendCancellation(r); // 予約台帳の状態も「キャンセル」に更新する
+    const res = await sendCancellation(r);
+    lookupVersion++;
     pendingBookingActions.delete(normalizeCode(code));
     clearFlash();
     busy(btn, false, 'この予約をキャンセルする');
@@ -646,12 +651,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!res.ok) {
       markBookingUnconfirmed(code);
-      showFlash('キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
+      showFlash(res.stale || res.invalid
+        ? 'キャンセルは行われていません。' + (res.error || '最新の予約内容をご確認ください。')
+          + '同じ予約番号で最新の状態を確認してから、次の操作をしてください。'
+        : 'キャンセルの反映結果を確認できません。取り消されている可能性があります。同じ予約番号で最新の状態を確認してから、次の操作をしてください。');
       return;
     }
     Store.replace(code, { delivered: true, deliveryState: 'confirmed', deliveryError: '' });
     Store.cancel(code);
-    lookupVersion++;
     if (lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code)) {
       lastLookup = { ...lastLookup, status: 'キャンセル', delivered: true, deliveryState: 'confirmed', deliveryError: '' };
     }

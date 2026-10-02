@@ -51,6 +51,9 @@ let settingsBase = '';
 /* 保存できたことを、そのタブの保存バーに残しておくための控え */
 const savedNote = {};
 const pendingSaves = new Set();
+const pendingEditors = new Set();
+const editorReads = new Map();
+let dashboardGeneration = 0;
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -327,7 +330,7 @@ function forgetDevice() {
 }
 
 async function openDashboard(remembered = false) {
-  const res = await adminPost({ type: 'adminData' });
+  const res = await adminPost({ type: 'adminData', startupOnly: true });
   if (!res.ok) {
     let message = res.error || '読み込みに失敗しました。';
     if (remembered && !res.transportError && res.error === 'パスワードが違います。') {
@@ -349,6 +352,14 @@ async function openDashboard(remembered = false) {
     return false;
   }
   adminData = res;
+  dashboardGeneration += 1;
+  pendingEditors.clear();
+  editorReads.clear();
+  for (const target of ['styles', 'reviews']) {
+    if (res.pendingEditors?.includes(target)) pendingEditors.add(target);
+    const button = document.querySelector(`[data-save="${target}"]`);
+    if (button) button.disabled = pendingEditors.has(target);
+  }
   edits.closed = (res.closedDates || []).map(r => ({ ...r }));
   showReservationFreshness();
   edits.menus = (res.menus || []).map(r => ({ ...r }));
@@ -377,13 +388,58 @@ async function openDashboard(remembered = false) {
   renderClosed();
   renderList('menus');
   renderList('coupons');
-  renderList('styles');
-  renderReviews();
+  for (const target of ['styles', 'reviews']) {
+    if (pendingEditors.has(target)) showEditorLoading(target);
+    else redraw(target);
+  }
   renderSettings();
   updateDirty();
   AdminNotifications.start(res.reservations || []);
   await restorePhoneBooking();
   return true;
+}
+
+function showEditorLoading(target, message = 'このタブを開くと内容を読み込みます。', retry = false) {
+  const host = target === 'styles' ? $('#style-rows') : $('#review-rows');
+  host.innerHTML = `<p role="status" class="empty-state">${esc(message)}</p>`
+    + (retry ? `<button type="button" class="btn btn-outline" data-retry-editor="${target}">もう一度読み込む</button>` : '');
+}
+
+function ensureEditorLoaded(target) {
+  if (!pendingEditors.has(target)) return Promise.resolve(true);
+  if (editorReads.has(target)) return editorReads.get(target);
+  const generation = dashboardGeneration;
+  const operation = (async () => {
+    showEditorLoading(target, '内容を読み込んでいます。まだ編集・保存はできません。');
+    try {
+      const result = await adminPost({ type: 'adminData', editorTarget: target });
+      if (generation !== dashboardGeneration) return false;
+      const valid = result?.ok === true && result.editorTarget === target
+        && typeof result.stamp === 'string' && /^(0|[a-f0-9]{12})$/.test(result.stamp)
+        && Array.isArray(result.rows) && result.rows.every(row => row && typeof row === 'object'
+          && !Array.isArray(row) && Object.hasOwn(row, target === 'styles' ? 'タイトル' : '投稿日')
+          && Object.values(row).every(value =>
+            ['string', 'boolean', 'number'].includes(typeof value) && (typeof value !== 'number' || Number.isFinite(value))));
+      if (!valid) throw new Error(result?.ok === false && typeof result.error === 'string'
+        ? result.error : '読込結果を確認できません。');
+      edits[target] = result.rows.map(row => ({ ...row }));
+      stamps[target] = result.stamp;
+      markSaved(target);
+      pendingEditors.delete(target);
+      const button = document.querySelector(`[data-save="${target}"]`);
+      if (button) button.disabled = false;
+      redraw(target);
+      return true;
+    } catch (error) {
+      if (generation === dashboardGeneration) showEditorLoading(target,
+        `${error.message || '読込結果を確認できません。'} 編集・保存はまだできません。`, true);
+      return false;
+    } finally {
+      if (generation === dashboardGeneration) editorReads.delete(target);
+    }
+  })();
+  editorReads.set(target, operation);
+  return operation;
 }
 
 /* ---------- 予約一覧 ---------- */
@@ -2640,6 +2696,7 @@ function editorHtml(target) {
    入力欄は一覧の「下」に置きます。行と行のあいだに挟むと、
    開けた瞬間に下の行が画面外へ押し出され、何件あるのか見えなくなります。 */
 function renderList(target) {
+  if (pendingEditors.has(target)) { showEditorLoading(target); return; }
   $(PANE[target][1]).innerHTML =
     `<div class="admin-list" data-list="${esc(target)}">${listHtml(target)}</div>`
     + editorHtml(target);
@@ -2862,6 +2919,7 @@ function collectWeekdays() {
 const REVIEW_STATES = ['未承認', '掲載中', '非掲載'];
 
 function renderReviews() {
+  if (pendingEditors.has('reviews')) { showEditorLoading('reviews'); return; }
   const host = $('#review-rows');
   if (!host) return;
   const rows = edits.reviews;
@@ -2934,6 +2992,10 @@ function showSaveError(target, message, rowIndex = -1, invalidField = '') {
 }
 
 async function save(target) {
+  if (['styles', 'reviews'].includes(target) && pendingEditors.has(target)) {
+    showSaveError(target, '内容の読込が完了するまで保存できません。タブの「もう一度読み込む」で確認してください。');
+    return;
+  }
   if (pendingSaves.has(target)) return;
   const err = $('#save-error');
   const ok = $('#save-ok');
@@ -3188,6 +3250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('admin-edit-mode', editorTabs.open);
     $$('.tab', $('#admin-tabs')).forEach(t => t.setAttribute('aria-selected', String(t === tab)));
     $$('.admin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab.dataset.pane; });
+    if (pendingEditors.has(tab.dataset.pane)) ensureEditorLoaded(tab.dataset.pane);
     if (tab.dataset.pane === 'customers' && customersNeedRender) renderCustomers();
     /* 数字は、店舗情報タブで入れた手数料率をそのまま使います。
        開いたときに描き直さないと、入れた直後に見に来た店主の画面に
@@ -3335,6 +3398,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const cp = e.target.closest('[data-copy-url]');
     if (cp) { await copyUrl(cp); return; }
+
+    const retryEditor = e.target.closest('[data-retry-editor]');
+    if (retryEditor) { await ensureEditorLoaded(retryEditor.dataset.retryEditor); return; }
 
     if (e.target.closest('#numbers-to-settings')) {
       openSettingSection('ホットペッパーとの比較');

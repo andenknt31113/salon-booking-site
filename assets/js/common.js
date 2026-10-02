@@ -1234,6 +1234,8 @@ function sendCancellation(reservation) {
       || reservation.lookupTel || '',
     date: reservation.date,
     time: reservation.time,
+    fromDate: reservation.date,
+    fromTime: reservation.time,
     name: reservation.customer ? reservation.customer.name : ''
   });
 }

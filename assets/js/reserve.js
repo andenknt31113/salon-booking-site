@@ -3,6 +3,7 @@
  * ============================================================ */
 
 const DRAFT_KEY = 'salon.reserveDraft.v1';
+const RESERVATION_CODE_PATTERN = /^(?=.*[A-Za-z0-9])[A-Za-z0-9-]{1,20}$/;
 /* 日時変更モード。予約確認ページから渡された予約が入ります。
    null なら通常の新規予約です。 */
 let changing = null;
@@ -915,6 +916,7 @@ function setSubmitting(on, code = '') {
       + (code && Store.temporary ? ' この端末に控えを保存できません。確認用番号を控えてください。' : '');
   }
   const btn = $('#submit-reservation');
+  $$('[data-prev]', $('#reserve-layout')).forEach(button => { button.disabled = on; });
   if (!btn) return;
   btn.disabled = on;
   btn.textContent = on ? '送信中…'
@@ -989,7 +991,10 @@ async function submitReservation() {
     Store.add({ ...reservation, delivered: false, deliveryState: 'unknown', deliveryError: '' });
     setSubmitting(true, requestCode);
     // 送信は common.js の sendToEndpoint（text/plain で送る理由もそちらに記載）
-    const sent = await sendToEndpoint({ type: 'reserve', ...reservation });
+    const response = await sendToEndpoint({ type: 'reserve', ...reservation });
+    const sent = response.ok && (typeof response.code !== 'string' || !RESERVATION_CODE_PATTERN.test(response.code))
+      ? { ok: false, unknown: true, error: '店舗から予約番号を確認できる応答が届きませんでした。この番号で最新の状態をご確認ください。' }
+      : response;
     /* 端末側で作った予約番号が、別のお客様のものとぶつかっていた場合は
        店舗側で振り直されます。台帳と食い違わないよう、返ってきた番号を採用します。 */
     if (sent.ok && sent.code && sent.code !== reservation.code) {
@@ -1421,6 +1426,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initStep4();
 
   $('#reserve-layout').addEventListener('click', e => {
+    if (submitting) return;
     const next = e.target.closest('[data-next]');
     if (next) { goTo(Number(next.dataset.next)); return; }
     const prev = e.target.closest('[data-prev]');

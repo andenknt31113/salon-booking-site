@@ -43,7 +43,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1&v=20261002-numbers-lazy';
+  frame.src = 'admin.html?design=a&google=1&v=20261002-completion';
 }
 
 async function post(body, signal) {
@@ -80,7 +80,10 @@ window.authAdminRequest = async payload => {
   const unknown = { ok: false, transportError: true,
     error: '管理操作の結果を確認できません。再ログイン後、台帳の内容を確認してください。自動では再送しません。' };
   if (!user || !payload || !actions.has(payload.type)) return unknown;
-  if (payload.type === 'adminData' && Object.keys(payload).length === 1 && initialAdminData) {
+  const initialRequest = payload.type === 'adminData'
+    && (Object.keys(payload).length === 2 && payload.startupOnly === true
+      || Object.keys(payload).length === 1 && !initialAdminData?.pendingEditors);
+  if (initialRequest && initialAdminData) {
     const result = initialAdminData;
     initialAdminData = null;
     return result;
@@ -111,7 +114,7 @@ window.authAdminRequest = async payload => {
 
 async function loadAdmin() {
   loginStatus.textContent = 'Googleのアカウント選択は完了しました。管理権限と台帳を確認しています。';
-  const result = await window.authAdminRequest({ type: 'adminData' });
+  const result = await window.authAdminRequest({ type: 'adminData', startupOnly: true });
   if (result.ok) {
     showAdmin(result);
     return;

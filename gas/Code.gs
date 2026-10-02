@@ -567,8 +567,15 @@ function doAdminAddStatus_(sheet, data) {
 }
 
 function findPhoneRequest_(sheet, col, requestId) {
-  const matches = readRows_(sheet).filter(record => String(record[col('電話受付ID')] || '') === requestId);
+  const rows = readRows_(sheet);
+  const matches = rows.filter(record => String(record[col('電話受付ID')] || '') === requestId);
   if (matches.length > 1) throw new Error('電話受付IDが重複しています。制作担当者へ連絡して台帳を確認してください。');
+  if (matches.length) {
+    const code = codeKey_(matches[0][col('予約番号')]);
+    if (!code || rows.filter(record => codeKey_(record[col('予約番号')]) === code).length !== 1) {
+      throw new Error('電話受付の予約番号を一意に確認できません。新しく登録せず、制作担当者へ連絡してください。');
+    }
+  }
   return matches[0] || null;
 }
 
@@ -1985,6 +1992,11 @@ function writeBookingWindow_(sheet, row, code, values) {
     if (props.getProperty(BOOKING_CHANGE_JOURNAL)) throw new Error();
   } catch (error) {
     recoverBookingChange_(sheet);
+    try {
+      if (!verifyBookingWindow_(sheet, row, previous)) throw new Error();
+    } catch (verificationError) {
+      throw Object.assign(new Error(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
+    }
     throw Object.assign(new Error('日時変更に失敗したため、元の日時に戻しました。入力内容を残して、時間をおいてお試しください。'),
       { restored: true });
   }
@@ -2217,6 +2229,14 @@ function doAdminData_(d) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
   if (d.reservationsOnly === true) return readAdminReservations_(ss);
+  if (d.editorTarget !== undefined) {
+    if (!['styles', 'reviews'].includes(d.editorTarget)) return { ok: false, error: '編集対象を確認できません。' };
+    const headers = d.editorTarget === 'styles' ? STYLE_HEADERS : REVIEW_HEADERS;
+    const name = SAVE_TARGETS[d.editorTarget];
+    const snapshot = readSheetSnapshot_(ss.getSheetByName(name), headers, true);
+    return { ok: true, editorTarget: d.editorTarget,
+      rows: readSheetRows_(ss, name, headers, snapshot), stamp: snapshot.stamp };
+  }
   /* 設定シートに足りない項目があれば、ここで足しておきます。
 
      管理ページは、画面に出ている項目をまとめて保存します。シートに無い項目が
@@ -2243,23 +2263,28 @@ function doAdminData_(d) {
   const snapshots = {};
   const stamps = {};
   Object.keys(headersByTarget).forEach(target => {
+    if (d.startupOnly === true && ['styles', 'reviews'].includes(target)) return;
     const snapshot = readSheetSnapshot_(ss.getSheetByName(SAVE_TARGETS[target]), headersByTarget[target], true);
     snapshots[target] = snapshot;
     stamps[target] = snapshot.stamp;
   });
 
-  return {
+  const result = {
     ok: true,
     capabilities: { phoneRequestIds: true, adminChange: true },
     reservations: applyBookingEmailSummary_(reservations, bookingEmailSummary_(sheet, reservationRows)),
     menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS, snapshots.menus),
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, snapshots.coupons),
-    styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, snapshots.styles),
-    reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, snapshots.reviews),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, snapshots.closed),
     settings: readSettings_(ss, snapshots.settings),
     stamps: stamps
   };
+  if (d.startupOnly === true) result.pendingEditors = ['styles', 'reviews'];
+  else {
+    result.styles = readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, snapshots.styles);
+    result.reviews = readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, snapshots.reviews);
+  }
+  return result;
 }
 
 function readAdminReservations_(ss) {
@@ -2822,8 +2847,9 @@ function appendVerifiedBooking_(sheet, values, headers, errorMessage) {
     const row = sheet.getLastRow();
     const saved = sheet.getRange(row, 1, 1, headers.length).getValues()[0];
     const normalizers = { 予約番号: codeKey_, 来店日: normalizeDate_, 開始: normalizeTime_, 終了: normalizeTime_,
-      '所要(分)': Number, 合計金額: Number, 電話番号: digits_, 担当ID: String, 状態: String,
-      電話受付ID: String, 電話受付内容: String };
+      '所要(分)': Number, 指名料: Number, 合計金額: Number, 電話番号: digits_, 担当ID: String, 状態: String,
+      電話受付ID: String, 電話受付内容: String, メニュー: noteText_, 担当: noteText_, お名前: noteText_,
+      フリガナ: noteText_, メール: noteText_, 来店回数: noteText_, 予約の入口: noteText_, ご要望: noteText_ };
     if (!Array.isArray(saved) || Object.keys(normalizers).some(header => {
       const column = headers.indexOf(header);
       return column >= 0 && normalizers[header](saved[column]) !== normalizers[header](values[column]);

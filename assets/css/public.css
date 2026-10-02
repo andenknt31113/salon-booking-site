@@ -295,6 +295,7 @@ body[data-page="privacy"] .container-narrow { line-height: 2; }
 .booking-cancel-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .booking-cancel-actions .btn { min-height: 44px; white-space: normal; flex: 1 1 180px; }
 @media (max-width: 640px) {
+  html:has(body.has-sp-cta) { scroll-padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
   .menu-row:has(.menu-row-photo) { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 12px; }
 }
 @media (max-width: 359px) {

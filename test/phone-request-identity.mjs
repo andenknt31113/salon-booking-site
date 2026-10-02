@@ -87,7 +87,7 @@ test('同じ受付IDの内容不一致と、存在しない受付の照会を区
 });
 
 test('別の電話受付IDの重複を理由に正常な受付を照会不能にしない', () => {
-  const other = { ...BOOKING, 電話受付ID: 'phone-identity-other-0001' };
+  const other = { ...BOOKING, 予約番号: 'LM-OTHER', 電話受付ID: 'phone-identity-other-0001' };
   const app = fixture({ records: [BOOKING, other, { ...other, 予約番号: 'LM-SECOND' }] });
   assert.equal(app.send({ type: 'adminAddStatus' }).found, true);
   assert.equal(app.send().duplicate, true);

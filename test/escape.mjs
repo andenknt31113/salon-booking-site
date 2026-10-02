@@ -6,6 +6,7 @@
    店側の画面で動くと、開いているのは店の人なので被害が大きくなります。
 
    使い方は ユースケース.md を参照。 */
+import assert from 'node:assert/strict';
 import { mockBookingState } from './booking-state-fixture.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 const B = process.env.BASE || 'http://127.0.0.1:8820';
@@ -35,7 +36,7 @@ console.log('\n【画面】タグを含む文字を入れて予約する');
 await p.goto(B + '/reserve.html'); await p.waitForTimeout(1600);
 await p.locator('#coupon-choices .selectable').first().click(); await p.waitForTimeout(400);
 await p.locator('#step-cta button').click(); await p.waitForTimeout(700);
-await p.locator('#step-cta button').click(); await p.waitForTimeout(1100);
+await p.locator('button[data-date][data-time]:not([disabled])').nth(40).waitFor({ state: 'visible' });
 await p.locator('button[data-date][data-time]:not([disabled])').nth(40).click(); await p.waitForTimeout(400);
 await p.locator('#step-cta button').click(); await p.waitForTimeout(600);
 await p.fill('#f-name', '<img src=x onerror=alert(1)>山田');
@@ -48,11 +49,13 @@ await p.locator('#customer-form .checkbox-line > span').click();
 await p.locator('#step-cta button').click(); await p.waitForTimeout(800);
 
 const confirmHtml = await p.locator('#confirm-body').innerHTML();
+assert.ok((await p.locator('#confirm-body').textContent()).includes('<img src=x onerror=alert(1)>山田'));
 confirmHtml.includes('<img src=x') ? note('確認画面', 'タグが生で埋め込まれている')
   : ok('確認画面ではタグが文字として出る');
 
 await p.locator('#submit-reservation').click(); await p.waitForTimeout(2000);
 const code = (await p.locator('#done-code').innerText()).trim();
+assert.match(code, /^LM-[A-Z0-9]{5}$/);
 console.log(`  予約番号: ${code || '（取れず）'}`);
 alerted ? note('完了画面', 'スクリプトが動いた') : ok('完了画面でスクリプトは動かない');
 
@@ -64,10 +67,12 @@ await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
 await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
 await a.click('#gate-btn'); await a.waitForTimeout(1800);
 const adminHtml = await a.locator('#admin-rows').innerHTML();
+assert.ok((await a.locator('#admin-rows').textContent()).includes('<img src=x onerror=alert(1)>山田'));
 adminHtml.includes('<img src=x') ? note('管理ページ 予約一覧', 'タグが生で埋め込まれている')
   : ok('管理ページではタグが文字として出る');
 await a.locator('.tab', { hasText: 'お客様' }).first().click(); await a.waitForTimeout(600);
 const custHtml = await a.locator('#customer-rows').innerHTML();
+assert.ok((await a.locator('#customer-rows').textContent()).includes('<img src=x onerror=alert(1)>山田'));
 custHtml.includes('<img src=x') ? note('お客様タブ', 'タグが生で埋め込まれている')
   : ok('お客様タブでもタグが文字として出る');
 alerted ? note('管理ページ', 'スクリプトが動いた') : ok('管理ページでスクリプトは動かない');
@@ -75,6 +80,7 @@ alerted ? note('管理ページ', 'スクリプトが動いた') : ok('管理ペ
 console.log('\n【画面】マイページ');
 await p.goto(B + '/mypage.html'); await p.waitForTimeout(1400);
 const myHtml = await p.locator('#upcoming-list').innerHTML();
+assert.ok((await p.locator('#upcoming-list').textContent()).includes(code));
 myHtml.includes('<img src=x') ? note('予約確認ページ', 'タグが生で埋め込まれている')
   : ok('予約確認ページでもタグが文字として出る');
 console.log('  横はみ出し:', await p.evaluate(() => document.documentElement.scrollWidth));

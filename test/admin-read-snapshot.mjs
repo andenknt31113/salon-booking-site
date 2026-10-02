@@ -96,6 +96,73 @@ test('初回管理取得は編集対象五シートを各一回読み、設定�
   assert.equal(app.held(), false);
 });
 
+test('起動用の取得は写真と口コミを読まず、予約全履歴と日常管理の内容を省略しない', () => {
+  const full = fixture().send();
+  const app = fixture();
+  const result = app.send({ startupOnly: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.pendingEditors, ['styles', 'reviews']);
+  for (const key of ['reservations', 'closedDates', 'menus', 'coupons', 'settings', 'capabilities']) {
+    assert.deepEqual(result[key], full[key], key);
+  }
+  assert.equal(Object.hasOwn(result, 'styles'), false);
+  assert.equal(Object.hasOwn(result, 'reviews'), false);
+  assert.equal(app.count('スタイル'), 0);
+  assert.equal(app.count('口コミ'), 0);
+  assert.equal(app.reads.length, 7);
+  assert.deepEqual(Object.keys(result.stamps).sort(), ['closed', 'coupons', 'menus', 'settings']);
+  assert.equal(app.held(), false);
+});
+
+for (const [target, name] of [['styles', 'スタイル'], ['reviews', '口コミ']]) {
+  test(`${name}の編集用取得は対象一シートだけを読み、表示と更新印を同じ結果から作る`, () => {
+    let changed = false;
+    const app = fixture({ afterRead({ name: current, cells }) {
+      if (current === name && !changed) { changed = true; cells[1][0] = '次の読込で確認する値'; }
+    } });
+    const before = structuredClone(app.sheets.get(name).cells);
+    const result = app.send({ editorTarget: target });
+    assert.equal(result.ok, true);
+    assert.deepEqual(Object.keys(result).sort(), ['editorTarget', 'ok', 'rows', 'stamp']);
+    assert.equal(result.editorTarget, target);
+    assert.equal(result.stamp, digest(before));
+    assert.equal(Object.values(result.rows[0]).includes('次の読込で確認する値'), false);
+    assert.equal(app.reads.length, 1);
+    assert.equal(app.count(name), 1);
+    assert.equal(app.held(), false);
+    const next = app.send({ editorTarget: target });
+    assert.equal(Object.values(next.rows[0]).includes('次の読込で確認する値'), true);
+    assert.notEqual(next.stamp, result.stamp);
+  });
+
+  test(`${name}の空・未作成シートは更新印付きの空配列、読込障害と認証拒否は成功にしない`, () => {
+    const empty = fixture();
+    empty.sheets.get(name).cells.splice(1);
+    assert.deepEqual(empty.send({ editorTarget: target }).rows, []);
+    const absent = fixture();
+    absent.sheets.delete(name);
+    assert.deepEqual(absent.send({ editorTarget: target }), { ok: true, editorTarget: target, rows: [], stamp: '0' });
+    const broken = fixture({ failure: name });
+    assert.equal(broken.send({ editorTarget: target }).ok, false);
+    assert.equal(broken.held(), false);
+    const denied = fixture({ denied: true });
+    assert.equal(denied.send({ editorTarget: target }).ok, false);
+    assert.equal(denied.reads.length, 0);
+  });
+}
+
+test('編集用取得では未知の対象や他の保存対象を読めず、通常の全件APIも維持する', () => {
+  for (const target of ['settings', 'closed', 'menus', '__proto__', '', null]) {
+    const app = fixture();
+    assert.equal(app.send({ editorTarget: target }).ok, false);
+    assert.equal(app.reads.length, 0);
+  }
+  const full = fixture().send();
+  assert.equal(Object.hasOwn(full, 'pendingEditors'), false);
+  assert.equal(full.styles.length, 1);
+  assert.equal(full.reviews.length, 1);
+});
+
 test('表示データと更新印を同じ読込結果から作り、以前の更新印と互換にする', () => {
   const app = fixture();
   const result = app.send();

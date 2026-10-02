@@ -94,7 +94,8 @@ test('照会の取消確認は入力済みの電話番号で一度だけ送信�
     assert.equal(cancellations.length, 0);
     await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).dblclick();
     await page.locator('#lookup-result .booking-card.is-cancelled').waitFor();
-    assert.deepEqual(cancellations, [{ type: 'cancel', code: localRecord.code, tel: localRecord.customer.tel }]);
+    assert.deepEqual(cancellations, [{ type: 'cancel', code: localRecord.code, tel: localRecord.customer.tel,
+      fromDate: latest.date, fromTime: latest.time }]);
     assert.equal(await page.getByRole('dialog').count(), 0);
   } finally { await page.context().close(); }
 });

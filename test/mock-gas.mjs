@@ -16,7 +16,7 @@ const PORT = port;
 const DEMO_MODE = demoMode;
 const DEMO_PAGES = new Set(['index.html', 'admin.html', 'design-a.html', 'reserve.html', 'mypage.html',
   'menu.html', 'gallery.html', 'staff.html', 'reviews.html', 'privacy.html', 'favicon.svg']);
-const SITE_PAGES = new Set([...DEMO_PAGES, '404.html', 'robots.txt', 'sitemap.xml']);
+const SITE_PAGES = new Set([...DEMO_PAGES, 'admin-google.html', '404.html', 'robots.txt', 'sitemap.xml']);
 const LEDGER = [];
 const issueCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
