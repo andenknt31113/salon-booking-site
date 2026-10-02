@@ -2193,63 +2193,79 @@ function doAdminData_(d) {
   /* 台帳にも、こちらが知っている列が全部あるようにしておきます。
      「施術メモ」はあとから足した列で、先に作られた台帳にはありません。
      ここで足しておかないと、店が書いたメモの行き先がなくなります。 */
-  ensureHeaders_(ss, SHEET_NAME, HEADERS);
   const sheet = getSheet_();
-  const col = colIndex_(sheet);
-
-  // 台帳が空のときは readRows_ が [] を返すので、ここで数えなおしません
-  const reservations = readRows_(sheet).map(row => adminReservation_(row, col))
+  const reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
+  if (!validBookingHeaders_(reservationSnapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  const col = header => {
+    const index = reservationSnapshot.head.indexOf(header);
+    return index >= 0 ? index : HEADERS.indexOf(header);
+  };
+  const reservationRows = reservationSnapshot.rows;
+  const reservations = reservationRows.map(row => adminReservation_(row, col))
     .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time));
+  const headersByTarget = { menus: MENU_HEADERS, coupons: COUPON_HEADERS, styles: STYLE_HEADERS,
+    reviews: REVIEW_HEADERS, closed: CLOSED_HEADERS, settings: ['項目', '内容'] };
+  const snapshots = {};
+  const stamps = {};
+  Object.keys(headersByTarget).forEach(target => {
+    const snapshot = readSheetSnapshot_(ss.getSheetByName(SAVE_TARGETS[target]), headersByTarget[target], true);
+    snapshots[target] = snapshot;
+    stamps[target] = snapshot.stamp;
+  });
 
   return {
     ok: true,
     capabilities: { phoneRequestIds: true, adminChange: true },
     reservations: reservations,
-    menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS),
-    coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS),
-    styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS),
-    reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS),
-    closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS),
-    settings: readSettings_(ss),
-    stamps: allStamps_(ss)
+    menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS, snapshots.menus),
+    coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, snapshots.coupons),
+    styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, snapshots.styles),
+    reviews: readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, snapshots.reviews),
+    closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, snapshots.closed),
+    settings: readSettings_(ss, snapshots.settings),
+    stamps: stamps
   };
 }
 
 function readAdminReservations_(ss) {
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '予約台帳を確認できません。' };
-  const headers = sheetHeader_(sheet, []);
+  const snapshot = readSheetSnapshot_(sheet, []);
+  const headers = snapshot.head;
   const required = ['予約番号', '来店日', '開始', '終了', 'お名前', '電話番号', '状態'];
   if (required.some(header => !headers.includes(header))
       || headers.some((header, index) => header && headers.indexOf(header) !== index)) {
     return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
   }
   const closed = ss.getSheetByName(CLOSED_SHEET);
+  const closedSnapshot = readSheetSnapshot_(closed, []);
   if (closed && closed.getLastRow() > 0) {
-    const closedHeaders = sheetHeader_(closed, []);
+    const closedHeaders = closedSnapshot.head;
     if (CLOSED_HEADERS.some(header => !closedHeaders.includes(header))
         || closedHeaders.some((header, index) => header && closedHeaders.indexOf(header) !== index)) {
       return { ok: false, error: '休業日の見出しを確認できません。表示中の予定は更新していません。' };
     }
   }
+  const reservationRows = snapshot.rows;
   return {
     ok: true,
-    reservations: readRows_(sheet).map(row => adminReservation_(row, header => headers.indexOf(header)))
+    reservations: reservationRows.map(row => adminReservation_(row, header => headers.indexOf(header)))
       .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)),
-    closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS)
+    closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, closedSnapshot)
   };
 }
 
 function readAdminNotifications_(ss) {
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '通知用の予約台帳を確認できません。' };
-  const headers = sheetHeader_(sheet, []);
+  const snapshot = readSheetSnapshot_(sheet, []);
+  const headers = snapshot.head;
   const fields = { code: '予約番号', name: 'お名前', date: '来店日', time: '開始', endTime: '終了', status: '状態' };
   if (Object.values(fields).some(header => !headers.includes(header))
       || !validBookingHeaders_(headers, { requireCode: true })) {
     return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
   }
-  const reservations = readRows_(sheet).map(row => {
+  const reservations = snapshot.rows.map(row => {
     const result = {};
     Object.keys(fields).forEach(key => { result[key] = String(row[headers.indexOf(fields[key])] || ''); });
     result.date = normalizeDate_(row[headers.indexOf(fields.date)]);
@@ -2291,9 +2307,11 @@ function adminReservation_(row, col) {
    読み込んだときと保存するときで違っていれば、
    そのあいだに誰かが別の端末から保存したということ。 */
 function sheetStamp_(ss, name) {
-  const sheet = ss.getSheetByName(name);
-  if (!sheet || sheet.getLastRow() === 0) return '0';
-  const text = JSON.stringify(sheet.getDataRange().getValues());
+  return readSheetSnapshot_(ss.getSheetByName(name), [], true).stamp;
+}
+
+function stampValues_(values) {
+  const text = JSON.stringify(values);
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text, Utilities.Charset.UTF_8);
   return bytes.map(function (b) { return ((b & 0xFF) + 0x100).toString(16).slice(1); }).join('').slice(0, 12);
 }
@@ -2485,12 +2503,11 @@ function doAdminUpload_(d) {
 }
 
 /** シートを見出し付きの配列として読む（列は名前で探します） */
-function readSheetRows_(ss, name, headers) {
-  const sheet = ss.getSheetByName(name);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  const head = sheetHeader_(sheet, headers);
+function readSheetRows_(ss, name, headers, snapshot) {
+  const data = snapshot || readSheetSnapshot_(ss.getSheetByName(name), headers);
+  const head = data.head;
   const col = h => { const i = head.indexOf(h); return i >= 0 ? i : headers.indexOf(h); };
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues()
+  return data.rows
     .map(r => {
       const o = {};
       /* 日付と時刻の欄は、形をそろえてから管理ページに渡します。
@@ -2660,11 +2677,10 @@ function salonSignature_(opt, settings) {
    黙って既定の22時に戻り、閉めたはずの時間に予約が入ります。 */
 const TIME_SETTINGS = ['営業開始', '営業終了', '最終受付'];
 
-function readSettings_(ss) {
-  const sheet = ss.getSheetByName(SETTING_SHEET);
-  const snapshot = readSheetSnapshot_(sheet, ['項目', '内容']);
+function readSettings_(ss, snapshot) {
+  const data = snapshot || readSheetSnapshot_(ss.getSheetByName(SETTING_SHEET), ['項目', '内容']);
   const out = {};
-  snapshot.rows.forEach(r => {
+  data.rows.forEach(r => {
     const k = String(r[0] || '').trim();
     if (!k) return;
     if (r[1] === '') { out[k] = ''; return; }
@@ -2705,13 +2721,15 @@ function validBookingHeaders_(head, options) {
   return !duplicate && (!missing || !!(options && options.allowMissing));
 }
 
-function readSheetSnapshot_(sheet, fallback) {
+function readSheetSnapshot_(sheet, fallback, withStamp) {
   const last = sheet ? sheet.getLastRow() : 0;
-  if (!last) return { head: fallback.slice(), rows: [] };
-  const width = Math.max(sheet.getLastColumn() || 0, fallback.length);
+  if (!last) return { head: fallback.slice(), rows: [], ...(withStamp ? { stamp: '0' } : {}) };
+  const usedWidth = sheet.getLastColumn() || 0;
+  const width = Math.max(usedWidth, fallback.length);
   const values = sheet.getRange(1, 1, last, width).getValues();
   const head = (values[0] || []).map(value => String(value == null ? '' : value).trim());
-  return { head: head.some(Boolean) ? head : fallback.slice(), rows: values.slice(1) };
+  return { head: head.some(Boolean) ? head : fallback.slice(), rows: values.slice(1),
+    ...(withStamp ? { stamp: stampValues_(values.map(row => row.slice(0, usedWidth))) } : {}) };
 }
 
 function sheetHeader_(sheet, fallback) {
