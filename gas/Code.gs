@@ -999,7 +999,11 @@ function doReserve_(sheet, d, verifyCatalog) {
     '状態': '予約確定',
     'カレンダーID': ''
   }, reservationHeaders);
+  const queued = stageBookingEmails_(sheet, reservationValues, reservationHeaders, '新規予約', function () {
+    return sendReservationEmails_(d, c, menuText, false, settings);
+  });
   const reservationRow = appendVerifiedBooking_(sheet, reservationValues, reservationHeaders);
+  if (queued) return { ok: true, code: d.code, notificationsQueued: true, calendarWarning: false };
 
   const eventId = addToCalendar_(d, c, menuText, settings);
   let calendarWarning = !!CALENDAR_ID && !eventId;
@@ -1013,6 +1017,12 @@ function doReserve_(sheet, d, verifyCatalog) {
     }
   }
 
+  const mail = sendReservationEmails_(d, c, menuText, calendarWarning, settings);
+  recordMailStatus_(sheet, reservationRow, '新規予約', mail.shop, mail.customer);
+  return { ok: true, code: d.code, calendarWarning: calendarWarning };
+}
+
+function sendReservationEmails_(d, c, menuText, calendarWarning, settings) {
   /* 金額が決まっていない予約（デザインカラー等）は「0円」と書かない。
      店舗が無料と受け取ってしまうため。 */
   const priceVaries = (d.menus || []).some(menu => menu.priceFrom || Number(menu.price) === 0);
@@ -1077,9 +1087,7 @@ function doReserve_(sheet, d, verifyCatalog) {
     salonSignature_(null, settings)
   ].filter(Boolean).join('\n'));
 
-  recordMailStatus_(sheet, reservationRow, '新規予約', shopMailStatus, customerMailStatus);
-
-  return { ok: true, code: d.code, calendarWarning: calendarWarning };
+  return { shop: shopMailStatus, customer: customerMailStatus };
 }
 
 /* ============================================================
@@ -1680,7 +1688,8 @@ function doAdminChange_(sheet, d) {
   }
   const changed = doChange_(sheet, d);
   if (!changed.ok) return changed;
-  return { ok: true, reservation: adminReservation_(readRow_(sheet, row), col),
+  const reservation = applyBookingEmailSummary_([adminReservation_(readRow_(sheet, row), col)], bookingEmailSummary_(sheet))[0];
+  return { ok: true, reservation: reservation, notificationsQueued: changed.notificationsQueued === true,
     calendarWarning: changed.calendarWarning };
 }
 
@@ -1773,7 +1782,15 @@ function doChange_(sheet, d) {
   const email = String(before[col('メール')] || '');
   const menuText = String(before[col('メニュー')] || '');
 
+  const next = before.slice();
+  next[col('来店日')] = newDate;
+  next[col('開始')] = newTime;
+  next[col('終了')] = addMinutes_(newTime, minutes);
+  const queued = stageBookingEmails_(sheet, next, headerRow_(sheet), '日時変更', function () {
+    return sendChangeEmails_(d.code, name, email, menuText, oldDate, oldTime, newDate, newTime, !!previousEventId, settings);
+  });
   writeBookingWindow_(sheet, row, d.code, [newDate, newTime, addMinutes_(newTime, minutes)]);
+  if (queued) return { ok: true, notificationsQueued: true, calendarWarning: !!previousEventId };
 
   /* カレンダーの予定も入れ直す。
      addToCalendar_ の引数は（予約の中身, お客様, メニュー文）の3つ。
@@ -1824,12 +1841,18 @@ function doChange_(sheet, d) {
     } else calendarWarning = true;
   }
 
+  const mail = sendChangeEmails_(d.code, name, email, menuText, oldDate, oldTime, newDate, newTime, calendarWarning, settings);
+  recordMailStatus_(sheet, row, '日時変更', mail.shop, mail.customer);
+  return { ok: true, calendarWarning: calendarWarning };
+}
+
+function sendChangeEmails_(code, name, email, menuText, oldDate, oldTime, newDate, newTime, calendarWarning, settings) {
   const customerMailStatus = mailCustomer_(email, `ご予約の日時を変更しました（${newDate} ${newTime}）`, [
     `${name} 様`,
     '',
     'ご予約の日時を変更いたしました。',
     '',
-    `ご予約番号：${d.code}（変更ありません）`,
+    `ご予約番号：${code}（変更ありません）`,
     `変更前　　：${oldDate} ${oldTime}〜`,
     `変更後　　：${newDate} ${newTime}〜`,
     `メニュー　：${menuText}`,
@@ -1852,7 +1875,7 @@ function doChange_(sheet, d) {
   const shopMailStatus = notify_(
     `【日時変更】${newDate} ${newTime} ${name}様`,
     [
-      `予約番号：${d.code}`,
+      `予約番号：${code}`,
       `変更前　：${oldDate} ${oldTime}〜`,
       `変更後　：${newDate} ${newTime}〜`,
       `お名前　：${name} 様`,
@@ -1861,9 +1884,7 @@ function doChange_(sheet, d) {
     ].filter(Boolean).join('\n'), settings
   );
 
-  recordMailStatus_(sheet, row, '日時変更', shopMailStatus, customerMailStatus);
-
-  return { ok: true, calendarWarning: calendarWarning };
+  return { shop: shopMailStatus, customer: customerMailStatus };
 }
 
 const BOOKING_CHANGE_JOURNAL = 'BOOKING_CHANGE_RECOVERY';
@@ -2103,6 +2124,12 @@ function doCancel_(sheet, d) {
   const date = normalizeDate_(before[col('来店日')]) || d.date || '';
   const time = normalizeTime_(before[col('開始')]) || d.time || '';
 
+  const next = before.slice();
+  next[col('状態')] = 'キャンセル';
+  const queued = stageBookingEmails_(sheet, next, headerRow_(sheet), 'キャンセル', function () {
+    return sendCancelEmails_(d.code, name, email, date, time, !!calendarEventId, settings);
+  });
+
   try {
     const statusRange = sheet.getRange(row, col('状態') + 1);
     statusRange.setValue('キャンセル');
@@ -2112,6 +2139,7 @@ function doCancel_(sheet, d) {
     throw Object.assign(new Error('取消の保存結果を確認できません。予約確認ページで現在の状態を確認するか、店舗へお電話ください。'),
       { unknown: true });
   }
+  if (queued) return { ok: true, notificationsQueued: true, calendarWarning: !!calendarEventId };
   try {
     sheet.getRange(row, 1, 1, headerRow_(sheet).length)
       .setFontLine('line-through')
@@ -2130,12 +2158,18 @@ function doCancel_(sheet, d) {
     }
   }
 
+  const mail = sendCancelEmails_(d.code, name, email, date, time, calendarWarning, settings);
+  recordMailStatus_(sheet, row, 'キャンセル', mail.shop, mail.customer);
+  return { ok: true, calendarWarning: calendarWarning };
+}
+
+function sendCancelEmails_(code, name, email, date, time, calendarWarning, settings) {
   const customerMailStatus = mailCustomer_(email, `ご予約をキャンセルしました（${date} ${time}）`, [
     `${name} 様`,
     '',
     '下記のご予約をキャンセルいたしました。',
     '',
-    `ご予約番号：${d.code}`,
+    `ご予約番号：${code}`,
     `ご来店日時：${date} ${time}〜`,
     '',
     'またのご利用をお待ちしております。',
@@ -2156,7 +2190,7 @@ function doCancel_(sheet, d) {
   const shopMailStatus = notify_(
     `【キャンセル】${date} ${time} ${name}様`,
     [
-      `予約番号：${d.code}`,
+      `予約番号：${code}`,
       `来店日時：${date} ${time}〜`,
       `お名前　：${name} 様`,
       '',
@@ -2164,9 +2198,7 @@ function doCancel_(sheet, d) {
     ].concat(calendarWarning ? ['カレンダー連携は未確認です。予約台帳を確認してください。'] : []).join('\n'), settings
   );
 
-  recordMailStatus_(sheet, row, 'キャンセル', shopMailStatus, customerMailStatus);
-
-  return { ok: true, calendarWarning: calendarWarning };
+  return { shop: shopMailStatus, customer: customerMailStatus };
 }
 
 /* ============================================================
@@ -2218,7 +2250,7 @@ function doAdminData_(d) {
   return {
     ok: true,
     capabilities: { phoneRequestIds: true, adminChange: true },
-    reservations: reservations,
+    reservations: applyBookingEmailSummary_(reservations, bookingEmailSummary_(sheet, reservationRows)),
     menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS, snapshots.menus),
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, snapshots.coupons),
     styles: readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, snapshots.styles),
@@ -2251,8 +2283,8 @@ function readAdminReservations_(ss) {
   const reservationRows = snapshot.rows;
   return {
     ok: true,
-    reservations: reservationRows.map(row => adminReservation_(row, header => headers.indexOf(header)))
-      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)),
+    reservations: applyBookingEmailSummary_(reservationRows.map(row => adminReservation_(row, header => headers.indexOf(header)))
+      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)), bookingEmailSummary_(sheet, reservationRows)),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, closedSnapshot)
   };
 }
@@ -2267,16 +2299,23 @@ function readAdminNotifications_(ss) {
       || !validBookingHeaders_(headers, { requireCode: true })) {
     return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
   }
-  const reservations = snapshot.rows.map(row => {
+  const reservationRows = snapshot.rows;
+  const summary = bookingEmailSummary_(sheet, reservationRows);
+  const reservations = reservationRows.map(row => {
     const result = {};
     Object.keys(fields).forEach(key => { result[key] = String(row[headers.indexOf(fields[key])] || ''); });
     result.date = normalizeDate_(row[headers.indexOf(fields.date)]);
     result.time = normalizeTime_(row[headers.indexOf(fields.time)]);
     result.endTime = normalizeTime_(row[headers.indexOf(fields.endTime)]);
     if (isCancelled_(result.status)) result.status = 'キャンセル';
+    if (summary) {
+      result.shopMailStatus = String(row[headers.indexOf('店舗メール状態')] || '');
+      result.customerMailStatus = String(row[headers.indexOf('お客様メール状態')] || '');
+    }
     return result;
   });
-  return { ok: true, reservations: reservations };
+  return summary ? { ok: true, reservations: applyBookingEmailSummary_(reservations, summary), mailStatuses: true }
+    : { ok: true, reservations: reservations };
 }
 
 function adminReservation_(row, col) {
@@ -2896,8 +2935,288 @@ function notifyList_(settings) {
   return out;
 }
 
+const BOOKING_EMAIL_SHEET = '予約メール配送';
+const BOOKING_EMAIL_HEADERS = ['通知ID', '予約照合', '配送内容'];
+const BOOKING_EMAIL_ENABLED = 'BOOKING_EMAIL_QUEUE_ENABLED';
+const BOOKING_EMAIL_HEARTBEAT = 'BOOKING_EMAIL_WORKER_AT';
+const BOOKING_EMAIL_DIRTY = 'BOOKING_EMAIL_WORK_PENDING';
+const BOOKING_EMAIL_AUDIT = 'BOOKING_EMAIL_AUDIT_AT';
+const BOOKING_EMAIL_AUDIT_MS = 30 * 60 * 1000;
+const BOOKING_EMAIL_LEASE_MS = 10 * 60 * 1000;
+const BOOKING_EMAIL_RUN_MS = 4 * 60 * 1000;
+const BOOKING_EMAIL_MAX_CHANNELS = 10;
+const BOOKING_EMAIL_MAX_CELL_LENGTH = 45000;
+const BOOKING_EMAIL_ERROR = 'メール配送の記録を確認できません。予約を繰り返さず、制作担当者へ連絡してください。';
+const BOOKING_EMAIL_FIELDS = ['予約番号', '来店日', '開始', '終了', '所要(分)', 'メニュー',
+  '担当', '担当ID', '指名料', '合計金額', 'お名前', 'フリガナ', '電話番号', 'メール',
+  '来店回数', '予約の入口', 'ご要望', '状態'];
+const BOOKING_EMAIL_STATUSES = ['配送待ち', '配送処理中', '送信処理受付', '送信結果不明', '宛先なし', '停止中'];
+let BOOKING_EMAIL_CAPTURE = null;
+
+function bookingEmailSignature_(values, headers) {
+  return JSON.stringify(BOOKING_EMAIL_FIELDS.map(function (header) {
+    const index = headers.indexOf(header);
+    if (index < 0 || index !== headers.lastIndexOf(header)) throw new Error(BOOKING_EMAIL_ERROR);
+    const value = values[index];
+    if (header === '予約番号') return codeKey_(value);
+    if (header === '来店日') return normalizeDate_(value);
+    if (header === '開始' || header === '終了') return normalizeTime_(value);
+    if (header === '電話番号') return digits_(value);
+    if (header === '状態') return isCancelled_(value) ? 'キャンセル' : String(value || '');
+    if (['所要(分)', '指名料', '合計金額'].indexOf(header) >= 0) {
+      if (!Number.isFinite(Number(value))) throw new Error(BOOKING_EMAIL_ERROR);
+      return Number(value);
+    }
+    return String(value == null ? '' : value).replace(/^'/, '');
+  }));
+}
+
+function bookingEmailSheet_(ss) {
+  const queue = ss.getSheetByName(BOOKING_EMAIL_SHEET);
+  if (!queue || queue.getLastRow() < 1 || queue.getLastColumn() !== BOOKING_EMAIL_HEADERS.length
+      || JSON.stringify(sheetHeader_(queue, BOOKING_EMAIL_HEADERS)) !== JSON.stringify(BOOKING_EMAIL_HEADERS)) {
+    throw new Error(BOOKING_EMAIL_ERROR);
+  }
+  return queue;
+}
+
+function captureBookingEmail_(channel, to, subject, body) {
+  const status = to ? '配送待ち' : '宛先なし';
+  BOOKING_EMAIL_CAPTURE[channel] = { to: to, subject: subject, body: body, status: status, updated: Date.now() };
+  return status;
+}
+
+function stageBookingEmails_(sheet, values, headers, action, buildMessages) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return false;
+  const heartbeat = Number(props.getProperty(BOOKING_EMAIL_HEARTBEAT));
+  if (!heartbeat || heartbeat > Date.now() || Date.now() - heartbeat > BOOKING_EMAIL_LEASE_MS
+      || CALENDAR_ID || LINE_TOKEN || LINE_TO) {
+    throw new Error('メール配送処理の稼働を確認できません。受付を繰り返さず、制作担当者へ連絡してください。');
+  }
+  const queue = bookingEmailSheet_(sheet.getParent());
+  const signature = bookingEmailSignature_(values, headers);
+  const messages = {};
+  let statuses;
+  BOOKING_EMAIL_CAPTURE = messages;
+  try { statuses = buildMessages(); }
+  finally { BOOKING_EMAIL_CAPTURE = null; }
+  ['shop', 'customer'].forEach(function (channel) {
+    if (!messages[channel]) messages[channel] = { to: '', subject: '', body: '', status: statuses[channel], updated: Date.now() };
+  });
+  const job = { version: 1, code: codeKey_(values[headers.indexOf('予約番号')]), action: action,
+    created: Date.now(), messages: messages };
+  const raw = JSON.stringify(job);
+  if (raw.length > BOOKING_EMAIL_MAX_CELL_LENGTH) throw new Error(BOOKING_EMAIL_ERROR);
+  const record = [Utilities.getUuid(), signature, raw];
+  try {
+    props.setProperty(BOOKING_EMAIL_DIRTY, 'true');
+    if (props.getProperty(BOOKING_EMAIL_DIRTY) !== 'true') throw new Error();
+    const row = queue.getLastRow() + 1;
+    queue.appendRow(record);
+    SpreadsheetApp.flush();
+    if (JSON.stringify(queue.getRange(row, 1, 1, record.length).getValues()[0]) !== JSON.stringify(record)) throw new Error();
+  } catch (error) { throw new Error(BOOKING_EMAIL_ERROR); }
+  return true;
+}
+
+function readBookingEmailJobs_(queue) {
+  const ids = new Set();
+  const rows = queue.getLastRow() < 2 ? []
+    : queue.getRange(2, 1, queue.getLastRow() - 1, BOOKING_EMAIL_HEADERS.length).getValues();
+  return rows.map(function (values, index) {
+    try {
+      const id = String(values[0]);
+      const signature = JSON.parse(values[1]);
+      const job = JSON.parse(values[2]);
+      if (!/^[A-Za-z0-9-]{16,80}$/.test(id) || ids.has(id) || !job || job.version !== 1
+          || !Array.isArray(signature) || signature.length !== BOOKING_EMAIL_FIELDS.length
+          || !job.code || job.code !== signature[0] || codeKey_(job.code) !== job.code
+          || ['新規予約', '日時変更', 'キャンセル'].indexOf(job.action) < 0
+          || !Number.isFinite(job.created) || !job.messages) throw new Error();
+      ['shop', 'customer'].forEach(function (channel) {
+        const message = job.messages[channel];
+        if (!message || BOOKING_EMAIL_STATUSES.indexOf(message.status) < 0
+            || !Number.isFinite(message.updated) || typeof message.to !== 'string'
+            || typeof message.subject !== 'string' || typeof message.body !== 'string'
+            || (message.status === '配送処理中' && typeof message.claim !== 'string')) throw new Error();
+      });
+      ids.add(id);
+      return { id: id, signature: String(values[1]), job: job, row: index + 2 };
+    } catch (error) { throw new Error(BOOKING_EMAIL_ERROR); }
+  });
+}
+
+function currentBookingEmailJobs_(sheet, queue, reservationRows) {
+  const headers = headerRow_(sheet);
+  const current = Object.create(null);
+  (reservationRows || readRows_(sheet)).forEach(function (values) {
+    const code = codeKey_(values[headers.indexOf('予約番号')]);
+    if (!code) return;
+    if (current[code]) current[code] = { duplicate: true };
+    else current[code] = { signature: bookingEmailSignature_(values, headers) };
+  });
+  const latest = Object.create(null);
+  readBookingEmailJobs_(queue).forEach(function (record) {
+    const booking = current[record.job.code];
+    if (booking && booking.duplicate) throw new Error(BOOKING_EMAIL_ERROR);
+    if (booking && booking.signature === record.signature) latest[record.job.code] = record;
+  });
+  return latest;
+}
+
+function saveBookingEmailJob_(queue, record) {
+  const raw = JSON.stringify(record.job);
+  try {
+    const range = queue.getRange(record.row, 3);
+    range.setValue(raw);
+    SpreadsheetApp.flush();
+    if (range.getValues()[0][0] !== raw) throw new Error();
+  } catch (error) { throw new Error(BOOKING_EMAIL_ERROR); }
+}
+
+function claimBookingEmail_(code, id, channel) {
+  return withLedgerLock_(function () {
+    if (PropertiesService.getScriptProperties().getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return null;
+    const sheet = getSheet_();
+    const queue = bookingEmailSheet_(sheet.getParent());
+    const record = currentBookingEmailJobs_(sheet, queue)[code];
+    if (!record || record.id !== id) return null;
+    const message = record.job.messages[channel];
+    if (message.status === '配送処理中' && Date.now() - message.updated > BOOKING_EMAIL_LEASE_MS) {
+      message.status = '送信結果不明';
+      message.updated = Date.now();
+      saveBookingEmailJob_(queue, record);
+    }
+    if (message.status !== '配送待ち') return null;
+    message.status = '配送処理中';
+    message.updated = Date.now();
+    message.claim = Utilities.getUuid();
+    saveBookingEmailJob_(queue, record);
+    return { code: code, id: id, channel: channel, claim: message.claim,
+      to: message.to, subject: message.subject, body: message.body };
+  });
+}
+
+function finishBookingEmail_(delivery, status) {
+  withLedgerLock_(function () {
+    const queue = bookingEmailSheet_(SpreadsheetApp.getActiveSpreadsheet());
+    const record = readBookingEmailJobs_(queue).find(function (candidate) { return candidate.id === delivery.id; });
+    if (!record) throw new Error(BOOKING_EMAIL_ERROR);
+    const message = record.job.messages[delivery.channel];
+    if (message.claim !== delivery.claim || message.status !== '配送処理中') throw new Error(BOOKING_EMAIL_ERROR);
+    message.status = status;
+    message.updated = Date.now();
+    saveBookingEmailJob_(queue, record);
+  });
+}
+
+function deliverBookingEmails() {
+  const properties = PropertiesService.getScriptProperties();
+  if (properties.getProperty(BOOKING_EMAIL_ENABLED) !== 'true') {
+    return { processed: 0, disabled: true };
+  }
+  const started = Date.now();
+  const audited = Number(properties.getProperty(BOOKING_EMAIL_AUDIT));
+  if (properties.getProperty(BOOKING_EMAIL_DIRTY) !== 'true' && audited > 0
+      && audited <= started && started - audited < BOOKING_EMAIL_AUDIT_MS) {
+    const heartbeat = String(started);
+    properties.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
+    if (properties.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw new Error(BOOKING_EMAIL_ERROR);
+    return { processed: 0, idle: true };
+  }
+  const candidates = withLedgerLock_(function () {
+    const sheet = getSheet_();
+    const queue = bookingEmailSheet_(sheet.getParent());
+    const latest = currentBookingEmailJobs_(sheet, queue);
+    const props = PropertiesService.getScriptProperties();
+    const heartbeat = String(Date.now());
+    props.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
+    if (props.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw new Error(BOOKING_EMAIL_ERROR);
+    props.setProperty(BOOKING_EMAIL_AUDIT, heartbeat);
+    const pending = Object.keys(latest).filter(function (code) {
+      return ['shop', 'customer'].some(function (channel) {
+        return ['配送待ち', '配送処理中'].indexOf(latest[code].job.messages[channel].status) >= 0;
+      });
+    });
+    props.setProperty(BOOKING_EMAIL_DIRTY, pending.length ? 'true' : 'false');
+    return pending.map(function (code) { return { code: code, id: latest[code].id }; });
+  });
+  let processed = 0;
+  candidates.some(function (candidate) {
+    return ['shop', 'customer'].some(function (channel) {
+      if (processed >= BOOKING_EMAIL_MAX_CHANNELS || Date.now() - started >= BOOKING_EMAIL_RUN_MS) return true;
+      const delivery = claimBookingEmail_(candidate.code, candidate.id, channel);
+      if (!delivery) return false;
+      let status = '送信処理受付';
+      try { MailApp.sendEmail(delivery.to, delivery.subject, delivery.body); }
+      catch (error) { status = '送信結果不明'; }
+      finishBookingEmail_(delivery, status);
+      processed++;
+      return false;
+    });
+  });
+  return { processed: processed };
+}
+
+function enableBookingEmailQueue() {
+  if (CALENDAR_ID || LINE_TOKEN || LINE_TO) throw new Error('予定・LINE連携を使う構成では、通知分離の追加確認が必要です。');
+  withLedgerLock_(function () {
+    const props = PropertiesService.getScriptProperties();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let queue = ss.getSheetByName(BOOKING_EMAIL_SHEET);
+    if (!queue) {
+      queue = ss.insertSheet(BOOKING_EMAIL_SHEET);
+      queue.appendRow(BOOKING_EMAIL_HEADERS);
+      SpreadsheetApp.flush();
+    }
+    bookingEmailSheet_(ss);
+    if (props.getProperty(BOOKING_EMAIL_ENABLED) !== 'true' && queue.getLastRow() > 1) {
+      throw new Error('既存の配送記録があります。二重配送を防ぐため、内容を確認してから切り替えてください。');
+    }
+    readBookingEmailJobs_(queue);
+    const triggers = ScriptApp.getProjectTriggers().filter(function (trigger) { return trigger.getHandlerFunction() === 'deliverBookingEmails'; });
+    if (triggers.length > 1) throw new Error('配送トリガーが重複しています。削除せず制作担当者へ確認してください。');
+    if (!triggers.length) ScriptApp.newTrigger('deliverBookingEmails').timeBased().everyMinutes(1).create();
+    const installed = ScriptApp.getProjectTriggers().filter(function (trigger) { return trigger.getHandlerFunction() === 'deliverBookingEmails'; });
+    if (installed.length !== 1) throw new Error('メール配送のトリガーを確認できません。受付設定は切り替えていません。');
+    const heartbeat = String(Date.now());
+    props.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
+    if (props.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw new Error(BOOKING_EMAIL_ERROR);
+    props.setProperty(BOOKING_EMAIL_DIRTY, 'true');
+    if (props.getProperty(BOOKING_EMAIL_DIRTY) !== 'true') throw new Error(BOOKING_EMAIL_ERROR);
+    props.setProperty(BOOKING_EMAIL_ENABLED, 'true');
+    if (props.getProperty(BOOKING_EMAIL_ENABLED) !== 'true') throw new Error(BOOKING_EMAIL_ERROR);
+  });
+  return { ok: true };
+}
+
+function bookingEmailSummary_(sheet, reservationRows) {
+  if (PropertiesService.getScriptProperties().getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return null;
+  const queue = bookingEmailSheet_(sheet.getParent());
+  return currentBookingEmailJobs_(sheet, queue, reservationRows);
+}
+
+function applyBookingEmailSummary_(reservations, summary) {
+  if (!summary) return reservations;
+  return reservations.map(function (reservation) {
+    const record = summary[codeKey_(reservation.code)];
+    if (!record) return reservation;
+    const result = Object.assign({}, reservation);
+    ['shop', 'customer'].forEach(function (channel) {
+      const message = record.job.messages[channel];
+      const stale = ['配送待ち', '配送処理中'].indexOf(message.status) >= 0
+        && Date.now() - message.updated > BOOKING_EMAIL_LEASE_MS;
+      result[channel === 'shop' ? 'shopMailStatus' : 'customerMailStatus'] = record.job.action + '：'
+        + (stale ? '配送状況を要確認' : message.status);
+    });
+    return result;
+  });
+}
+
 function notify_(subject, body, settings) {
   const to = notifyList_(settings);
+  if (BOOKING_EMAIL_CAPTURE) return captureBookingEmail_('shop', to.join(','), `${SALON_NAME} ${subject}`, body);
   if (!to.length) return '宛先なし';
   try {
     MailApp.sendEmail(to.join(','), `${SALON_NAME} ${subject}`, body);
@@ -2910,6 +3229,7 @@ function notify_(subject, body, settings) {
 
 /** LINE公式アカウントへ通知を送る（LINE_TOKEN が空なら何もしない） */
 function notifyLine_(text) {
+  if (BOOKING_EMAIL_CAPTURE) return;
   if (!LINE_TOKEN || !LINE_TO) return;
   try {
     UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
@@ -2932,6 +3252,7 @@ function mailCustomer_(email, subject, body) {
   if (!MAIL_TO_CUSTOMER) return '停止中';
   const address = halfWidth_(email).trim();
   if (!address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return '宛先なし';
+  if (BOOKING_EMAIL_CAPTURE) return captureBookingEmail_('customer', address, `【${SALON_NAME}】${subject}`, body);
   try {
     MailApp.sendEmail(address, `【${SALON_NAME}】${subject}`, body);
     return '送信処理受付';
