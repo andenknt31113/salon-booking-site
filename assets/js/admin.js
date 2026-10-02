@@ -1576,6 +1576,60 @@ function customerSchedule(visits, now = new Date()) {
     cancelled: visits.filter(isCancelled) };
 }
 
+function customerProfileHtml(customer) {
+  const schedule = customer.schedule || customerSchedule(customer.visits);
+  const latest = schedule.previous;
+  const shared = customer.names.length > 1;
+  const who = visit => (shared ? esc(visit.name || '（お名前なし）') + '／' : '');
+  const pastReservations = new Set(schedule.past);
+  return `
+        <div class="booking-head">
+          <h3 class="customer-name">${shared ? '同じ電話番号を使う方の予約履歴' : `${esc(customer.name || '（お名前なし）')}の予約履歴`}</h3>
+          <span class="status-chip">過去の予約 ${schedule.past.length}件</span>
+        </div>
+        <p class="booking-detail">今後・施術中 ${schedule.upcoming.length}件 ／ キャンセル ${schedule.cancelled.length}件</p>
+        ${shared ? `<p class="booking-detail">この番号でご予約：${esc(customer.names.join('・'))} 様</p>` : ''}
+        <p class="booking-detail">
+          <a href="tel:${esc(telKey(customer.tel))}" style="text-decoration:underline">${esc(customer.tel)}</a>
+          ${customer.email ? `／ ${esc(customer.email)}` : ''}
+        </p>
+        <div class="customer-booking-actions">
+          <p class="note">${shared ? '同じ電話番号の履歴です。予約する方を選んでください。' : 'お名前・電話番号を引き継いで、新しい電話予約を入力できます。'}日時・施術内容は今回分を確認します。</p>
+          ${customer.names.map(name => `<button class="btn btn-outline btn-sm" type="button" data-customer-booking="${esc(customer.visits.find(visit => String(visit.name || '').trim() === name).code)}">${esc(name)} 様の電話予約</button>`).join('')}
+          ${customer.names.length ? '' : '<p class="note">お名前の控えがないため、予約一覧の「電話予約を入れる」から入力してください。</p>'}
+        </div>
+        <p class="booking-detail">予約金額の合計 ${yen(customer.spent)}（今後の予約を含む・キャンセルを除く）</p>
+        ${latest ? `<p class="booking-detail">直近の過去予約：${formatDateJa(latest.date)}／${who(latest)}${esc(latest.menu)}（来店確認は未記録）</p>` : '<p class="booking-detail">過去の予約はまだありません。</p>'}
+        ${/* 申し送りは「いちばん新しいご来店の回」に書きます。
+              次にお会いするときに読むものなので、書く相手はその回だからです。
+              古い回を直したくなったら、予約一覧のカードから直せます。 */''}
+        ${latest ? noteEditorHtml(latest) : ''}
+        ${schedule.next ? `<p class="booking-detail">次の予約（施術中を含む）：${formatDateJa(schedule.next.date)} ${esc(schedule.next.time)}／${who(schedule.next)}${esc(schedule.next.menu)}</p>${noteEditorHtml(schedule.next)}` : '<p class="booking-detail">次の予約はまだありません。</p>'}
+        <details class="customer-history" open>
+          <summary>すべての予約を見る（${customer.visits.length}件・キャンセルを含む）</summary>
+          <ul>
+            ${customer.visits.map(visit => `
+              <li${isCancelled(visit) ? ' class="is-cancelled"' : ''}>
+                <span class="hist-date">${formatDateJa(visit.date)} ${esc(visit.time)}</span>
+                <span class="hist-menu">${who(visit)}${esc(visit.menu)}（${isCancelled(visit) ? 'キャンセル' : pastReservations.has(visit) ? '過去の予約' : '今後・施術中'}）</span>
+                <span class="hist-request">予約時のメール：${visit.email ? esc(visit.email) : '登録なし'}</span>
+                ${visit.request ? `<span class="hist-request">ご要望：${esc(visit.request)}</span>` : ''}
+                ${/* 過去の回のメモは読むだけにします。ここに入力欄を並べると、
+                      履歴を開くたびに欄が何個も出てきて、前回の内容が読めません。 */''}
+                ${visit.note ? `<span class="hist-note">メモ：${esc(visit.note)}</span>` : ''}
+                <button class="btn btn-outline btn-sm" type="button" data-history-booking="${esc(visit.code)}">予約の詳細・施術メモを開く</button>
+              </li>`).join('')}
+          </ul>
+        </details>
+        <button class="btn btn-outline btn-sm customer-close" type="button" data-customer-close>詳細を閉じて名簿に戻る</button>
+  `;
+}
+
+function closeCustomerProfile(record) {
+  record.open = false;
+  record.querySelector('.customer-profile').replaceChildren();
+}
+
 function renderCustomers() {
   if (!guardNoteFilters(renderedCustomerFilters)) return;
   const expanded = $('#customer-rows .customer-record[open]')?.dataset.customerTel;
@@ -1608,7 +1662,6 @@ function renderCustomers() {
     const latest = schedule.previous;
     // 家族で番号を分け合っているときだけ、どなたのご来店かを添えます
     const shared = c.names.length > 1;
-    const who = v => (shared ? esc(v.name || '（お名前なし）') + '／' : '');
     /* 来店回数は「キャンセルを除いた予約の数」です。
        実際に来られたかどうかまでは分からないので、そう書いておきます。 */
     return `
@@ -1622,45 +1675,7 @@ function renderCustomers() {
             <span class="customer-row-arrow" aria-hidden="true">›</span>
           </summary>
           <div class="customer-profile">
-        <div class="booking-head">
-          <h3 class="customer-name">${shared ? '同じ電話番号を使う方の予約履歴' : `${esc(c.name || '（お名前なし）')}の予約履歴`}</h3>
-          <span class="status-chip">過去の予約 ${schedule.past.length}件</span>
-        </div>
-        <p class="booking-detail">今後・施術中 ${schedule.upcoming.length}件 ／ キャンセル ${schedule.cancelled.length}件</p>
-        ${shared ? `<p class="booking-detail">この番号でご予約：${esc(c.names.join('・'))} 様</p>` : ''}
-        <p class="booking-detail">
-          <a href="tel:${esc(telKey(c.tel))}" style="text-decoration:underline">${esc(c.tel)}</a>
-          ${c.email ? `／ ${esc(c.email)}` : ''}
-        </p>
-        <div class="customer-booking-actions">
-          <p class="note">${shared ? '同じ電話番号の履歴です。予約する方を選んでください。' : 'お名前・電話番号を引き継いで、新しい電話予約を入力できます。'}日時・施術内容は今回分を確認します。</p>
-          ${c.names.map(name => `<button class="btn btn-outline btn-sm" type="button" data-customer-booking="${esc(c.visits.find(visit => String(visit.name || '').trim() === name).code)}">${esc(name)} 様の電話予約</button>`).join('')}
-          ${c.names.length ? '' : '<p class="note">お名前の控えがないため、予約一覧の「電話予約を入れる」から入力してください。</p>'}
-        </div>
-        <p class="booking-detail">予約金額の合計 ${yen(c.spent)}（今後の予約を含む・キャンセルを除く）</p>
-        ${latest ? `<p class="booking-detail">直近の過去予約：${formatDateJa(latest.date)}／${who(latest)}${esc(latest.menu)}（来店確認は未記録）</p>` : '<p class="booking-detail">過去の予約はまだありません。</p>'}
-        ${/* 申し送りは「いちばん新しいご来店の回」に書きます。
-              次にお会いするときに読むものなので、書く相手はその回だからです。
-              古い回を直したくなったら、予約一覧のカードから直せます。 */''}
-        ${latest ? noteEditorHtml(latest) : ''}
-        ${schedule.next ? `<p class="booking-detail">次の予約（施術中を含む）：${formatDateJa(schedule.next.date)} ${esc(schedule.next.time)}／${who(schedule.next)}${esc(schedule.next.menu)}</p>${noteEditorHtml(schedule.next)}` : '<p class="booking-detail">次の予約はまだありません。</p>'}
-        <details class="customer-history" open>
-          <summary>すべての予約を見る（${c.visits.length}件・キャンセルを含む）</summary>
-          <ul>
-            ${c.visits.map(v => `
-              <li${isCancelled(v) ? ' class="is-cancelled"' : ''}>
-                <span class="hist-date">${formatDateJa(v.date)} ${esc(v.time)}</span>
-                <span class="hist-menu">${who(v)}${esc(v.menu)}（${isCancelled(v) ? 'キャンセル' : schedule.past.includes(v) ? '過去の予約' : '今後・施術中'}）</span>
-                <span class="hist-request">予約時のメール：${v.email ? esc(v.email) : '登録なし'}</span>
-                ${v.request ? `<span class="hist-request">ご要望：${esc(v.request)}</span>` : ''}
-                ${/* 過去の回のメモは読むだけにします。ここに入力欄を並べると、
-                      履歴を開くたびに欄が何個も出てきて、前回の内容が読めません。 */''}
-                ${v.note ? `<span class="hist-note">メモ：${esc(v.note)}</span>` : ''}
-                <button class="btn btn-outline btn-sm" type="button" data-history-booking="${esc(v.code)}">予約の詳細・施術メモを開く</button>
-              </li>`).join('')}
-          </ul>
-        </details>
-        <button class="btn btn-outline btn-sm customer-close" type="button" data-customer-close>詳細を閉じて名簿に戻る</button>
+            ${expanded === telKey(c.tel) ? customerProfileHtml(c) : ''}
           </div>
         </details>
       </article>`;
@@ -3268,8 +3283,14 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const record = customer.closest('.customer-record');
       if ($('#customer-rows .customer-record[open]') && !guardNoteFilters({})) return;
-      $$('.customer-record[open]').forEach(other => { if (other !== record) other.open = false; });
-      record.open = !record.open;
+      if (record.open) closeCustomerProfile(record);
+      else {
+        const selectedCustomer = buildCustomers().find(person => telKey(person.tel) === record.dataset.customerTel);
+        if (!selectedCustomer) return;
+        $$('.customer-record[open]').forEach(closeCustomerProfile);
+        record.querySelector('.customer-profile').innerHTML = customerProfileHtml(selectedCustomer);
+        record.open = true;
+      }
       customer.focus({ preventScroll: true });
       customer.scrollIntoView({ block: 'nearest' });
       return;
@@ -3279,7 +3300,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (closeCustomer) {
       if (!guardNoteFilters({})) return;
       const record = closeCustomer.closest('.customer-record');
-      record.open = false;
+      closeCustomerProfile(record);
       const summary = record.querySelector('[data-customer-history]');
       summary.focus({ preventScroll: true });
       summary.scrollIntoView({ block: 'nearest' });
