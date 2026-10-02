@@ -424,7 +424,7 @@ function doPost(e) {
       if (data.type === 'adminAddStatus') return doAdminAddStatus_(getSheet_(), data);
       if (data.type === 'adminNote')    return doAdminNote_(getSheet_(), data);
       if (data.type === 'adminChange')  return doAdminChange_(getSheet_(), data);
-      if (data.type === 'availability') return doAvailability_(getSheet_());
+      if (data.type === 'availability') return doAvailability_();
       if (data.type === 'lookup')       return doLookup_(getSheet_(), data);
       if (data.type === 'cancel')       return doCancel_(getSheet_(), data);
       if (data.type === 'change')       return doChange_(getSheet_(), data);
@@ -1143,6 +1143,8 @@ function removeFromCalendar_(eventId) {
    氏名・電話番号などの個人情報は一切含めません。
    ============================================================ */
 function doAvailability_(sheet) {
+  sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('予約台帳を確認できません。');
   const snapshot = readSheetSnapshot_(sheet, HEADERS);
   if (!validBookingHeaders_(snapshot.head)) throw new Error(BOOKING_HEADERS_ERROR);
   const rows = snapshot.rows;

@@ -507,3 +507,91 @@ test('ScriptLockの待機失敗ではシートへ進まず他の処理のロッ�
   assert.deepEqual(app.reads, []);
   assert.deepEqual(app.events.map(event => event.kind), ['lock-request', 'lock-wait']);
 });
+
+test('POSTの空席再確認も台帳の見出しと行を一回で読み、初回の占有枠と一致する', () => {
+  const app = fixture();
+  const initial = app.send();
+  const initialReadCount = app.valuesReads.length;
+  const result = app.send({ type: 'availability' });
+  assert.deepEqual(result, { ok: true, booked: initial.booked });
+  assert.deepEqual(app.valuesReads.slice(initialReadCount).map(read => read.sheet), ['予約一覧']);
+  assert.equal(JSON.stringify(result).includes('非公開'), false);
+  assert.equal(JSON.stringify(result).includes('customer@example.test'), false);
+});
+
+test('POSTの空席再確認は短い旧台帳を読むだけで、任意の列を追加しない', () => {
+  const definitions = defaultSheets();
+  definitions.予約一覧 = recordsSheet(LEDGER_HEADERS.slice(0, 9), [bookingRecord()]);
+  const app = fixture({ definitions });
+  assert.deepEqual(app.send({ type: 'availability' }), { ok: true, booked: BASE_BOOKED });
+  assert.equal(app.valuesReads.length, 1);
+});
+
+test('POSTの空席再確認でも並べ替えた列・独自列・取消・長い終了時間を読み分ける', () => {
+  const definitions = defaultSheets();
+  definitions.予約一覧 = recordsSheet(['独自列', ...LEDGER_HEADERS].reverse(), [
+    bookingRecord({ 終了: '12:30', 独自列: '非公開の試験値' }),
+    bookingRecord({ 来店日: NEXT_DATE, 状態: '取消済' }),
+    bookingRecord({ 来店日: '2020-01-01' })
+  ]);
+  const app = fixture({ definitions });
+  const result = app.send({ type: 'availability' });
+  assert.deepEqual(result, { ok: true,
+    booked: [{ date: FUTURE_DATE, time: '10:00', minutes: 150, staffId: 'st01' }] });
+  assert.equal(JSON.stringify(result).includes('非公開'), false);
+  assert.equal(app.valuesReads.length, 1);
+});
+
+for (const [label, head] of [['完全に空', null], ['見出しだけ', LEDGER_HEADERS]]) {
+  test(`POSTの空席再確認は${label}の実在台帳を初期化せず空一覧を返す`, () => {
+    const definitions = defaultSheets();
+    definitions.予約一覧 = { head, rows: [] };
+    const app = fixture({ definitions });
+    assert.deepEqual(app.send({ type: 'availability' }), { ok: true, booked: [] });
+  });
+}
+
+test('POSTの空席再確認で台帳が欠落した場合は新しく作らず確認不能を返す', () => {
+  const definitions = defaultSheets();
+  delete definitions.予約一覧;
+  const app = fixture({ definitions });
+  const result = app.send({ type: 'availability' });
+  assertReadFailure(result);
+  assert.match(result.error, /予約台帳/);
+  assert.deepEqual(app.valuesReads, []);
+});
+
+for (const [label, transform] of [
+  ['来店日欠落', head => head.map(header => header === '来店日' ? '旧来店日' : header)],
+  ['開始欠落', head => head.map(header => header === '開始' ? '旧開始' : header)],
+  ['所要と終了欠落', head => head.map(header => ['所要(分)', '終了'].includes(header) ? '旧' + header : header)],
+  ['開始重複', head => [...head, '開始']]
+]) {
+  test(`POSTの空席再確認は${label}を空席や自動補完でごまかさない`, () => {
+    const definitions = defaultSheets();
+    definitions.予約一覧 = recordsSheet(transform(LEDGER_HEADERS), [bookingRecord()]);
+    const app = fixture({ definitions });
+    const result = app.send({ type: 'availability' });
+    assertReadFailure(result);
+    assert.match(result.error, /予約台帳.*見出し/);
+    assert.equal(app.valuesReads.length, 1);
+  });
+}
+
+test('POSTの空席再確認は読込障害を成功扱いせず、復旧後に最新台帳を読む', () => {
+  const app = fixture({ failure: { sheet: '予約一覧', operation: 'getValues' } });
+  assertReadFailure(app.send({ type: 'availability' }));
+  const failedReadCount = app.valuesReads.length;
+  app.fault.current = null;
+  assert.deepEqual(app.send({ type: 'availability' }), { ok: true, booked: BASE_BOOKED });
+  assert.equal(app.valuesReads.length, failedReadCount + 1);
+  assert.deepEqual(app.send({ type: 'availability' }), { ok: true, booked: BASE_BOOKED });
+  assert.equal(app.valuesReads.length, failedReadCount + 2, '次の要求を古いキャッシュで代用しない');
+});
+
+test('POSTの空席再確認もロック待機失敗では台帳へ進まない', () => {
+  const app = fixture({ occupied: true });
+  assertReadFailure(app.send({ type: 'availability' }));
+  assert.deepEqual(app.reads, []);
+  assert.deepEqual(app.events.map(event => event.kind), ['lock-request', 'lock-wait']);
+});
