@@ -949,16 +949,32 @@ async function checkAdminChange(button) {
     status.textContent = '書きかけの施術メモを先に保存してください。';
     return;
   }
-  activeChange.pending = true;
+  const changing = activeChange;
+  const generation = dashboardGeneration;
+  const previousRows = adminData.reservations;
+  const previousClosed = adminData.closedDates;
+  const previousSnapshot = JSON.stringify({ reservations: previousRows, closedDates: previousClosed });
+  changing.pending = true;
   button.disabled = true;
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = true; });
   status.textContent = '台帳の最新の日時を確認しています…';
-  const result = await adminPost({ type: 'adminData', reservationsOnly: true });
-  activeChange.pending = false;
+  let result;
+  try {
+    result = await adminPost({ type: 'adminData', reservationsOnly: true });
+  } catch {
+    result = null;
+  }
+  changing.pending = false;
   button.disabled = false;
+  if (generation !== dashboardGeneration || activeChange !== changing) return;
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = false; });
   if (!validReservationRefresh(result)) {
     status.textContent = '台帳を確認できませんでした。再送せず、時間をおいて確認してください。';
+    return;
+  }
+  if (hasUnsavedReservationNotes() || adminData.reservations !== previousRows || adminData.closedDates !== previousClosed
+      || JSON.stringify({ reservations: adminData.reservations, closedDates: adminData.closedDates }) !== previousSnapshot) {
+    status.textContent = '確認中に予定や休業設定が変わったため、更新を保留しました。現在の内容を保持して、台帳をもう一度確認してください。再送はしません。';
     return;
   }
   const live = (result.reservations || []).find(row => row.code === activeChange.code);
@@ -3260,15 +3276,25 @@ async function refreshReservations() {
     status.textContent = '編集中の予約を保存または閉じてから、予定を読み込んでください。';
     return;
   }
+  const generation = dashboardGeneration;
+  const previousRows = adminData.reservations;
+  const previousClosed = adminData.closedDates;
+  const previousSnapshot = JSON.stringify({ reservations: previousRows, closedDates: previousClosed });
   const button = $('#refresh-reservations');
   button.disabled = true;
   status.textContent = '最新の予定を読み込んでいます。';
   try {
     const result = await adminPost({ type: 'adminData', reservationsOnly: true,
       ...(hasPendingReservationDetails() ? { briefPast: true } : {}) });
+    if (generation !== dashboardGeneration) return;
     if (!validReservationRefresh(result)) throw new Error('読み込み失敗');
     if (hasUnsavedReservationNotes() || activeChange) {
       status.textContent = '編集中の予約があるため更新を保留しました。保存後に読み込んでください。';
+      return;
+    }
+    if (adminData.reservations !== previousRows || adminData.closedDates !== previousClosed
+        || JSON.stringify({ reservations: adminData.reservations, closedDates: adminData.closedDates }) !== previousSnapshot) {
+      status.textContent = '読み込み中に予定や休業設定が変わったため、更新を保留しました。現在の表示を保持しています。もう一度読み込んでください。';
       return;
     }
     adminData.reservations = result.reservations || [];
@@ -3281,7 +3307,7 @@ async function refreshReservations() {
     showReservationFreshness();
     return true;
   } catch {
-    status.textContent = '最新の予定を取得できませんでした。表示中の予定は古い可能性があります。再度読み込んでください。';
+    if (generation === dashboardGeneration) status.textContent = '最新の予定を取得できませんでした。表示中の予定は古い可能性があります。再度読み込んでください。';
   } finally {
     button.disabled = false;
   }

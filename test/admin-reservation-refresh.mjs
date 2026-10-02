@@ -117,7 +117,7 @@ function clientFixture(response) {
   const adminData = { reservations: [reservation], closedDates: [{ 休業日: '2030-01-03' }],
     menus: [{ 名称: '入力中メニュー' }], stamps: { closed: 'old-stamp' } };
   const edits = { settings: [{ value: '未保存の設定' }] };
-  const context = vm.createContext({ adminData, edits, activeChange: null,
+  const context = vm.createContext({ adminData, edits, activeChange: null, dashboardGeneration: 1,
     pendingNoteSaves: new Set(), $: selector => selector === '#reservation-freshness' ? status : button,
     $$: () => [], adminPost: async request => { requests.push(request); return response; },
     renderStats() {}, renderReservations() {}, renderAdminCalendar() {}, renderCustomers() {}, renderNumbers() {},
@@ -155,6 +155,43 @@ test('詳細未取得の起動データを更新する場合だけ軽量な過�
   assert.equal(app.adminData.menus, menus);
 });
 
+for (const reason of ['電話予約追加', '保存済みメモ', '休業日の追加', '休業日配列の入替', '再ログイン']) {
+  test(`予定の再読込中の${reason}を遅い応答で巻き戻さない`, async () => {
+    const app = clientFixture();
+    let finishRead;
+    app.context.adminPost = () => new Promise(resolve => { finishRead = resolve; });
+    const reading = app.context.refreshReservations();
+    if (reason === '電話予約追加') app.adminData.reservations.push({ code: 'LM-PHONE' });
+    if (reason === '保存済みメモ') app.adminData.reservations[0].note = '通信中に保存したメモ';
+    if (reason === '休業日の追加') app.adminData.closedDates.push({ 休業日: '2030-01-04' });
+    if (reason === '休業日配列の入替') app.adminData.closedDates = [{ 休業日: '2030-01-05' }];
+    if (reason === '再ログイン') {
+      app.context.dashboardGeneration++;
+      app.adminData.reservations = [{ code: 'LM-LOGIN' }];
+      app.status.textContent = '新しいログイン後の表示';
+    }
+    const snapshot = structuredClone(app.adminData);
+    finishRead({ ok: true, reservations: [{ code: 'LM-OLD' }], closedDates: [] });
+    assert.equal(await reading, undefined);
+    assert.deepEqual(app.adminData, snapshot);
+    assert.match(app.status.textContent, reason === '再ログイン' ? /新しいログイン後/ : /更新を保留/);
+    assert.equal(app.button.disabled, false);
+  });
+}
+
+test('前のログインの読込失敗で、新しいログインの案内を上書きしない', async () => {
+  const app = clientFixture();
+  let failRead;
+  app.context.adminPost = () => new Promise((resolve, reject) => { failRead = reject; });
+  const reading = app.context.refreshReservations();
+  app.context.dashboardGeneration++;
+  app.status.textContent = '新しいログイン後の表示';
+  failRead(new Error('架空の通信障害'));
+  await reading;
+  assert.equal(app.status.textContent, '新しいログイン後の表示');
+  assert.equal(app.button.disabled, false);
+});
+
 test('欠けた取得応答で表示中の予約・休業を消さず、再確認を案内する', async () => {
   for (const response of [null, { ok: true }, { ok: true, reservations: null, closedDates: [] },
     { ok: true, reservations: [], closedDates: null }, { ok: true, reservations: [null], closedDates: [] },
@@ -176,6 +213,45 @@ test('日時変更の結果確認も軽量取得で行い、編集中データ�
   assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true }]);
   assert.equal(app.context.activeChange, null);
   assert.equal(app.adminData.reservations[0].time, '14:00');
+});
+
+for (const reason of ['電話予約追加', '休業日の保存', '再ログイン']) {
+  test(`日時変更の確認中の${reason}を古い照会結果で上書きしない`, async () => {
+    const app = clientFixture();
+    let finishRead;
+    app.context.adminPost = () => new Promise(resolve => { finishRead = resolve; });
+    app.context.activeChange = { code: 'LM-FRESH', date: '2030-01-04', time: '14:00', pending: false, uncertain: true };
+    const reading = app.context.checkAdminChange(app.checkButton);
+    if (reason === '電話予約追加') app.adminData.reservations.push({ code: 'LM-PHONE' });
+    if (reason === '休業日の保存') app.adminData.closedDates = [{ 休業日: '2030-01-05' }];
+    if (reason === '再ログイン') {
+      app.context.dashboardGeneration++;
+      app.context.activeChange = null;
+      app.adminData.reservations = [{ code: 'LM-LOGIN' }];
+      app.status.textContent = '新しいログイン後の表示';
+    }
+    const snapshot = structuredClone(app.adminData);
+    finishRead({ ok: true, reservations: [{ code: 'LM-FRESH', date: '2030-01-04', time: '14:00' }], closedDates: [] });
+    await reading;
+    assert.deepEqual(app.adminData, snapshot);
+    assert.match(app.status.textContent, reason === '再ログイン' ? /新しいログイン後/ : /更新を保留/);
+    if (reason !== '再ログイン') {
+      assert.equal(app.context.activeChange.uncertain, true);
+      assert.equal(app.context.activeChange.pending, false);
+    }
+    assert.equal(app.checkButton.disabled, false);
+  });
+}
+
+test('日時変更の確認接続が例外でも結果未確認の操作を残し、確認ボタンへ復帰する', async () => {
+  const app = clientFixture();
+  app.context.activeChange = { code: 'LM-FRESH', date: '2030-01-04', time: '14:00', pending: false, uncertain: true };
+  app.context.adminPost = async () => { throw new Error('架空の接続障害'); };
+  await app.context.checkAdminChange(app.checkButton);
+  assert.equal(app.context.activeChange.pending, false);
+  assert.equal(app.context.activeChange.uncertain, true);
+  assert.equal(app.checkButton.disabled, false);
+  assert.match(app.status.textContent, /台帳を確認できません/);
 });
 
 test('日時変更の取得応答が壊れても未確認の操作を解除せず、再送を促さない', async () => {

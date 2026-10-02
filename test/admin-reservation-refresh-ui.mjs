@@ -11,7 +11,7 @@ const password = process.env.MOCK_ADMIN_PASSWORD;
 assert.ok(password, 'MOCK_ADMIN_PASSWORD が必要です');
 after(() => browser.close());
 
-async function withAdmin(design, run) {
+async function withAdmin(design, run, allowedWrites = []) {
   let handler;
   const server = http.createServer((request, response) => handler(request, response));
   server.listen(0, '127.0.0.1');
@@ -56,7 +56,7 @@ async function withAdmin(design, run) {
     assert.ok(requests.some(request => request.type === 'adminData' && !request.reservationsOnly), '初回は全管理データを取得する');
     requests.length = 0;
     await run({ page, booking, initial, control, requests });
-    assert.ok(requests.every(request => request.type === 'adminData'), '表示の更新だけで書き込まない');
+    assert.ok(requests.every(request => request.type === 'adminData' || allowedWrites.includes(request.type)), '指定した架空操作以外は書き込まない');
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
@@ -66,6 +66,29 @@ async function withAdmin(design, run) {
 }
 
 for (const design of ['', '?design=a']) {
+  test(`予定を再読込している間に保存した休業日を巻き戻さない ${design || '従来版'}`, async () => {
+    await withAdmin(design, async ({ page, control, requests }) => {
+      let finishRead;
+      control.gate = new Promise(resolve => { finishRead = resolve; });
+      await page.locator('#refresh-reservations').click();
+      await page.waitForFunction(() => document.querySelector('#refresh-reservations').disabled);
+      await page.locator('#admin-tabs [data-pane="closed"]').click();
+      await page.locator('[data-add="closed"]').click();
+      const row = page.locator('#closed-rows .booking-card').last();
+      await row.locator('[data-col="休業日"]').fill('2026-10-10');
+      await page.locator('[data-save="closed"]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-save="closed"]').disabled);
+      assert.match(await page.locator('#save-ok').innerText(), /休業日を保存しました/);
+      const saved = await page.evaluate(() => JSON.stringify({ reservations: adminData.reservations, closedDates: adminData.closedDates }));
+      assert.ok(JSON.parse(saved).closedDates.some(closed => closed.休業日 === '2026-10-10'));
+      finishRead();
+      await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+      assert.equal(await page.evaluate(() => JSON.stringify({ reservations: adminData.reservations, closedDates: adminData.closedDates })), saved);
+      assert.match(await page.locator('#reservation-freshness').innerText(), /更新を保留/);
+      assert.equal(requests.filter(request => request.type === 'adminSave').length, 1);
+    }, ['adminSave']);
+  });
+
   test(`予定だけを更新し、電話予約の入力と編集データを保持 ${design || '従来版'}`, async () => {
     await withAdmin(design, async ({ page, booking, requests }) => {
       const before = await page.evaluate(() => JSON.stringify({ edits, stamps: adminData.stamps, menus: adminData.menus }));
