@@ -2910,9 +2910,10 @@ function notifyLine_(text) {
 
 function mailCustomer_(email, subject, body) {
   if (!MAIL_TO_CUSTOMER) return '停止中';
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) return '宛先なし';
+  const address = halfWidth_(email).trim();
+  if (!address || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return '宛先なし';
   try {
-    MailApp.sendEmail(String(email).trim(), `【${SALON_NAME}】${subject}`, body);
+    MailApp.sendEmail(address, `【${SALON_NAME}】${subject}`, body);
     return '送信処理受付';
   } catch (err) {
     console.warn('お客様へのメール送信に失敗しました', err);
