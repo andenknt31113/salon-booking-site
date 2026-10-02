@@ -4,7 +4,8 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
-const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'loadCustomerDetails', 'loadReservationDetails']
+const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'loadCustomerDetails', 'loadReservationDateDetails',
+  'sameSelectedReservationSnapshot', 'loadSelectedReservationDetails', 'loadReservationDetails']
   .map(name => source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'))[0]).join('\n');
 const PAST = { code: 'LM-HISTORY', date: '2026-09-01', time: '10:00', endTime: '11:00',
   name: '架空のお客様', tel: '09000000000', status: '確定', price: 6900, detailsPending: true };
@@ -22,9 +23,10 @@ function fixture({ rows = [PAST, OTHER, READY], throws = false } = {}) {
   const renders = [];
   const context = vm.createContext({ Promise, Set, Map, JSON,
     adminData: { reservations: structuredClone(rows), closedDates: [], settings: { label: '保持する設定' } },
-    dashboardGeneration: 1, customerDetailsReads: new Map(), customerDetailsErrors: new Map(),
+    dashboardGeneration: 1, scopedDetailsReads: new Map(), scopedDetailsErrors: new Map(),
     reservationDetailsRead: null, reservationDetailsError: '',
     activeChange: null, unsaved: false,
+    $: () => ({ value: '' }), showPast: false, toKey: () => '2026-10-03',
     telKey: value => String(value || '').replace(/\D/g, ''),
     hasUnsavedReservationNotes: () => context.unsaved,
     adminPost: payload => {
@@ -35,7 +37,8 @@ function fixture({ rows = [PAST, OTHER, READY], throws = false } = {}) {
         closedDates: [{ 休業日: '2026-01-01', メモ: '古い休業日' }] })));
     },
     renderReservations: () => renders.push('reservations'), renderCustomers: () => renders.push('customers'),
-    renderCustomerDetails: key => renders.push(key), renderStats() {}, renderAdminCalendar() {}, renderNumbers() {},
+    renderSelectedReservationDetails: key => renders.push(key), renderCustomerDetails: key => renders.push('customer:' + key),
+    renderStats() {}, renderAdminCalendar() {}, renderNumbers() {},
     showReservationFreshness() {}
   });
   vm.runInContext(functions, context);
@@ -63,7 +66,7 @@ test('選んだ電話番号の未取得メモだけを一回読み、件数・�
   assert.equal(JSON.stringify(previousRows[2]), beforeReady);
   assert.equal(app.context.adminData.closedDates, closed);
   assert.equal(app.context.adminData.settings, settings);
-  assert.equal(app.context.customerDetailsReads.size, 0);
+  assert.equal(app.context.scopedDetailsReads.size, 0);
   assert.equal(await app.read(), true);
   assert.equal(app.calls.length, 1);
 });
@@ -98,7 +101,7 @@ for (const [name, result] of [
     app.completions[0](result);
     assert.equal(await pending, false);
     assert.equal(JSON.stringify(app.context.adminData), before);
-    assert.match(app.context.customerDetailsErrors.get(PAST.tel), /確認できません/);
+    assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /確認できません/);
   });
 }
 
@@ -111,7 +114,7 @@ for (const field of ['date', 'time', 'status', 'tel', 'name', 'price', 'email', 
     app.completions[0]({ ok: true, reservations: [{ ...complete(PAST), [field]: '架空の変更値' }], closedDates: [] });
     assert.equal(await pending, false);
     assert.equal(JSON.stringify(app.context.adminData), before);
-    assert.match(app.context.customerDetailsErrors.get(PAST.tel), /更新を保留/);
+    assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /更新を保留/);
   });
 }
 
@@ -130,7 +133,7 @@ for (const reason of ['未保存メモ', '日時変更', '対象のメモ保存'
     app.completions[0]();
     assert.equal(await pending, false);
     assert.equal(JSON.stringify(app.context.adminData), before);
-    assert.match(app.context.customerDetailsErrors.get(PAST.tel), /更新を保留/);
+    assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /更新を保留/);
   });
 }
 
@@ -158,14 +161,14 @@ test('失敗した方だけ再試行でき、別のお客様の取得とエラ�
   app.completions[1]();
   assert.equal(await first, false);
   assert.equal(await second, true);
-  assert.match(app.context.customerDetailsErrors.get(PAST.tel), /確認できません/);
-  assert.equal(app.context.customerDetailsErrors.has(OTHER.tel), false);
+  assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /確認できません/);
+  assert.equal(app.context.scopedDetailsErrors.has(OTHER.tel), false);
   const retry = app.read();
   await Promise.resolve();
   assert.equal(app.calls.length, 3);
   app.completions[2]();
   assert.equal(await retry, true);
-  assert.equal(app.context.customerDetailsErrors.size, 0);
+  assert.equal(app.context.scopedDetailsErrors.size, 0);
 });
 
 test('再ログイン後へ前の応答・失敗案内・取得状態を持ち越さない', async () => {
@@ -173,26 +176,26 @@ test('再ログイン後へ前の応答・失敗案内・取得状態を持ち�
   const pending = app.read();
   await Promise.resolve();
   app.context.dashboardGeneration++;
-  app.context.customerDetailsReads.clear();
-  app.context.customerDetailsErrors.clear();
+  app.context.scopedDetailsReads.clear();
+  app.context.scopedDetailsErrors.clear();
   const latest = [{ ...READY, note: '再ログイン後のメモ' }];
   app.context.adminData.reservations = latest;
   app.completions[0]();
   assert.equal(await pending, false);
   assert.equal(app.context.adminData.reservations, latest);
-  assert.equal(app.context.customerDetailsErrors.size, 0);
-  assert.equal(app.context.customerDetailsReads.size, 0);
+  assert.equal(app.context.scopedDetailsErrors.size, 0);
+  assert.equal(app.context.scopedDetailsReads.size, 0);
 });
 
 test('同期的な通信例外から再試行でき、未保存入力中は通信しない', async () => {
   const app = fixture({ throws: true });
   assert.equal(await app.read(), false);
-  assert.equal(app.context.customerDetailsReads.size, 0);
+  assert.equal(app.context.scopedDetailsReads.size, 0);
   assert.equal(app.calls.length, 1);
   app.context.unsaved = true;
   assert.equal(await app.read(), false);
   assert.equal(app.calls.length, 1);
-  assert.match(app.context.customerDetailsErrors.get(PAST.tel), /保存または閉じて/);
+  assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /保存または閉じて/);
 });
 
 test('顧客の詳細取得が先の場合、全件CSVの取得は完了を待ち正常な読込を競合と扱わない', async () => {
@@ -230,9 +233,101 @@ test('同時取得の待機中に再ログインしたら、旧世代で新し�
   const full = app.context.loadReservationDetails();
   await Promise.resolve();
   app.context.dashboardGeneration++;
-  app.context.customerDetailsReads.clear();
+  app.context.scopedDetailsReads.clear();
   app.completions[0]();
   assert.equal(await customer, false);
   assert.equal(await full, false);
   assert.equal(app.calls.length, 1);
+});
+
+test('日付取得は取消・電話番号のない予約も含む指定日だけを一回読み、別日を混ぜない', async () => {
+  const cancelled = { ...PAST, code: 'LM-CANCEL', status: 'キャンセル', tel: '' };
+  const second = { ...OTHER, code: 'LM-SECOND' };
+  const otherDay = { ...OTHER, code: 'LM-NEXT-DAY', date: '2026-09-02' };
+  const app = fixture({ rows: [PAST, cancelled, second, otherDay, READY] });
+  const reading = app.context.loadReservationDateDetails(PAST.date);
+  assert.equal(app.context.loadReservationDateDetails(PAST.date), reading);
+  await Promise.resolve();
+  assert.deepEqual(app.calls[0].reservationCodes, [PAST.code, cancelled.code, second.code]);
+  app.completions[0]();
+  assert.equal(await reading, true);
+  assert.equal(app.context.adminData.reservations.length, 5);
+  assert.equal(app.context.adminData.reservations[1].status, 'キャンセル');
+  assert.equal(app.context.adminData.reservations[3].detailsPending, true);
+  assert.equal(await app.context.loadReservationDateDetails('2026-08-31'), true);
+  assert.equal(await app.context.loadReservationDateDetails(PAST.date), true);
+  assert.equal(app.calls.length, 1);
+});
+
+for (const order of ['日付が先', '顧客が先']) {
+  test(`同じ予約を含む日付・顧客の正常取得を競合とせず、両方を保持する：${order}`, async () => {
+    const family = { ...PAST, code: 'LM-FAMILY', date: '2026-08-31', name: '架空の家族' };
+    const app = fixture({ rows: [PAST, OTHER, family] });
+    const date = app.context.loadReservationDateDetails(PAST.date);
+    const customer = app.read();
+    await Promise.resolve();
+    assert.equal(app.calls.length, 2);
+    const first = order === '日付が先' ? 0 : 1;
+    app.completions[first]();
+    assert.equal(await (first === 0 ? date : customer), true);
+    app.completions[1 - first]();
+    assert.equal(await (first === 0 ? customer : date), true);
+    assert.equal(app.context.scopedDetailsErrors.size, 0);
+    assert.equal(app.context.adminData.reservations.every(row => !row.detailsPending), true);
+    assert.equal(app.context.adminData.reservations[2].name, family.name);
+  });
+}
+
+for (const field of ['note', 'request', 'price', 'date', 'status']) {
+  test(`重なる取得の間に${field}が変わったら、その新しい内容を古い応答で上書きしない`, async () => {
+    const app = fixture();
+    const date = app.context.loadReservationDateDetails(PAST.date);
+    const customer = app.read();
+    await Promise.resolve();
+    app.completions[0]();
+    assert.equal(await date, true);
+    app.context.adminData.reservations[0][field] = field === 'price' ? 9000 : '別操作の新しい値';
+    const saved = JSON.stringify(app.context.adminData.reservations);
+    app.completions[1]();
+    assert.equal(await customer, false);
+    assert.equal(JSON.stringify(app.context.adminData.reservations), saved);
+    assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /更新を保留/);
+  });
+}
+
+test('日付取得のエラーは別日の取得を止めず、失敗した日だけ明示的に再試行できる', async () => {
+  const otherDay = { ...OTHER, date: '2026-09-02' };
+  const app = fixture({ rows: [PAST, otherDay] });
+  const first = app.context.loadReservationDateDetails(PAST.date);
+  await Promise.resolve();
+  app.completions[0]({ ok: false });
+  assert.equal(await first, false);
+  const second = app.context.loadReservationDateDetails(otherDay.date);
+  await Promise.resolve();
+  app.completions[1]();
+  assert.equal(await second, true);
+  assert.match(app.context.scopedDetailsErrors.get('date:' + PAST.date), /確認できません/);
+  assert.equal(app.context.scopedDetailsErrors.has('date:' + otherDay.date), false);
+  const retry = app.context.loadReservationDateDetails(PAST.date);
+  await Promise.resolve();
+  app.completions[2]();
+  assert.equal(await retry, true);
+  assert.equal(app.context.scopedDetailsErrors.size, 0);
+});
+
+test('日付取得の待機中に全量CSVを押しても、選択応答の後に一回だけ全量を読む', async () => {
+  const app = fixture({ rows: [PAST, { ...OTHER, date: '2026-09-02' }] });
+  const selected = app.context.loadReservationDateDetails(PAST.date);
+  const full = app.context.loadReservationDetails();
+  await Promise.resolve();
+  assert.equal(app.calls.length, 1);
+  assert.deepEqual(app.calls[0].reservationCodes, [PAST.code]);
+  app.completions[0]();
+  assert.equal(await selected, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.calls.length, 2);
+  assert.equal(app.calls[1].reservationCodes, undefined);
+  app.completions[1]();
+  assert.equal(await full, true);
+  assert.equal(app.context.adminData.reservations.every(row => !row.detailsPending), true);
 });

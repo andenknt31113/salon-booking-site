@@ -54,10 +54,11 @@ const pendingSaves = new Set();
 const pendingEditors = new Set();
 const editorReads = new Map();
 let dashboardGeneration = 0;
+let pendingBookingFocus = null;
 let reservationDetailsRead = null;
 let reservationDetailsError = '';
-const customerDetailsReads = new Map();
-const customerDetailsErrors = new Map();
+const scopedDetailsReads = new Map();
+const scopedDetailsErrors = new Map();
 
 /* 記憶した合鍵の置き場所。パスワードそのものは保存しません。
    合鍵は Apps Script 側で発行・失効させるため、盗まれても店側で無効にできます。 */
@@ -357,10 +358,11 @@ async function openDashboard(remembered = false) {
   }
   adminData = res;
   dashboardGeneration += 1;
+  pendingBookingFocus = null;
   reservationDetailsRead = null;
   reservationDetailsError = '';
-  customerDetailsReads.clear();
-  customerDetailsErrors.clear();
+  scopedDetailsReads.clear();
+  scopedDetailsErrors.clear();
   pendingEditors.clear();
   editorReads.clear();
   for (const target of ['styles', 'reviews']) {
@@ -547,7 +549,11 @@ function renderReservations() {
   const keys = (pastKeys.length && !showPast) ? sorted.filter(d => d >= today) : sorted;
   if (keys.some(date => hasPendingReservationDetails(byDate.get(date)))) {
     $('#admin-rows').innerHTML = reservationDetailsMessage();
-    if (!reservationDetailsError) loadReservationDetails();
+    const error = dateFilter ? scopedDetailsErrors.get('date:' + dateFilter) : reservationDetailsError;
+    if (!error) {
+      if (dateFilter) loadReservationDateDetails(dateFilter);
+      else loadReservationDetails();
+    }
     return;
   }
 
@@ -1211,6 +1217,7 @@ function showTodayReservations() {
 
 function onFilterChange() {
   if (!guardNoteFilters(renderedReservationFilters)) return;
+  pendingBookingFocus = null;
   const d = $('#filter-date').value;
   /* 日付で絞り込んだら、カレンダーもその日を含む7日間へ動かします。
      切り替えたときに別の週が出ていると、同じ日をもう一度探すことになります。 */
@@ -1241,6 +1248,7 @@ function renderReservationFilterSummary() {
 
 /** 一覧とカレンダーを切り替える */
 function setReserveView(view) {
+  pendingBookingFocus = null;
   reserveView = view === 'calendar' ? 'calendar' : 'list';
   renderReservationFilterSummary();
   $$('#reserve-view .tab').forEach(b =>
@@ -1261,12 +1269,14 @@ function focusBooking(code) {
   }
   const r = (adminData.reservations || []).find(x => x.code === code);
   if (!r) return;
+  const request = {};
+  pendingBookingFocus = request;
   if (r.detailsPending === true) {
     const generation = dashboardGeneration;
-    loadReservationDetails().then(loaded => {
-      if (generation !== dashboardGeneration) return;
+    loadReservationDateDetails(r.date).then(loaded => {
+      if (generation !== dashboardGeneration || pendingBookingFocus !== request) return;
       if (loaded) focusBooking(code);
-      else alert(reservationDetailsError || '履歴を確認できません。予約をもう一度選んでください。');
+      else alert(scopedDetailsErrors.get('date:' + r.date) || '履歴を確認できません。予約をもう一度選んでください。');
     });
     return;
   }
@@ -1673,12 +1683,12 @@ function customerSchedule(visits, now = new Date()) {
 function customerProfileHtml(customer) {
   if (hasPendingReservationDetails(customer.visits)) {
     const key = telKey(customer.tel);
-    const reading = customerDetailsReads.has(key) || reservationDetailsRead;
-    const message = customerDetailsErrors.get(key) || (reading
+    const reading = scopedDetailsReads.has(key) || reservationDetailsRead;
+    const message = scopedDetailsErrors.get(key) || (reading
       ? '選んだお客様のメモ・ご要望を読み込んでいます。名簿の件数・日時は取得済みです。'
       : 'この方のメモ・ご要望はまだ読み込んでいません。名簿の件数・日時は取得済みです。');
     return `<div class="empty-state" role="status"><p>${esc(message)}</p>${!reading
-      ? `<button class="btn btn-outline btn-sm" type="button" data-retry-customer-history="${esc(key)}">この方の履歴を${customerDetailsErrors.has(key) ? 'もう一度' : ''}読み込む</button>` : ''}</div>
+      ? `<button class="btn btn-outline btn-sm" type="button" data-retry-customer-history="${esc(key)}">この方の履歴を${scopedDetailsErrors.has(key) ? 'もう一度' : ''}読み込む</button>` : ''}</div>
       <button class="btn btn-outline btn-sm customer-close" type="button" data-customer-close>詳細を閉じて名簿に戻る</button>`;
   }
   const schedule = customer.schedule || customerSchedule(customer.visits);
@@ -3207,23 +3217,47 @@ function renderCustomerDetails(key) {
 }
 
 function loadCustomerDetails(key) {
+  return loadSelectedReservationDetails(key, adminData.reservations.filter(row => telKey(row.tel) === key).map(row => row.code));
+}
+
+function loadReservationDateDetails(date) {
+  return loadSelectedReservationDetails('date:' + date, adminData.reservations.filter(row => row.date === date).map(row => row.code));
+}
+
+function renderSelectedReservationDetails(key) {
+  if (key.startsWith('date:')) {
+    if ($('#filter-date').value === key.slice('date:'.length)) renderReservations();
+  } else renderCustomerDetails(key);
+}
+
+function sameSelectedReservationSnapshot(row, snapshot, received) {
+  if (JSON.stringify(row) === snapshot) return true;
+  const previous = JSON.parse(snapshot);
+  const detailFields = ['note', 'request', 'detailsPending'];
+  const index = value => JSON.stringify(Object.entries(value).filter(([field]) => !detailFields.includes(field)));
+  return previous.detailsPending === true && row.detailsPending === undefined
+    && row.note === received.note && row.request === received.request && index(row) === index(previous);
+}
+
+function loadSelectedReservationDetails(key, codes) {
   const previousRows = adminData.reservations;
-  const selected = previousRows.filter(row => telKey(row.tel) === key && row.detailsPending === true);
+  const expected = new Set(codes);
+  const selected = previousRows.filter(row => expected.has(row.code) && row.detailsPending === true);
   if (!selected.length) return Promise.resolve(true);
-  if (customerDetailsReads.has(key)) return customerDetailsReads.get(key);
+  if (scopedDetailsReads.has(key)) return scopedDetailsReads.get(key);
   if (reservationDetailsRead) {
     const generation = dashboardGeneration;
-    return reservationDetailsRead.then(() => generation === dashboardGeneration ? loadCustomerDetails(key) : false);
+    return reservationDetailsRead.then(() => generation === dashboardGeneration ? loadSelectedReservationDetails(key, codes) : false);
   }
   if (hasUnsavedReservationNotes() || activeChange) {
-    customerDetailsErrors.set(key, '編集中の予約を保存または閉じてから、この方の履歴を読み込んでください。');
-    renderCustomerDetails(key);
+    scopedDetailsErrors.set(key, '編集中の予約を保存または閉じてから、履歴を読み込んでください。');
+    renderSelectedReservationDetails(key);
     return Promise.resolve(false);
   }
   const generation = dashboardGeneration;
   const snapshots = new Map(selected.map(row => [row.code, JSON.stringify(row)]));
   const originals = new Map(selected.map(row => [row.code, row]));
-  customerDetailsErrors.delete(key);
+  scopedDetailsErrors.delete(key);
   const reading = Promise.resolve().then(async () => {
     try {
       const result = await adminPost({ type: 'adminData', reservationsOnly: true,
@@ -3234,10 +3268,11 @@ function loadCustomerDetails(key) {
             || typeof row.note !== 'string' || typeof row.request !== 'string')) throw new Error('履歴の応答を確認できません。');
       const metadata = ['code', 'date', 'time', 'endTime', 'menu', 'staffName', 'price', 'name', 'tel', 'email', 'visit', 'source', 'status'];
       const currentRows = new Set(adminData.reservations);
+      const received = new Map(result.reservations.map(row => [row.code, row]));
       if (hasUnsavedReservationNotes() || activeChange || adminData.reservations !== previousRows
-          || selected.some(row => !currentRows.has(row) || JSON.stringify(row) !== snapshots.get(row.code))
+          || selected.some(row => !currentRows.has(row) || !sameSelectedReservationSnapshot(row, snapshots.get(row.code), received.get(row.code)))
           || result.reservations.some(row => metadata.some(field => row[field] !== originals.get(row.code)[field]))) {
-        customerDetailsErrors.set(key, '読み込み中に予定や入力が変わったため、履歴の更新を保留しました。入力を保存し、予定を確認してからもう一度読み込んでください。');
+        scopedDetailsErrors.set(key, '読み込み中に予定や入力が変わったため、履歴の更新を保留しました。入力を保存し、予定を確認してからもう一度読み込んでください。');
         return false;
       }
       result.reservations.forEach(row => {
@@ -3246,34 +3281,39 @@ function loadCustomerDetails(key) {
         original.request = row.request;
         delete original.detailsPending;
       });
-      renderReservations();
+      if (key.startsWith('date:')) new Set(selected.map(row => telKey(row.tel))).forEach(renderCustomerDetails);
+      const dateFilter = $('#filter-date').value;
+      if (!key.startsWith('date:') && selected.some(row => dateFilter ? row.date === dateFilter
+        : showPast || row.date >= toKey(new Date()))) renderReservations();
       return true;
     } catch {
-      if (generation === dashboardGeneration) customerDetailsErrors.set(key,
-        'この方のメモ・ご要望を確認できません。取得済みの件数・日時は保持しています。もう一度読み込んでください。');
+      if (generation === dashboardGeneration) scopedDetailsErrors.set(key,
+        '履歴のメモ・ご要望を確認できません。取得済みの件数・日時は保持しています。もう一度読み込んでください。');
       return false;
     } finally {
-      if (customerDetailsReads.get(key) === reading) customerDetailsReads.delete(key);
-      if (generation === dashboardGeneration) renderCustomerDetails(key);
+      if (scopedDetailsReads.get(key) === reading) scopedDetailsReads.delete(key);
+      if (generation === dashboardGeneration) renderSelectedReservationDetails(key);
     }
   });
-  customerDetailsReads.set(key, reading);
-  renderCustomerDetails(key);
+  scopedDetailsReads.set(key, reading);
+  renderSelectedReservationDetails(key);
   return reading;
 }
 
 function reservationDetailsMessage() {
-  const message = reservationDetailsError || '履歴のメモ・ご要望を読み込んでいます。予約の件数・日時は取得済みです。';
-  return `<div class="empty-state" role="status"><p>${esc(message)}</p>${reservationDetailsError
+  const date = $('#filter-date')?.value;
+  const error = date ? scopedDetailsErrors.get('date:' + date) : reservationDetailsError;
+  const message = error || '履歴のメモ・ご要望を読み込んでいます。予約の件数・日時は取得済みです。';
+  return `<div class="empty-state" role="status"><p>${esc(message)}</p>${error
     ? '<button class="btn btn-outline btn-sm" type="button" data-retry-history>履歴をもう一度読み込む</button>' : ''}</div>`;
 }
 
 function loadReservationDetails() {
   if (!hasPendingReservationDetails()) return Promise.resolve(true);
   if (reservationDetailsRead) return reservationDetailsRead;
-  if (customerDetailsReads.size) {
+  if (scopedDetailsReads.size) {
     const generation = dashboardGeneration;
-    return Promise.all([...customerDetailsReads.values()])
+    return Promise.all([...scopedDetailsReads.values()])
       .then(() => generation === dashboardGeneration ? loadReservationDetails() : false);
   }
   if (hasUnsavedReservationNotes() || activeChange) {
@@ -3456,6 +3496,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#admin-tabs').addEventListener('click', e => {
     const tab = e.target.closest('.tab');
     if (!tab) return;
+    pendingBookingFocus = null;
     const editorTabs = $('#site-edit-tabs');
     editorTabs.open = editorTabs.contains(tab);
     document.body.classList.toggle('admin-edit-mode', editorTabs.open);
@@ -3553,12 +3594,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const retryCustomerHistory = e.target.closest('[data-retry-customer-history]');
     if (retryCustomerHistory) { await loadCustomerDetails(retryCustomerHistory.dataset.retryCustomerHistory); return; }
     const retryHistory = e.target.closest('[data-retry-history]');
-    if (retryHistory) { await loadReservationDetails(); return; }
+    if (retryHistory) {
+      const date = $('#filter-date').value;
+      if (date) await loadReservationDateDetails(date);
+      else await loadReservationDetails();
+      return;
+    }
     const mail = e.target.closest('[data-mail-code]');
     if (mail) { focusBooking(mail.dataset.mailCode); return; }
     const past = e.target.closest('[data-toggle-past]');
     if (past) {
       if (!guardNoteFilters(renderedReservationFilters)) return;
+      pendingBookingFocus = null;
       showPast = !showPast;
       renderReservations();
       return;
@@ -3820,8 +3867,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const b = e.target.closest('[data-month]');
     if (b) setNumbersMonth(Number(b.dataset.month));
   });
-  $('#acal-prev').addEventListener('click', () => { acalOffset -= ACAL_DAYS; renderAdminCalendar(); });
-  $('#acal-next').addEventListener('click', () => { acalOffset += ACAL_DAYS; renderAdminCalendar(); });
+  $('#acal-prev').addEventListener('click', () => { pendingBookingFocus = null; acalOffset -= ACAL_DAYS; renderAdminCalendar(); });
+  $('#acal-next').addEventListener('click', () => { pendingBookingFocus = null; acalOffset += ACAL_DAYS; renderAdminCalendar(); });
 
   $('#ccal-prev').addEventListener('click', () => { ccalOffset -= 1; renderClosedCalendar(); });
   $('#ccal-next').addEventListener('click', () => { ccalOffset += 1; renderClosedCalendar(); });

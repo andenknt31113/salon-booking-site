@@ -4,7 +4,8 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
-const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'reservationDetailsMessage', 'loadReservationDetails']
+const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'reservationDetailsMessage', 'loadReservationDetails',
+  'loadReservationDateDetails', 'sameSelectedReservationSnapshot', 'loadSelectedReservationDetails']
   .map(name => {
     const definition = source.match(new RegExp(`function ${name}\\([^]*?\\n}`))?.[0];
     assert.ok(definition, `${name} が必要です`);
@@ -29,14 +30,15 @@ function complete(row) {
 
 function fixture(rows = [PAST, TODAY], { throws = false } = {}) {
   const requests = [];
-  const nodes = { '#reservation-freshness': { textContent: '' } };
+  const nodes = { '#reservation-freshness': { textContent: '' }, '#filter-date': { value: '' } };
   let resolveRead;
   const pending = new Promise(resolve => { resolveRead = resolve; });
   const context = vm.createContext({ Promise, Set, JSON,
     adminData: { reservations: structuredClone(rows), closedDates: [], settings: { label: '保持する設定' } },
     reservationDetailsRead: null, reservationDetailsError: '', dashboardGeneration: 1,
-    customerDetailsReads: new Map(),
-    activeChange: null, unsaved: false,
+    scopedDetailsReads: new Map(), scopedDetailsErrors: new Map(),
+    activeChange: null, unsaved: false, pendingBookingFocus: null,
+    showPast: false, toKey: () => '2026-10-03',
     hasUnsavedReservationNotes: () => context.unsaved,
     adminPost: payload => {
       requests.push(JSON.parse(JSON.stringify(payload)));
@@ -45,6 +47,7 @@ function fixture(rows = [PAST, TODAY], { throws = false } = {}) {
     },
     $: selector => nodes[selector], esc: value => String(value),
     renderStats() {}, renderReservations() {}, renderAdminCalendar() {}, renderCustomers() {}, renderNumbers() {},
+    renderSelectedReservationDetails() {}, renderCustomerDetails() {}, telKey: value => String(value),
     showReservationFreshness() {}
   });
   vm.runInContext(functions, context);
@@ -148,7 +151,7 @@ for (const action of ['CSV出力', 'カレンダーから詳細表示']) {
       if (action === 'CSV出力') await app.context.exportCsv();
       else {
         app.context.focusBooking(PAST.code);
-        await app.context.reservationDetailsRead;
+        await app.context.scopedDetailsReads.get('date:' + PAST.date);
         await Promise.resolve();
       }
       assert.equal(alerts.length, attempt);
@@ -165,7 +168,8 @@ for (const action of ['CSV出力', 'カレンダーから詳細表示']) {
     app.context.filteredReservations = () => app.context.adminData.reservations;
     vm.runInContext(actions, app.context);
     const actionResult = action === 'CSV出力' ? app.context.exportCsv() : app.context.focusBooking(PAST.code);
-    const pending = app.context.reservationDetailsRead;
+    const pending = action === 'CSV出力' ? app.context.reservationDetailsRead
+      : app.context.scopedDetailsReads.get('date:' + PAST.date);
     app.context.dashboardGeneration++;
     app.finish();
     await pending;

@@ -26,6 +26,7 @@ function extract(text, name, optional = false) {
 }
 
 const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'loadCustomerDetails',
+  'loadReservationDateDetails', 'sameSelectedReservationSnapshot', 'loadSelectedReservationDetails', 'renderSelectedReservationDetails',
   'loadReservationDetails', 'hasUnsavedReservationNotes', 'guardNoteFilters', 'buildCustomers',
   'customerSchedule', 'customerProfileHtml', 'closeCustomerProfile', 'renderCustomers',
   'noteEditorHtml', 'filteredReservations', 'exportCsv', 'refreshReservations', 'telKey', 'searchKey']
@@ -70,8 +71,8 @@ async function fixture(testContext, rows) {
   await page.goto('data:text/html;charset=utf-8,' + encodeURIComponent(HTML));
   await page.addScriptTag({ content: `
     var adminData, dashboardGeneration = 1, reservationDetailsRead = null, reservationDetailsError = '';
-    var customerDetailsReads = new Map(), customerDetailsErrors = new Map(), pendingNoteSaves = new Set();
-    var activeChange = null, renderedCustomerFilters = {}, customersNeedRender = true;
+    var scopedDetailsReads = new Map(), scopedDetailsErrors = new Map(), pendingNoteSaves = new Set();
+    var activeChange = null, renderedCustomerFilters = {}, customersNeedRender = true, showPast = false;
     var reviewCalls = [], reviewCompletions = [], reviewAlerts = [];
     const NOTE_MAX = 1000;
     const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
@@ -116,7 +117,7 @@ async function reply(page, index, rows) {
 }
 
 async function finishCustomer(page) {
-  await page.waitForFunction(() => customerDetailsReads.size === 0);
+  await page.waitForFunction(() => scopedDetailsReads.size === 0);
 }
 
 test('予定更新で未取得に戻った展開中のお客様から、実際に履歴を再取得できる', async testContext => {
@@ -137,7 +138,7 @@ test('予定更新で未取得に戻った展開中のお客様から、実際�
   });
   const profile = customer(page, FIRST).locator('.customer-profile');
   assert.equal(await customer(page, FIRST).evaluate(record => record.open), true);
-  assert.equal(await page.evaluate(() => customerDetailsReads.size), 0);
+  assert.equal(await page.evaluate(() => scopedDetailsReads.size), 0);
   assert.equal(await profile.locator('[data-retry-customer-history]').count(), 1,
     '通信していない展開行に、履歴を読み込むボタンを表示する');
   assert.match(await profile.innerText(), /まだ読み込んでいません/);
