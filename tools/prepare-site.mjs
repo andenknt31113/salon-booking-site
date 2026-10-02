@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const PUBLIC_FILES = ['index.html', 'gallery.html', 'menu.html', 'staff.html', 'reviews.html',
   'reserve.html', 'mypage.html', 'privacy.html', '404.html', 'admin.html', 'admin-google.html',
-  'design-a.html', 'favicon.svg', 'robots.txt', 'sitemap.xml', '.nojekyll'];
+  'design-a.html', 'favicon.svg', 'robots.txt', 'sitemap.xml'];
 const ASSET_EXTENSIONS = new Set(['.js', '.css', '.json', '.jpg', '.jpeg', '.png', '.gif', '.svg',
   '.webp', '.avif', '.woff', '.woff2', '.ttf', '.otf']);
 const SECRET_PATTERNS = [/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,

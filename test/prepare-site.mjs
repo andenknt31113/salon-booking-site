@@ -33,11 +33,12 @@ async function fixture(run) {
 test('公開ページと画像等だけを同じ内容でコピーし、資料・GASを含めない', async () => {
   await fixture(async ({ root, destination }) => {
     const result = await prepareSite({ root, destination });
-    assert.equal(result.files, 17);
+    assert.equal(result.files, 16);
     assert.equal(await readFile(join(destination, 'index.html'), 'utf8'), await readFile(join(root, 'index.html'), 'utf8'));
     assert.equal(await readFile(join(destination, 'assets', 'js', 'example.js'), 'utf8'), 'const sample = "表示用";');
     assert.equal((await readdir(destination)).includes('HANDOFF.md'), false);
     assert.equal((await readdir(destination)).includes('gas'), false);
+    assert.equal((await readdir(destination)).includes('.nojekyll'), false);
   });
 });
 
