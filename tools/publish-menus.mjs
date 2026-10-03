@@ -1,5 +1,5 @@
-import { readFile, writeFile, rename } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { publicHtml } from './public-content.mjs';
 
 const OUTPUT = new URL('../assets/js/published-menus.js', import.meta.url);
@@ -83,11 +83,51 @@ if (!changes.length) {
   console.error('公開用データまたは初期HTMLに差分があります：' + changes.map(file => file.name).join('、'));
   process.exitCode = 1;
 } else {
-  for (const file of changes) {
-    const destination = new URL('../' + file.name, import.meta.url);
-    const temporary = fileURLToPath(destination) + '.tmp';
-    await writeFile(temporary, file.next, 'utf8');
-    await rename(temporary, destination);
+  const temporary = await mkdtemp(new URL('../.publication-', import.meta.url));
+  const replaced = [];
+  let keepBackup = false;
+  try {
+    for (const file of changes) {
+      for (const version of ['previous', 'next']) {
+        const path = join(temporary, version, file.name);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, file[version], 'utf8');
+      }
+    }
+    for (const file of files) {
+      if (await readFile(new URL('../' + file.name, import.meta.url), 'utf8') !== file.previous) {
+        throw new Error('準備中に変更されました：' + file.name + '。更新を中止します。');
+      }
+    }
+    for (const file of changes) {
+      const destination = new URL('../' + file.name, import.meta.url);
+      if (await readFile(destination, 'utf8') !== file.previous) {
+        throw new Error('更新中に変更されました：' + file.name + '。更新を中止します。');
+      }
+      await rename(join(temporary, 'next', file.name), destination);
+      replaced.push(file);
+    }
+  } catch (error) {
+    const failed = [];
+    for (const file of replaced.reverse()) {
+      try {
+        const destination = new URL('../' + file.name, import.meta.url);
+        if (await readFile(destination, 'utf8') !== file.next) throw new Error();
+        const restore = join(temporary, 'next', file.name);
+        await copyFile(join(temporary, 'previous', file.name), restore);
+        await rename(restore, destination);
+      } catch {
+        failed.push(file.name);
+      }
+    }
+    if (failed.length) {
+      keepBackup = true;
+      throw new Error('元に戻せません：' + failed.join('、') + '。公開しないでください。復旧用の元ファイルは '
+        + basename(temporary) + '/previous に残しています。', { cause: error });
+    }
+    throw error;
+  } finally {
+    if (!keepBackup) await rm(temporary, { recursive: true, force: true });
   }
   console.log('公開用データと初期HTMLを書き出しました。本番への公開・予約側の変更は行っていません。');
 }

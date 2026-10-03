@@ -15,6 +15,7 @@ on:
       - 'tools/publish-menus.mjs'
       - 'test/prepare-site.mjs'
       - 'test/publication-gate.mjs'
+      - 'test/publication-write-safety.mjs'
       - 'test/publish-menus.mjs'
       - 'test/publish-menu-redirect.mjs'
       - 'test/final-release-static.mjs'
@@ -44,7 +45,7 @@ jobs:
         with:
           node-version: '22'
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
-      - run: node --test test/publication-gate.mjs test/publish-menu-redirect.mjs
+      - run: node --test test/publication-gate.mjs test/publication-write-safety.mjs test/publish-menu-redirect.mjs
       - run: node test/publish-menus.mjs
       - run: node tools/publish-menus.mjs --check-local
       - run: node --test test/prepare-site.mjs
