@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
-const functions = ['customerSchedule', 'customerProfileHtml', 'closeCustomerProfile'].map(name => {
+const functions = ['customerSchedule', 'hasPendingReservationDetails', 'customerProfileHtml', 'closeCustomerProfile'].map(name => {
   const match = source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'));
   assert.ok(match, name + ' が必要です');
   return match[0];
@@ -14,6 +14,7 @@ const escape = value => String(value).replace(/[&<>"']/g, character =>
 
 function fixture() {
   const context = vm.createContext({
+    scopedDetailsReads: new Map(), scopedDetailsErrors: new Map(), reservationDetailsRead: null,
     esc: escape, isCancelled: reservation => reservation.status === 'キャンセル',
     toKey: () => '2030-01-10', telKey: tel => String(tel).replace(/[^0-9]/g, ''),
     yen: price => `¥${price}`, formatDateJa: date => escape(date),
@@ -72,3 +73,21 @@ test('名簿に戻ると詳細だけを解放し、番号・行・フォーカ�
   assert.equal(released, 1);
   assert.equal(record.dataset.customerTel, '00000000041');
 });
+
+for (const state of ['pending', 'reading', 'failed']) {
+  test(`詳細の${state}では索引の要約を完全な履歴として扱わず、メモ編集欄を作らない`, () => {
+    const app = fixture();
+    app.past.detailsPending = true;
+    delete app.past.note;
+    delete app.past.request;
+    if (state === 'reading') app.context.scopedDetailsReads.set(app.customer.tel, true);
+    if (state === 'failed') app.context.scopedDetailsErrors.set(app.customer.tel, '架空の詳細読込失敗');
+    const html = app.context.customerProfileHtml(app.customer);
+    assert.match(html, /role="status"/);
+    assert.equal(html.includes('data-note-code'), false);
+    assert.equal(html.includes('data-retry-customer-history'), state !== 'reading');
+    assert.equal(app.customer.visits.length, 3);
+    assert.equal(app.past.detailsPending, true);
+    assert.equal(app.past.note, undefined);
+  });
+}

@@ -1675,8 +1675,18 @@ function buildCustomers() {
   });
 }
 
-function customerSchedule(visits, now = new Date()) {
+function customerSchedule(visits, now = new Date(), summaryOnly = false) {
   const current = toKey(now) + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  if (summaryOnly === true) {
+    let pastCount = 0;
+    let previous;
+    for (const visit of visits) {
+      if (isCancelled(visit) || visit.date + ' ' + (visit.endTime || visit.time) > current) continue;
+      pastCount++;
+      if (!previous || (visit.date + visit.time).localeCompare(previous.date + previous.time) > 0) previous = visit;
+    }
+    return { pastCount, previousDate: previous?.date || '' };
+  }
   const live = visits.filter(v => !isCancelled(v));
   const past = live.filter(v => v.date + ' ' + (v.endTime || v.time) <= current)
     .sort((left, right) => (right.date + right.time).localeCompare(left.date + left.time));
@@ -1765,14 +1775,17 @@ function renderCustomers() {
   const needle = searchKey(q);
   const digits = telKey(q);
 
-  const customers = buildCustomers().map(customer => ({ ...customer, schedule: customerSchedule(customer.visits) }));
+  const now = new Date();
+  const customers = buildCustomers();
   let list = customers.filter(c => !needle
     || c.names.some(n => searchKey(n).includes(needle))
     || (digits && telKey(c.tel).includes(digits)));
 
-  list.sort((a, b) => sort === 'visits' ? b.schedule.past.length - a.schedule.past.length
-    : sort === 'name' ? String(a.name).localeCompare(String(b.name), 'ja')
-      : String(b.schedule.previous?.date || '').localeCompare(String(a.schedule.previous?.date || '')));
+  const summaries = new Map(sort === 'name' ? [] : list.map(customer =>
+    [customer, customerSchedule(customer.visits, now, true)]));
+  list.sort((first, second) => sort === 'visits' ? summaries.get(second).pastCount - summaries.get(first).pastCount
+    : sort === 'name' ? String(first.name).localeCompare(String(second.name), 'ja')
+      : String(summaries.get(second).previousDate).localeCompare(String(summaries.get(first).previousDate)));
   if (expanded && !filtersChanged) {
     const selectedIndex = list.findIndex(customer => telKey(customer.tel) === expanded);
     if (selectedIndex >= 0) customerPage = Math.floor(selectedIndex / CUSTOMER_PAGE_SIZE);
@@ -1780,7 +1793,8 @@ function renderCustomers() {
   const pageCount = Math.max(1, Math.ceil(list.length / CUSTOMER_PAGE_SIZE));
   customerPage = Math.max(0, Math.min(customerPage, pageCount - 1));
   const start = customerPage * CUSTOMER_PAGE_SIZE;
-  const visible = list.slice(start, start + CUSTOMER_PAGE_SIZE);
+  const visible = list.slice(start, start + CUSTOMER_PAGE_SIZE).map(customer =>
+    ({ ...customer, schedule: customerSchedule(customer.visits, now) }));
   $('#customer-count').textContent = list.length <= CUSTOMER_PAGE_SIZE
     ? `${list.length}件を表示 / 名簿 ${customers.length}件（電話番号ごと）`
     : `${start + 1}〜${start + visible.length}件を表示 / 検索結果 ${list.length}件 / 名簿 ${customers.length}件（電話番号ごと）`;

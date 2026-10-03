@@ -10,6 +10,9 @@ on:
       - 'test/admin-read-snapshot.mjs'
       - 'test/admin-startup-data.mjs'
       - 'test/admin-startup-portal.mjs'
+      - 'test/customer-pagination.mjs'
+      - 'test/customer-roster-deferred.mjs'
+      - 'test/customer-profile.mjs'
       - 'test/booking-email-queue.mjs'
       - 'test/gas-native-snapshot.mjs'
       - 'test/settings.mjs'
@@ -26,6 +29,9 @@ on:
       - 'test/admin-read-snapshot.mjs'
       - 'test/admin-startup-data.mjs'
       - 'test/admin-startup-portal.mjs'
+      - 'test/customer-pagination.mjs'
+      - 'test/customer-roster-deferred.mjs'
+      - 'test/customer-profile.mjs'
       - 'test/booking-email-queue.mjs'
       - 'test/gas-native-snapshot.mjs'
       - 'test/settings.mjs'
@@ -52,4 +58,5 @@ jobs:
           node-version: '22'
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs
+      - run: node --test test/customer-pagination.mjs test/customer-roster-deferred.mjs test/customer-profile.mjs
       - run: node test/settings.mjs

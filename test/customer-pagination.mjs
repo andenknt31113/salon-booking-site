@@ -41,6 +41,7 @@ function fixture(count = 125) {
     '#customer-page-label': { textContent: '' }, '#customer-previous': { disabled: true },
     '#customer-next': { disabled: true } };
   const alerts = [];
+  const schedules = [];
   const context = vm.createContext({ customerPage: 0, CUSTOMER_PAGE_SIZE: PAGE_SIZE,
     customersNeedRender: true, renderedCustomerFilters: {}, activeChange: null, unsaved: false,
     adminData: { reservations: reservations(count) },
@@ -55,6 +56,12 @@ function fixture(count = 125) {
     customerProfileHtml: customer => `保持する詳細:${customer.tel}:${customer.visits.length}`,
     alert: message => alerts.push(message), WEEKDAY_JA: ['日', '月', '火', '水', '木', '金', '土'] });
   vm.runInContext(normalization + '\n' + helpers + '\n' + functions, context);
+  const originalSchedule = context.customerSchedule;
+  context.customerSchedule = (...argumentsList) => {
+    const result = originalSchedule(...argumentsList);
+    schedules.push({ visits: argumentsList[0].length, full: Array.isArray(result.past), result });
+    return result;
+  };
   function advance(direction) {
     assert.equal(typeof context.changeCustomerPage, 'function', '名簿のページ操作がある');
     context.changeCustomerPage(direction);
@@ -68,7 +75,7 @@ function fixture(count = 125) {
       querySelector: selector => { assert.equal(selector, '.customer-profile'); return profile; } };
     return profile;
   }
-  return { context, nodes, rows, alerts, focus, advance, visible, expand };
+  return { context, nodes, rows, alerts, focus, schedules, advance, visible, expand };
 }
 
 test('125人を50・50・25人で漏れなく表示し、全予約と集計を残す', () => {
@@ -218,4 +225,123 @@ test('取得結果が減って最終ページがなくなっても、残った�
   assert.equal(app.context.customerPage, 1);
   assert.equal(app.visible().length, 10);
   assert.match(app.nodes['#customer-count'].textContent, /51〜60件.*検索結果 60件.*名簿 60件/);
+});
+
+for (const sort of ['recent', 'visits', 'name']) {
+  test(`5000人の${sort}順でも詳細履歴の作成は表示する50人だけに限定する`, () => {
+    const app = fixture(5000);
+    const original = structuredClone(app.context.adminData.reservations);
+    app.nodes['#customer-sort'].value = sort;
+    app.context.renderCustomers();
+    assert.equal(app.visible().length, PAGE_SIZE);
+    assert.equal(app.schedules.filter(call => call.full).length, PAGE_SIZE);
+    assert.equal(app.schedules.filter(call => !call.full).length, sort === 'name' ? 0 : 5000);
+    assert.ok(app.schedules.filter(call => !call.full).every(call =>
+      Object.keys(call.result).sort().join(',') === 'pastCount,previousDate'));
+    app.schedules.length = 0;
+    app.advance(1);
+    assert.equal(app.schedules.filter(call => call.full).length, PAGE_SIZE);
+    assert.deepEqual(app.context.adminData.reservations, original);
+  });
+}
+
+test('全名簿から1人を検索したら、その人だけ集計し、該当なしでは履歴を作らない', () => {
+  const app = fixture(5000);
+  const original = structuredClone(app.context.adminData.reservations);
+  app.nodes['#customer-search'].value = '架空のお客様4999';
+  app.context.renderCustomers();
+  assert.deepEqual(app.visible(), ['00000004999']);
+  assert.equal(app.schedules.filter(call => call.full).length, 1);
+  assert.equal(app.schedules.filter(call => !call.full).length, 1);
+  assert.match(app.rows.innerHTML, /過去の予約 1件.*今後・施術中 1件/);
+  app.schedules.length = 0;
+  app.nodes['#customer-search'].value = '名簿にないお名前';
+  app.context.renderCustomers();
+  assert.equal(app.visible().length, 0);
+  assert.equal(app.schedules.length, 0);
+  assert.deepEqual(app.context.adminData.reservations, original);
+});
+
+test('軽量な並び順の集計は終了時刻・取消・同時刻・不明な日時を含む従来の詳細と一致する', () => {
+  const app = fixture(0);
+  const now = new Date(2030, 0, 5, 12, 0);
+  const visits = [
+    { code: 'past-old', date: '2029-01-01', time: '10:00', endTime: '11:00', status: '' },
+    { code: 'in-progress', date: '2030-01-05', time: '11:00', endTime: '13:00', status: '' },
+    { code: 'past-now', date: '2030-01-05', time: '10:00', endTime: '12:00', status: '' },
+    { code: 'same-time', date: '2030-01-05', time: '10:00', endTime: '11:00', status: '' },
+    { code: 'cancelled-latest', date: '2030-01-05', time: '11:00', endTime: '12:00', status: 'キャンセル' },
+    { code: 'missing-end', date: '2030-01-05', time: '09:00', status: '' },
+    { code: 'unknown-date', date: '日付不明', time: '', endTime: '', status: '' }
+  ];
+  for (const records of [[], visits, visits.slice().reverse(), visits.filter(row => row.status === 'キャンセル')]) {
+    const original = structuredClone(records);
+    const full = app.context.customerSchedule(records, now);
+    const summary = app.context.customerSchedule(records, now, true);
+    assert.equal(summary.pastCount, full.past.length);
+    assert.equal(summary.previousDate, full.previous?.date || '');
+    assert.deepEqual(records, original);
+    assert.deepEqual(Object.keys(summary).sort(), ['pastCount', 'previousDate']);
+  }
+});
+
+test('名簿の並びと表示は同じ時刻で集計し、分の境界で過去予約の判定を混在させない', () => {
+  const app = fixture(0);
+  const now = new Date(2030, 0, 5, 11, 59);
+  const nextMinute = new Date(2030, 0, 5, 12, 0);
+  let dateReads = 0;
+  app.context.Date = class extends Date {
+    constructor(...values) {
+      super(...(values.length ? values : [dateReads++ ? nextMinute.getTime() : now.getTime()]));
+    }
+  };
+  app.context.adminData.reservations = Array.from({ length: 2 }, (_unused, index) => ({
+    code: `LM-TIME-${index}`, date: '2030-01-05', time: '11:00', endTime: '12:00',
+    name: `架空のお客様${index}`, tel: `0000000000${index}`, email: '', menu: '架空カット',
+    price: 4000, status: '', note: '', request: ''
+  }));
+  app.context.renderCustomers();
+  assert.equal(dateReads, 1);
+  assert.equal((app.rows.innerHTML.match(/過去の予約 0件 ／ 今後・施術中 1件/g) || []).length, 2);
+  assert.equal((app.rows.innerHTML.match(/過去予約なし/g) || []).length, 2);
+});
+
+test('取消と今後の予約を過去件数に混ぜず、家族の旧名検索と全3種類の並びを保持する', () => {
+  const app = fixture(0);
+  const now = new Date(2030, 0, 5, 12, 0);
+  app.context.Date = class extends Date {
+    constructor(...values) { super(...(values.length ? values : [now.getTime()])); }
+  };
+  const booking = (code, tel, name, date, status = '') => ({ code, tel, name, date, status,
+    time: '10:00', endTime: '11:00', email: '', menu: '架空カット', price: 4000, note: '', request: '' });
+  const records = [
+    booking('gamma-past', '00000000003', 'Gamma', '2030-01-04'),
+    booking('alpha-past', '00000000001', 'Alpha', '2030-01-03'),
+    booking('beta-cancel', '00000000002', 'Beta', '2030-01-04', 'キャンセル'),
+    booking('gamma-old', '00000000003', 'Gamma', '2030-01-01'),
+    booking('gamma-next', '00000000003', 'Gamma', '2030-01-06'),
+    booking('gamma-cancel', '00000000003', 'Gamma', '2030-01-05', 'キャンセル'),
+    booking('alpha-child', '00000000001', '家族の古いお名前', '2030-01-01'),
+    booking('alpha-old', '00000000001', 'Alpha', '2029-01-01'),
+    booking('alpha-next', '00000000001', 'Alpha', '2030-01-06')
+  ];
+  app.context.adminData.reservations = records;
+  for (const [sort, expected] of [['recent', ['00000000003', '00000000001', '00000000002']],
+    ['visits', ['00000000001', '00000000003', '00000000002']],
+    ['name', ['00000000001', '00000000002', '00000000003']]]) {
+    app.nodes['#customer-sort'].value = sort;
+    app.context.renderCustomers();
+    assert.deepEqual(app.visible(), expected);
+    assert.match(app.rows.innerHTML, /過去の予約 3件 ／ 今後・施術中 1件/);
+    assert.match(app.rows.innerHTML, /過去の予約 2件 ／ 今後・施術中 1件/);
+    assert.match(app.rows.innerHTML, /過去の予約 0件 ／ 今後・施術中 0件/);
+  }
+  app.nodes['#customer-search'].value = '家族 の 古い お名前';
+  app.context.renderCustomers();
+  assert.deepEqual(app.visible(), ['00000000001']);
+  assert.match(app.rows.innerHTML, /同じ番号：Alpha・家族の古いお名前/);
+  const customer = app.context.buildCustomers().find(person => person.tel === '00000000003');
+  assert.equal(customer.visits.length, 4);
+  assert.equal(customer.spent, 12000);
+  assert.equal(app.context.adminData.reservations, records);
 });
