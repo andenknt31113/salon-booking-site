@@ -18,6 +18,8 @@ node --test test/measure-booking-backend.mjs test/read-probe-cli.mjs
 
 `GAS_EXEC_URL`には対象環境の既存GAS受け口を環境変数で渡します。本番の読取を許可された作業でだけ実行してください。URLや取得本文を共有資料へ貼る必要はありません。
 
+読取要求も通常のGAS入口を使うため、共通ロックや、途中停止した日時変更の既存リカバリー処理を通ります。この道具はその処理を停止・迂回しません。未復旧の台帳をそのまま観察する必要がある障害対応では、先に担当者と確認し、計測だけだから台帳へ一切影響しないとは扱わないでください。
+
 ```sh
 node tools/measure-booking-backend.mjs --run \
   --endpoint "${GAS_EXEC_URL:?対象環境のGAS受け口を指定してください}" \
