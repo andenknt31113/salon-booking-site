@@ -3,6 +3,8 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import vm from 'node:vm';
 import { createMockHandler } from './mock-gas.mjs';
 import { isPublicMapFrame, mapEmbedUrl, mapFixture } from './public-map-fixture.mjs';
@@ -44,6 +46,33 @@ async function openPage({ width = 390, javaScriptEnabled = true, blockMap = fals
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${base}/${name}`, { waitUntil: 'load' });
   return { context, page, maps, unexpected, errors };
+}
+
+for (const javaScriptEnabled of [false, true]) {
+  test(`口コミの見出しを簡潔にし、閲覧・投稿の導線を維持する（JavaScript ${javaScriptEnabled}）`, async () => {
+    const { context, page, unexpected, errors } = await openPage({ javaScriptEnabled });
+    try {
+      const heading = page.locator('.home-review h2');
+      assert.equal(await heading.innerText(), '口コミ');
+      assert.equal(await heading.locator('br').count(), 0, '不要な二段見出しを残さない');
+      assert.doesNotMatch(await page.locator('main').innerText(), /Googleに寄せられた|お客様の声。/);
+      const googleLink = page.locator('#home-reviews a');
+      assert.equal(await googleLink.getAttribute('target'), '_blank');
+      assert.equal(new URL(await googleLink.getAttribute('href')).hostname, 'www.google.com');
+      assert.equal(await page.locator('#home-review-link').getAttribute('href'), 'reviews.html');
+      await heading.scrollIntoViewIfNeeded();
+      assert.equal(await heading.isVisible(), true);
+      assert.equal(await googleLink.isVisible(), true);
+      assert.equal(await page.locator('#home-review-link').isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      assert.deepEqual(unexpected, []);
+      assert.deepEqual(errors, []);
+      if (javaScriptEnabled && process.env.TEST_ARTIFACT_DIR) {
+        await mkdir(process.env.TEST_ARTIFACT_DIR, { recursive: true });
+        await page.screenshot({ path: join(process.env.TEST_ARTIFACT_DIR, 'review-heading-390.png') });
+      }
+    } finally { await context.close(); }
+  });
 }
 
 test('地図と来店情報が各画面幅で読め、店舗情報の折りたたみをキーボードで開ける', async () => {
