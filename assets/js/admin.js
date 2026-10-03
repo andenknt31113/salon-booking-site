@@ -357,6 +357,7 @@ async function openDashboard(remembered = false) {
     return false;
   }
   adminData = res;
+  customerPage = 0;
   dashboardGeneration += 1;
   if (typeof invalidatePublicMenuCheck === 'function') invalidatePublicMenuCheck();
   pendingBookingFocus = null;
@@ -511,6 +512,8 @@ let showPast = false;
 let renderedReservationFilters = {};
 let renderedCustomerFilters = {};
 let customersNeedRender = true;
+let customerPage = 0;
+const CUSTOMER_PAGE_SIZE = 50;
 
 function renderReservations() {
   reconcilePhoneResult();
@@ -1752,6 +1755,9 @@ function renderCustomers() {
   const expanded = $('#customer-rows .customer-record[open]')?.dataset.customerTel;
   const q = ($('#customer-search') || {}).value || '';
   const sort = ($('#customer-sort') || {}).value || 'recent';
+  const filtersChanged = q !== renderedCustomerFilters['#customer-search']
+    || sort !== renderedCustomerFilters['#customer-sort'];
+  if (filtersChanged) customerPage = 0;
   renderedCustomerFilters = { '#customer-search': q, '#customer-sort': sort };
   $('#clear-customer-search').disabled = !q;
   const needle = searchKey(q);
@@ -1765,7 +1771,21 @@ function renderCustomers() {
   list.sort((a, b) => sort === 'visits' ? b.schedule.past.length - a.schedule.past.length
     : sort === 'name' ? String(a.name).localeCompare(String(b.name), 'ja')
       : String(b.schedule.previous?.date || '').localeCompare(String(a.schedule.previous?.date || '')));
-  $('#customer-count').textContent = `${list.length}件を表示 / 名簿 ${customers.length}件（電話番号ごと）`;
+  if (expanded && !filtersChanged) {
+    const selectedIndex = list.findIndex(customer => telKey(customer.tel) === expanded);
+    if (selectedIndex >= 0) customerPage = Math.floor(selectedIndex / CUSTOMER_PAGE_SIZE);
+  }
+  const pageCount = Math.max(1, Math.ceil(list.length / CUSTOMER_PAGE_SIZE));
+  customerPage = Math.max(0, Math.min(customerPage, pageCount - 1));
+  const start = customerPage * CUSTOMER_PAGE_SIZE;
+  const visible = list.slice(start, start + CUSTOMER_PAGE_SIZE);
+  $('#customer-count').textContent = list.length <= CUSTOMER_PAGE_SIZE
+    ? `${list.length}件を表示 / 名簿 ${customers.length}件（電話番号ごと）`
+    : `${start + 1}〜${start + visible.length}件を表示 / 検索結果 ${list.length}件 / 名簿 ${customers.length}件（電話番号ごと）`;
+  $('#customer-pages').hidden = pageCount === 1;
+  $('#customer-page-label').textContent = `${customerPage + 1} / ${pageCount}ページ`;
+  $('#customer-previous').disabled = customerPage === 0;
+  $('#customer-next').disabled = customerPage === pageCount - 1;
 
   if (!list.length) {
     $('#customer-rows').innerHTML = (adminData.reservations || []).length
@@ -1775,7 +1795,7 @@ function renderCustomers() {
     return;
   }
 
-  $('#customer-rows').innerHTML = list.map(c => {
+  $('#customer-rows').innerHTML = visible.map(c => {
     const schedule = c.schedule;
     const latest = schedule.previous;
     // 家族で番号を分け合っているときだけ、どなたのご来店かを添えます
@@ -1799,6 +1819,19 @@ function renderCustomers() {
       </article>`;
   }).join('');
   customersNeedRender = false;
+}
+
+function changeCustomerPage(direction) {
+  if (direction !== -1 && direction !== 1) return;
+  const button = $(direction < 0 ? '#customer-previous' : '#customer-next');
+  if (button.disabled || !guardNoteFilters(renderedCustomerFilters)) return;
+  const expanded = $('#customer-rows .customer-record[open]');
+  if (expanded) closeCustomerProfile(expanded);
+  customerPage += direction;
+  renderCustomers();
+  const first = $('#customer-rows').querySelector('[data-customer-history]');
+  first?.focus({ preventScroll: true });
+  first?.scrollIntoView({ block: 'nearest' });
 }
 
 /* ============================================================
@@ -3886,6 +3919,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#filter-status').addEventListener('change', onFilterChange);
   $('#customer-search').addEventListener('input', renderCustomers);
   $('#customer-sort').addEventListener('change', renderCustomers);
+  $('#customer-previous').addEventListener('click', () => changeCustomerPage(-1));
+  $('#customer-next').addEventListener('click', () => changeCustomerPage(1));
   $('#clear-customer-search').addEventListener('click', () => {
     if (!guardNoteFilters(renderedCustomerFilters)) return;
     $('#customer-search').value = '';

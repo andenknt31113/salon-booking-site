@@ -13,9 +13,12 @@ function fixture({ hidden = false, blocked = false } = {}) {
   const nodes = { '.admin-pane[data-pane="customers"]': pane, '#customer-rows': rows,
     '#customer-rows .customer-record[open]': null, '#customer-search': { value: '' },
     '#customer-sort': { value: 'recent' }, '#clear-customer-search': { disabled: false },
-    '#customer-count': { textContent: '' } };
+    '#customer-count': { textContent: '' }, '#customer-pages': { hidden: true },
+    '#customer-page-label': { textContent: '' }, '#customer-previous': { disabled: true },
+    '#customer-next': { disabled: true } };
   const calls = [];
   const context = vm.createContext({ customersNeedRender: false, renderedCustomerFilters: {},
+    customerPage: 0, CUSTOMER_PAGE_SIZE: 50,
     adminData: { reservations: [] },
     $: selector => { assert.ok(selector in nodes, selector); return nodes[selector]; },
     guardNoteFilters: () => { calls.push('guard'); return !blocked; },

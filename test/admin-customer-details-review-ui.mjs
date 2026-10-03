@@ -17,7 +17,9 @@ const HTML = `<input id="customer-search">
   <button id="clear-customer-search">clear</button>
   <input id="filter-date"><select id="filter-status"><option value="all">all</option></select>
   <button id="refresh-reservations">refresh</button><p id="reservation-freshness"></p>
-  <div class="admin-pane" data-pane="customers"><p id="customer-count"></p><div id="customer-rows"></div></div>`;
+  <div class="admin-pane" data-pane="customers"><p id="customer-count"></p>
+    <nav id="customer-pages" hidden><button id="customer-previous"></button><span id="customer-page-label"></span>
+      <button id="customer-next"></button></nav><div id="customer-rows"></div></div>`;
 
 function extract(text, name, optional = false) {
   const match = text.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, 'm'));
@@ -72,7 +74,8 @@ async function fixture(testContext, rows) {
   await page.addScriptTag({ content: `
     var adminData, dashboardGeneration = 1, reservationDetailsRead = null, reservationDetailsError = '';
     var scopedDetailsReads = new Map(), scopedDetailsErrors = new Map(), pendingNoteSaves = new Set();
-    var activeChange = null, renderedCustomerFilters = {}, customersNeedRender = true, showPast = false;
+    var activeChange = null, renderedCustomerFilters = {}, customersNeedRender = true, showPast = false, customerPage = 0;
+    const CUSTOMER_PAGE_SIZE = 50;
     var reviewCalls = [], reviewCompletions = [], reviewAlerts = [];
     const NOTE_MAX = 1000;
     const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];

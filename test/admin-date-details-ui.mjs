@@ -376,7 +376,8 @@ for (const design of ['', '?design=a']) {
       await page.locator('#admin-tabs [data-pane="customers"]').click();
       await customer.locator('[data-retry-customer-history]').waitFor();
       assert.equal(await customer.locator('[data-note-input]').count(), 0);
-      const other = page.locator(`.customer-record[data-customer-tel="${rows[5].tel}"]`);
+      const other = page.locator(`.customer-record:not([data-customer-tel="${rows[0].tel}"])`).first();
+      assert.notEqual(await other.getAttribute('data-customer-tel'), rows[0].tel, '同じページの対象外顧客を検証する');
       await other.evaluate(record => {
         window.fixtureOtherCustomer = record;
         window.fixtureOtherProfile = record.querySelector('.customer-profile');

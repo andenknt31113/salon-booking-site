@@ -89,8 +89,9 @@ for (const design of ['', '?design=a']) {
           noteInputs: document.querySelectorAll('#customer-rows [data-note-input]').length };
       });
       console.log(JSON.stringify({ design: design || 'original', customers: CUSTOMER_COUNT, visits: rows.length, ...measurement }));
-      assert.equal(await page.locator('.customer-record').count(), CUSTOMER_COUNT);
-      assert.match(await page.locator('#customer-count').textContent(), /250件を表示 \/ 名簿 250件/);
+      assert.equal(await page.locator('.customer-record').count(), 50);
+      assert.match(await page.locator('#customer-count').textContent(), /1〜50件を表示 \/ 検索結果 250件 \/ 名簿 250件/);
+      assert.equal(await page.evaluate(() => buildCustomers().length), CUSTOMER_COUNT, '名簿の全件を保持する');
       assert.equal(measurement.historyRows, 0, '閉じた人の全履歴を先に描画しない');
       assert.equal(measurement.noteInputs, 0, '閉じた人の編集欄を先に作らない');
       const first = page.locator(`.customer-record[data-customer-tel="${firstVisit.tel}"]`);
