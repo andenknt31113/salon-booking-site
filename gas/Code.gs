@@ -2272,7 +2272,8 @@ function doAdminData_(d) {
   let reservationSnapshot = sheet ? readSheetSnapshot_(sheet, []) : null;
   if (!reservationSnapshot || HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) {
     sheet = getSheet_();
-    reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
+    reservationSnapshot = readSheetSnapshot_(sheet, []);
+    if (HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) throw new Error(BOOKING_HEADERS_ERROR);
   }
   if (!validBookingHeaders_(reservationSnapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
   const col = header => {

@@ -18,7 +18,7 @@ function digest(values) {
   return createHash('md5').update(JSON.stringify(values)).digest('hex').slice(0, 12);
 }
 
-function fixture({ failure = '', afterRead, denied = false, repairBookings = false } = {}) {
+function fixture({ failure = '', afterRead, denied = false, repairBookings = false, headerFault = '' } = {}) {
   let held = false;
   const reads = [];
   const writes = [];
@@ -67,6 +67,8 @@ function fixture({ failure = '', afterRead, denied = false, repairBookings = fal
         assert.ok(repairBookings && name === '予約一覧' && held && row === 1,
           '補完を明示した架空台帳の見出し以外には書かない');
         writes.push({ name, operation: 'headers', column, values: structuredClone(values) });
+        if (headerFault === 'discard') return this;
+        if (headerFault === 'partial') values = values.map(line => line.slice(0, 1));
         values.forEach((line, rowIndex) => line.forEach((value, columnIndex) => {
           cells[row - 1 + rowIndex] ||= [];
           cells[row - 1 + rowIndex][column - 1 + columnIndex] = value;
@@ -82,6 +84,7 @@ function fixture({ failure = '', afterRead, denied = false, repairBookings = fal
         assert.ok(repairBookings && name === '予約一覧' && held && cells.length === 0,
           '初期化する架空台帳へ見出しだけを書く');
         writes.push({ name, operation: 'headers', column: 1, values: [Array.from(values)] });
+        if (headerFault === 'discard') return;
         cells.push(Array.from(values));
       }, setFrozenRows() {}, setColumnWidth() {} };
     sheets.set(name, sheet);
@@ -200,6 +203,35 @@ for (const state of ['未作成', '空シート', '見出しだけ']) {
     assert.equal(app.held(), false);
   });
 }
+
+for (const headerFault of ['discard', 'partial']) {
+  test(`任意列の補完が${headerFault}なら初回表示を開始せず、既存の予約行を保持する`, () => {
+    const app = fixture({ repairBookings: true, headerFault });
+    const cells = app.sheets.get('予約一覧').cells;
+    for (const header of ['施術メモ', '電話受付内容']) {
+      const column = cells[0].indexOf(header);
+      cells.forEach(row => row.splice(column, 1));
+    }
+    cells.forEach((row, index) => row.push(index ? 'メモへ転用しない独自値' : '独自列'));
+    const before = structuredClone(cells);
+    const result = app.send({ startupOnly: true, briefPast: true });
+    assert.equal(result.ok, false);
+    assert.equal(Object.hasOwn(result, 'reservations'), false);
+    assert.deepEqual(cells.slice(1), before.slice(1));
+    assert.deepEqual(cells[0].slice(0, before[0].length), before[0]);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('初回の見出し作成が実保存されなければ、仮の見出しを使って成功と返さない', () => {
+  const app = fixture({ repairBookings: true, headerFault: 'discard' });
+  app.sheets.get('予約一覧').cells.length = 0;
+  const result = app.send({ startupOnly: true, briefPast: true });
+  assert.equal(result.ok, false);
+  assert.equal(Object.hasOwn(result, 'reservations'), false);
+  assert.deepEqual(app.sheets.get('予約一覧').cells, []);
+  assert.equal(app.held(), false);
+});
 
 test('5,000件の過去・未来・取消を切り捨てず、一回の予約取得から起動する', () => {
   const app = fixture();
