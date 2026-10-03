@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createMockHandler } from './mock-gas.mjs';
 
@@ -129,6 +129,39 @@ for (const width of [320, 390, 768, 1280]) {
     assert.ok((await booking.boundingBox()).height >= 44, '人物の予約操作も押しやすくする');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     if (process.env.TEST_ARTIFACT_DIR) await page.screenshot({ path: join(process.env.TEST_ARTIFACT_DIR, `staff-${width}.png`), fullPage: true });
+  }));
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`${width}px：料金一覧をコンパクトにし、名前・条件・写真・予約先を省かない`, () => withPage('menu', width, async page => {
+    const cards = page.locator('#coupon-list .coupon');
+    const metrics = await cards.evaluateAll(elements => {
+      const bounds = elements.map(element => element.getBoundingClientRect());
+      const first = elements[0];
+      const title = getComputedStyle(first.querySelector('h3'));
+      const price = getComputedStyle(first.querySelector('.price-now'));
+      const photo = first.querySelector('.coupon-photo').getBoundingClientRect();
+      return { firstThreeHeight: bounds[2].bottom - bounds[0].top,
+        paddingTop: parseFloat(getComputedStyle(first).paddingTop),
+        nameSize: parseFloat(title.fontSize), nameLineHeight: parseFloat(title.lineHeight),
+        priceSize: parseFloat(price.fontSize), photoWidth: photo.width, photoHeight: photo.height };
+    });
+    assert.ok(metrics.paddingTop <= 22, '情報より余白が大きくならない');
+    assert.ok(metrics.nameSize >= 14 && metrics.nameSize <= 15);
+    assert.ok(metrics.nameLineHeight <= metrics.nameSize * 1.6);
+    assert.ok(metrics.priceSize >= 20 && metrics.priceSize <= 22);
+    assert.ok(metrics.photoWidth >= 64 && metrics.photoHeight >= 80, '既存の写真を消さない');
+    assert.equal(await cards.count(), 14);
+    for (const card of await cards.all()) {
+      assert.ok((await card.locator('h3').innerText()).trim());
+      assert.ok(await card.locator('.coupon-badge').isVisible());
+      assert.ok(await card.locator('.price-min').isVisible());
+      const action = await card.locator('a').boundingBox();
+      assert.ok(action.width >= 44 && action.height >= 44);
+    }
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    if (process.env.TEST_ARTIFACT_DIR) await writeFile(join(process.env.TEST_ARTIFACT_DIR, `menu-density-${width}.json`),
+      JSON.stringify(metrics, null, 2));
   }));
 }
 

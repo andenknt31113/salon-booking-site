@@ -116,6 +116,48 @@ for (const width of [...MOBILE_WIDTHS, 768, 1280]) {
   }));
 }
 
+for (const width of [390, 1280]) {
+  test(`${width}px：名前と対象に強弱をつけ、未選択・選択済みを見分けて解除できる`, () => withBooking(width, async page => {
+    const first = page.locator('#coupon-choices .selectable').first();
+    const appearance = () => first.evaluate(button => {
+      const style = selector => getComputedStyle(button.querySelector(selector));
+      const indicator = getComputedStyle(button, '::after');
+      const bounds = button.getBoundingClientRect();
+      return { titleSize: parseFloat(style('.selectable-title').fontSize),
+        badgeSize: parseFloat(style('.selectable-badge').fontSize),
+        priceSize: parseFloat(style('.selectable-meta strong').fontSize),
+        indicatorWidth: parseFloat(indicator.width), indicatorHeight: parseFloat(indicator.height),
+        indicatorBorder: indicator.borderTopStyle, indicatorContent: indicator.content,
+        indicatorBackground: indicator.backgroundColor, pressed: button.getAttribute('aria-pressed'),
+        height: bounds.height };
+    });
+    assert.equal(await first.locator('.selectable-badge').textContent(), `［${published.coupons[0].badge}］`);
+    const idle = await appearance();
+    assert.equal(idle.titleSize, 15);
+    assert.equal(idle.badgeSize, 12);
+    assert.equal(idle.priceSize, 18);
+    assert.equal(idle.indicatorBorder, 'solid');
+    assert.ok(idle.indicatorWidth >= 16 && idle.indicatorHeight >= 16);
+    assert.equal(idle.pressed, 'false');
+    assert.ok(!idle.indicatorContent.includes('✓'));
+    await first.click();
+    const selected = await appearance();
+    assert.equal(selected.pressed, 'true');
+    assert.ok(selected.indicatorContent.includes('✓'));
+    assert.notEqual(selected.indicatorBackground, idle.indicatorBackground);
+    assert.equal(selected.height, idle.height, '選択してもカードの高さを変えない');
+    await page.keyboard.press('Space');
+    assert.equal((await appearance()).pressed, 'false');
+    for (const selector of ['.selectable-sub', '.selectable-time']) {
+      const sizes = await page.locator(`#menu-choices ${selector}`).evaluateAll(fields =>
+        fields.map(field => parseFloat(getComputedStyle(field).fontSize)));
+      assert.ok(sizes.length && sizes.every(size => size >= 13), '説明と時間は読みやすい大きさを保つ');
+    }
+    assert.ok(await page.locator('#f-name').evaluate(field => parseFloat(getComputedStyle(field).fontSize)) >= 16,
+      '入力欄まで小さくしない');
+  }));
+}
+
 test('320px・文字拡大：長い名前・説明・お見積りも切らず、キーボードで解除できる', () => withBooking(320, async page => {
   const title = '長いメニュー名を省略せず全文で比較できることを確認します'.repeat(3);
   const detail = '施術の条件と追加料金の説明を隠しません。'.repeat(5);

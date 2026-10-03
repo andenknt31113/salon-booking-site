@@ -200,7 +200,7 @@ function renderChoiceList(host, html, key) {
 function renderCouponChoices() {
   renderChoiceList($('#coupon-choices'), SALON.coupons.map(c => `
     <button class="selectable ${state.couponId === c.id ? 'is-selected' : ''}" type="button" data-coupon="${esc(c.id)}" aria-pressed="${state.couponId === c.id}">
-      <span class="selectable-title">［${esc(c.badge)}］${esc(c.title)}</span>
+      <span class="selectable-title"><span class="selectable-badge">［${esc(c.badge)}］</span>${esc(c.title)}</span>
       ${c.detail ? `<span class="selectable-sub">${esc(c.detail)}</span>` : ''}
       <span class="selectable-meta">
         <strong class="${c.price ? '' : 'is-quote'}">${priceText(c)}</strong>
