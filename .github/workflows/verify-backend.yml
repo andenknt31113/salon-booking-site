@@ -24,6 +24,7 @@ on:
       - 'test/admin-mail-status-index.mjs'
       - 'test/admin-occupancy-intervals.mjs'
       - 'test/admin-closed-calendar-loading.mjs'
+      - 'test/admin-calendar-loading.mjs'
       - 'test/admin-notification-health.mjs'
       - 'test/final-admin-notifications.mjs'
       - 'test/booking-email-queue-ui.mjs'
@@ -70,6 +71,7 @@ on:
       - 'test/admin-mail-status-index.mjs'
       - 'test/admin-occupancy-intervals.mjs'
       - 'test/admin-closed-calendar-loading.mjs'
+      - 'test/admin-calendar-loading.mjs'
       - 'test/admin-notification-health.mjs'
       - 'test/final-admin-notifications.mjs'
       - 'test/booking-email-queue-ui.mjs'
@@ -117,6 +119,6 @@ jobs:
       - run: node --test test/admin-refresh-schema.mjs test/admin-reservation-refresh.mjs test/admin-history-loading.mjs test/admin-customer-details-loading.mjs
       - run: node --test test/admin-notification-race.mjs test/admin-mail-status-index.mjs test/admin-notification-health.mjs test/final-admin-notifications.mjs test/booking-email-queue-ui.mjs
       - run: node --test test/customer-pagination.mjs test/customer-roster-deferred.mjs test/customer-profile.mjs
-      - run: node --test test/admin-occupancy-intervals.mjs test/admin-closed-calendar-loading.mjs
+      - run: node --test test/admin-occupancy-intervals.mjs test/admin-closed-calendar-loading.mjs test/admin-calendar-loading.mjs
       - run: node --test test/measure-booking-backend.mjs test/read-probe-cli.mjs
       - run: node test/settings.mjs

@@ -1171,7 +1171,8 @@ function acalCell(date, time, list, holidays, today) {
    カレンダーは「いつ埋まっているか」を見る場所なので、
    絞り込んだ結果だけを描くと、空いていない枠が空いて見えます。 */
 function renderAdminCalendar() {
-  if (!$('#admin-calendar') || !adminData) return;
+  const host = $('#admin-calendar');
+  if (!host || host.hidden || !adminData) return;
 
   const times = acalTimes();
   const today = toKey(new Date());
@@ -1186,10 +1187,10 @@ function renderAdminCalendar() {
 
   /* 日付ごとに分けておきます。マスごとに台帳を端から見ると、
      1週間ぶんで200回近く同じ走査を繰り返すことになります。 */
-  const byDate = new Map();
+  const byDate = new Map(dates.map(date => [date, []]));
   (adminData.reservations || []).forEach(r => {
-    if (!byDate.has(r.date)) byDate.set(r.date, []);
-    byDate.get(r.date).push(r);
+    const rows = byDate.get(r.date);
+    if (rows) rows.push(r);
   });
 
   $('#acal-head').innerHTML = `<tr><th scope="col">時間</th>${dates.map(d => {

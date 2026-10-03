@@ -56,6 +56,9 @@ for (const design of ['', '?design=a']) {
         window.closedCalendarRenders = 0;
         const calendar = renderClosedCalendar;
         renderClosedCalendar = (...args) => { window.closedCalendarRenders++; return calendar(...args); };
+        window.gridBuilds = 0;
+        const times = acalTimes;
+        acalTimes = (...args) => { window.gridBuilds++; return times(...args); };
         adminPost = async payload => {
           window.fixtureRequests.push(payload);
           if (payload.type !== 'adminData') throw new Error('架空台帳でも書込はしない');
@@ -67,6 +70,18 @@ for (const design of ['', '?design=a']) {
       assert.equal(await page.evaluate(() => window.closedCalendarRenders), 0);
       assert.equal(await page.locator('#closed-cal table').count(), 0);
       assert.equal(await page.locator('#closed-rows input').count(), 0);
+      assert.equal(await page.locator('#acal-body tr').count(), 0);
+      await page.evaluate(() => { renderAdminCalendar(); });
+      assert.equal(await page.evaluate(() => window.gridBuilds), 0);
+      await page.locator('#reserve-view [data-view="calendar"]').click();
+      assert.equal(await page.evaluate(() => window.gridBuilds), 1);
+      const bookingCell = page.locator(`[data-date="${TEST_DATE}"][data-time="10:00"] .cal-book`);
+      assert.equal(await bookingCell.getAttribute('data-cal-code'), 'LM-OCCUPANCY');
+      await page.locator('#reserve-view [data-view="list"]').click();
+      const grid = await page.locator('#acal-body').innerHTML();
+      await page.evaluate(() => { renderAdminCalendar(); });
+      assert.equal(await page.evaluate(() => window.gridBuilds), 1);
+      assert.equal(await page.locator('#acal-body').innerHTML(), grid);
       await page.locator('#admin-tabs [data-pane="numbers"]').click();
       const card = page.locator('#numbers-body .num-card').filter({ hasText: '2030年1月の稼働率' });
       assert.equal(await card.locator('.num-value').innerText(), '33%');
@@ -108,6 +123,16 @@ for (const design of ['', '?design=a']) {
       });
       await page.locator('#refresh-reservations').click();
       await page.locator('#refresh-reservations:not([disabled])').waitFor();
+      assert.equal(await page.evaluate(() => window.gridBuilds), 1);
+      assert.equal(await page.locator('#acal-body').innerHTML(), grid);
+      await page.locator('#reserve-view [data-view="calendar"]').click();
+      assert.equal(await page.evaluate(() => window.gridBuilds), 2);
+      assert.equal(await page.locator('[data-date="2030-01-02"][data-time="10:00"] .cal-book').getAttribute('data-cal-code'),
+        'LM-CLOSED-REFRESH');
+      if (process.env.TEST_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `grid-${design ? 'a' : 'original'}.png`), fullPage: true });
+      }
+      await page.locator('#reserve-view [data-view="list"]').click();
       await page.locator('#admin-tabs [data-pane="closed"]').click();
       assert.match(await page.locator('[data-ccal="2030-01-02"]').getAttribute('aria-label'), /予約1件/);
       assert.equal(await memo.inputValue(), '架空の時間休み');
