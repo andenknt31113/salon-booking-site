@@ -340,8 +340,16 @@ test('指定なしの全量・briefPast・startup・編集・通知の既存契�
       const app = fixture({ records, deliveryIndices });
       const baseline = fixture({ records, deliveryIndices, source: BASELINE_SOURCE });
       assert.deepEqual(app.send(payload), baseline.send(payload));
-      assert.deepEqual(app.reads, baseline.reads);
-      assert.deepEqual(app.accesses, baseline.accesses);
+      const unchangedRead = read => read.name !== '設定' && !(read.name === '予約一覧' && read.height === 1);
+      assert.deepEqual(app.reads.filter(unchangedRead), baseline.reads.filter(unchangedRead));
+      const full = !payload.reservationsOnly && !payload.notificationsOnly && !payload.editorTarget;
+      const deliveryReads = deliveryIndices.length ? 2 : 0;
+      const expectedReads = full ? (payload.startupOnly ? 6 : 8) + deliveryReads
+        : payload.editorTarget ? 1 : (payload.notificationsOnly ? 1 : 2) + deliveryReads;
+      assert.equal(app.reads.length, expectedReads);
+      assert.equal(app.reads.filter(read => read.name === '設定').length, full ? 1 : 0);
+      assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, full ? 1 : 0);
+      assert.deepEqual(app.accesses.toSorted(), baseline.accesses.toSorted());
     }
   }
   for (const header of ['施術メモ', 'ご要望']) {

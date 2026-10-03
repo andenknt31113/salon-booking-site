@@ -1,0 +1,42 @@
+name: Verify booking backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gas/**'
+      - 'test/admin-brief-history.mjs'
+      - 'test/admin-selected-history.mjs'
+      - 'test/booking-email-queue.mjs'
+      - 'test/gas-native-snapshot.mjs'
+      - 'test/settings.mjs'
+      - 'assets/js/data.js'
+      - '.github/workflows/verify-backend.yml'
+  pull_request:
+    paths:
+      - 'gas/**'
+      - 'test/admin-brief-history.mjs'
+      - 'test/admin-selected-history.mjs'
+      - 'test/booking-email-queue.mjs'
+      - 'test/gas-native-snapshot.mjs'
+      - 'test/settings.mjs'
+      - 'assets/js/data.js'
+      - '.github/workflows/verify-backend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
+      - run: node test/settings.mjs

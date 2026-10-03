@@ -2263,7 +2263,8 @@ function doAdminData_(d) {
      支払い方法も空欄として書き込まれ、サイトから消えます。
      読み込む前に足りない行を掲載中の内容で埋めておけば、それが起きません。
      足りているときは何も書きません（印も変わりません）。 */
-  ensureSettingRows_(ss);
+  let settingSnapshot = readSheetSnapshot_(ss.getSheetByName(SETTING_SHEET), ['項目', '内容'], true);
+  if (ensureSettingRows_(ss, settingSnapshot)) settingSnapshot = null;
   /* 台帳にも、こちらが知っている列が全部あるようにしておきます。
      「施術メモ」はあとから足した列で、先に作られた台帳にはありません。
      ここで足しておかないと、店が書いたメモの行き先がなくなります。 */
@@ -2283,7 +2284,8 @@ function doAdminData_(d) {
   const stamps = {};
   Object.keys(headersByTarget).forEach(target => {
     if (d.startupOnly === true && ['styles', 'reviews'].includes(target)) return;
-    const snapshot = readSheetSnapshot_(ss.getSheetByName(SAVE_TARGETS[target]), headersByTarget[target], true);
+    const snapshot = target === 'settings' && settingSnapshot ? settingSnapshot
+      : readSheetSnapshot_(ss.getSheetByName(SAVE_TARGETS[target]), headersByTarget[target], true);
     snapshots[target] = snapshot;
     stamps[target] = snapshot.stamp;
   });
@@ -2291,7 +2293,7 @@ function doAdminData_(d) {
   const result = {
     ok: true,
     capabilities: { phoneRequestIds: true, adminChange: true },
-    reservations: applyBookingEmailSummary_(reservations, bookingEmailSummary_(sheet, reservationRows)),
+    reservations: applyBookingEmailSummary_(reservations, bookingEmailSummary_(sheet, reservationRows, reservationSnapshot.head)),
     menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS, snapshots.menus),
     coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, snapshots.coupons),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, snapshots.closed),
@@ -2361,7 +2363,7 @@ function readAdminReservations_(ss, reservationCodes) {
   return {
     ok: true,
     reservations: applyBookingEmailSummary_(reservationRows.map(row => adminReservation_(row, header => headers.indexOf(header)))
-      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)), bookingEmailSummary_(sheet, reservationRows)),
+      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)), bookingEmailSummary_(sheet, reservationRows, headers)),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, closedSnapshot)
   };
 }
@@ -2377,7 +2379,7 @@ function readAdminNotifications_(ss) {
     return { ok: false, error: '予約台帳の見出しを確認できません。管理画面を読み込み直してください。' };
   }
   const reservationRows = snapshot.rows;
-  const summary = bookingEmailSummary_(sheet, reservationRows);
+  const summary = bookingEmailSummary_(sheet, reservationRows, headers);
   const reservations = reservationRows.map(row => {
     const result = {};
     Object.keys(fields).forEach(key => { result[key] = String(row[headers.indexOf(fields[key])] || ''); });
@@ -3139,8 +3141,9 @@ function readBookingEmailJobs_(queue) {
   });
 }
 
-function currentBookingEmailJobs_(sheet, queue, reservationRows) {
-  const snapshot = reservationRows ? { head: headerRow_(sheet), rows: reservationRows } : readSheetSnapshot_(sheet, HEADERS);
+function currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHeaders) {
+  const snapshot = reservationRows ? { head: reservationHeaders || headerRow_(sheet), rows: reservationRows }
+    : readSheetSnapshot_(sheet, HEADERS);
   const headers = snapshot.head;
   const current = Object.create(null);
   snapshot.rows.forEach(function (values) {
@@ -3284,10 +3287,10 @@ function enableBookingEmailQueue() {
   return { ok: true };
 }
 
-function bookingEmailSummary_(sheet, reservationRows) {
+function bookingEmailSummary_(sheet, reservationRows, reservationHeaders) {
   if (PropertiesService.getScriptProperties().getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return null;
   const queue = bookingEmailSheet_(sheet.getParent());
-  return currentBookingEmailJobs_(sheet, queue, reservationRows);
+  return currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHeaders);
 }
 
 function applyBookingEmailSummary_(reservations, summary) {
@@ -3881,7 +3884,7 @@ const LISTED_SETTINGS = [
    足りない行があるまま管理ページを開かせてはいけません。管理ページは
    画面にある項目をまとめて保存するので、シートに無い項目まで空欄として
    書き込まれ、触っていない住所や支払い方法がサイトから消えます。 */
-function ensureSettingRows_(ss) {
+function ensureSettingRows_(ss, snapshot) {
   const sheet = ss.getSheetByName(SETTING_SHEET) || ss.insertSheet(SETTING_SHEET);
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(['項目', '内容']);
@@ -3891,11 +3894,9 @@ function ensureSettingRows_(ss) {
     sheet.setColumnWidth(2, 420);
   }
   const have = {};
-  if (sheet.getLastRow() >= 2) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (r) {
-      have[String(r[0] == null ? '' : r[0]).trim()] = true;
-    });
-  }
+  const rows = snapshot ? snapshot.rows : sheet.getLastRow() >= 2
+    ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues() : [];
+  rows.forEach(function (row) { have[String(row[0] == null ? '' : row[0]).trim()] = true; });
   const add = LISTED_SETTINGS.filter(function (r) { return !have[r[0]]; });
   if (!add.length) return 0;
 

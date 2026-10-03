@@ -534,6 +534,29 @@ test('管理用に読込済みの予約があれば、配送表示のために�
   });
 });
 
+test('同時に読んだ予約行と見出しがあれば、配送照合のために見出しも再取得しない', () => {
+  const app = fixture();
+  app.send();
+  app.context.withLedgerLock_(() => {
+    const snapshot = app.context.readSheetSnapshot_(app.booking, app.headers);
+    app.booking.getRange = () => assert.fail('配送照合では同じ予約sheetを読み直さない');
+    const summary = app.context.bookingEmailSummary_(app.booking, snapshot.rows, snapshot.head);
+    assert.equal(Object.keys(summary).length, 1);
+  });
+});
+
+test('読込後に列が移動しても、取得済み行を別の見出しに結び付けない', () => {
+  const app = fixture();
+  app.send();
+  app.context.withLedgerLock_(() => {
+    const snapshot = app.context.readSheetSnapshot_(app.booking, app.headers);
+    app.booking.cells.forEach(row => row.reverse());
+    const summary = app.context.bookingEmailSummary_(app.booking, snapshot.rows, snapshot.head);
+    assert.equal(Object.keys(summary).length, 1);
+    assert.equal(summary[app.context.codeKey_(REQUEST.code)].job.action, '新規予約');
+  });
+});
+
 test('認証済みの軽量通知では配送状態だけを追加し、匿名の照会には返さない', () => {
   const app = fixture();
   app.send();

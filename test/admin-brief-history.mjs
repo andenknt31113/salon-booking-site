@@ -33,7 +33,7 @@ function formatDate(value, zone, format) {
   return shifted.slice(0, 10);
 }
 
-function fixture({ records = [booking()], now = NOW, denied = false, failure = '', delivery = false } = {}) {
+function fixture({ records = [booking()], now = NOW, denied = false, failure = '', delivery = false, repairSettings = false } = {}) {
   let held = false;
   let authorized = false;
   const reads = [];
@@ -45,12 +45,23 @@ function fixture({ records = [booking()], now = NOW, denied = false, failure = '
     writes.push(operation);
     throw new Error('架空シートへの書込は禁止');
   };
+  const settingWrite = (operation, name, coordinates = {}) => {
+    if (!repairSettings || name !== '設定') return forbidWrite(operation)();
+    assert.equal(held, true);
+    assert.equal(authorized, true);
+    writes.push({ operation, name, ...coordinates });
+  };
   const spreadsheet = { getSheetByName(name) {
     accesses.push(name);
     assert.equal(held, true);
     assert.equal(authorized, true, '認証前に架空シートへ触れない');
     return sheets.get(name) || null;
-  }, insertSheet: forbidWrite('insertSheet') };
+  }, insertSheet(name) {
+    settingWrite('insertSheet', name);
+    const sheet = add(name, []);
+    sheet.cells.length = 0;
+    return sheet;
+  } };
   const context = vm.createContext({
     Date: class extends Date {
       constructor(...values) { super(...(values.length ? values : [now])); }
@@ -96,11 +107,28 @@ function fixture({ records = [booking()], now = NOW, denied = false, failure = '
             return value instanceof Date ? new context.Date(value.getTime()) : value;
           }));
       },
-      setValue: forbidWrite('setValue'), setValues: forbidWrite('setValues')
+      setValue: forbidWrite('setValue'),
+      setValues(values) {
+        settingWrite('setValues', name, { row, column });
+        values.forEach((line, rowIndex) => line.forEach((value, columnIndex) => {
+          cells[row - 1 + rowIndex] ||= [];
+          cells[row - 1 + rowIndex][column - 1 + columnIndex] = value;
+        }));
+      },
+      setNote() {
+        settingWrite('setNote', name, { row, column });
+      },
+      setFontWeight() { settingWrite('setFontWeight', name); return this; },
+      setBackground() { settingWrite('setBackground', name); return this; }
     });
     const sheet = { cells, getParent: () => spreadsheet, getLastRow: () => cells.length,
       getLastColumn: () => cells[0].length, getRange: range,
-      getDataRange: () => range(1, 1, cells.length, cells[0].length), appendRow: forbidWrite('appendRow') };
+      getDataRange: () => range(1, 1, cells.length, cells[0]?.length || 0),
+      appendRow(values) {
+        settingWrite('appendRow', name);
+        cells.push(Array.from(values));
+      }, setFrozenRows() { settingWrite('setFrozenRows', name); },
+      setColumnWidth() { settingWrite('setColumnWidth', name); } };
     sheets.set(name, sheet);
     return sheet;
   }
@@ -124,12 +152,101 @@ function fixture({ records = [booking()], now = NOW, denied = false, failure = '
     authorized = false;
     const response = JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }));
     assert.equal(held, false, '応答後にロックを残さない');
-    assert.deepEqual(writes, [], '読取・拒否された変更で書込を行わない');
+    if (!repairSettings) assert.deepEqual(writes, [], '読取・拒否された変更で書込を行わない');
     return response;
   }
-  return { sheets, reads, accesses,
+  return { sheets, reads, accesses, writes, context,
     send: (payload = {}, action = 'adminData') => sendRaw({ type: 'googleAdmin', action, payload }),
     legacy: payload => sendRaw({ type: 'adminData', ...payload }) };
+}
+
+for (const delivery of [false, true]) {
+  test(`初回の完成済み設定を重複取得せず、配送の見出しも予約のsnapshotから読む：${delivery}`, testContext => {
+    const app = fixture({ delivery });
+    const result = app.send({ startupOnly: true, briefPast: true });
+    assert.equal(result.ok, true);
+    testContext.diagnostic(`架空シートのgetValues: ${app.reads.length}回`);
+    assert.equal(app.reads.filter(read => read.name === '設定').length, 1);
+    assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 1,
+      'getSheet_の列確認だけにし、配送表示用には読み直さない');
+    assert.equal(app.reads.length, delivery ? 8 : 6);
+    assert.equal(result.reservations.length, 1);
+    assertPending(result.reservations[0]);
+    if (delivery) assert.match(result.reservations[0].customerMailStatus, /送信結果不明/);
+  });
+}
+
+for (const payload of [{}, { reservationsOnly: true }, { reservationsOnly: true, reservationCodes: ['LM-BRIEF'] },
+  { notificationsOnly: true }]) {
+  test(`配送表示に読込済みの見出しを渡し、既存の応答範囲を保つ：${JSON.stringify(payload)}`, () => {
+    const app = fixture({ delivery: true });
+    const result = app.send(payload);
+    assert.equal(result.ok, true);
+    assert.match(result.reservations[0].customerMailStatus, /送信結果不明/);
+    assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length,
+      Object.keys(payload).length ? 0 : 1);
+    if (payload.notificationsOnly) {
+      assert.equal(Object.hasOwn(result.reservations[0], 'note'), false);
+      assert.equal(Object.hasOwn(result.reservations[0], 'email'), false);
+    } else assert.equal(result.reservations[0].note, booking().施術メモ);
+  });
+}
+
+test('不足する設定行を補完した場合だけ取り直し、空欄・0・false・独自の行は書き換えない', () => {
+  const app = fixture({ repairSettings: true });
+  const sheet = app.sheets.get('設定');
+  const missing = sheet.cells.find(row => row[0] === '電話番号');
+  assert.ok(missing);
+  sheet.cells.splice(sheet.cells.indexOf(missing), 1);
+  sheet.cells.find(row => row[0] === '店の紹介文')[1] = '';
+  sheet.cells.push(['独自の数値', 0], ['独自の選択', false]);
+  const before = structuredClone(sheet.cells);
+  const result = app.send({ startupOnly: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(sheet.cells.slice(0, before.length), before);
+  assert.equal(result.settings.電話番号, missing[1]);
+  assert.equal(result.settings.店の紹介文, '');
+  assert.equal(result.settings.独自の数値, 0);
+  assert.equal(result.settings.独自の選択, false);
+  assert.equal(app.reads.filter(read => read.name === '設定').length, 2);
+  assert.deepEqual(app.writes.filter(write => write.operation === 'setValues'),
+    [{ operation: 'setValues', name: '設定', row: before.length + 1, column: 1 }]);
+  const width = sheet.cells[0].length;
+  assert.equal(result.stamps.settings, app.context.stampValues_(sheet.cells.map(row => row.slice(0, width))));
+});
+
+test('設定の独自列をstampへ含め、次の要求は変更後の実データを新しく取得する', () => {
+  const app = fixture();
+  const sheet = app.sheets.get('設定');
+  sheet.cells[0].push('独自の控え');
+  for (const row of sheet.cells.slice(1)) row[2] = '架空の控え';
+  const before = structuredClone(sheet.cells);
+  const initial = app.send({ startupOnly: true });
+  assert.equal(initial.ok, true);
+  assert.equal(initial.stamps.settings, app.context.stampValues_(before));
+  assert.deepEqual(sheet.cells, before);
+  sheet.cells.find(row => row[0] === '店の紹介文')[1] = '変更後の試験紹介文';
+  const next = app.send({ startupOnly: true });
+  assert.equal(next.ok, true);
+  assert.equal(next.settings.店の紹介文, '変更後の試験紹介文');
+  assert.notEqual(next.stamps.settings, initial.stamps.settings);
+  assert.equal(app.reads.filter(read => read.name === '設定').length, 2);
+});
+
+for (const missing of [false, true]) {
+  test(`設定sheetが空か未作成でも従来の初期化と補完後の読み直しを維持する：${missing}`, () => {
+    const app = fixture({ repairSettings: true });
+    if (missing) app.sheets.delete('設定');
+    else app.sheets.get('設定').cells.length = 0;
+    const result = app.send({ startupOnly: true });
+    assert.equal(result.ok, true);
+    const sheet = app.sheets.get('設定');
+    const defaults = Array.from(vm.runInContext('LISTED_SETTINGS', app.context));
+    assert.deepEqual(sheet.cells, [['項目', '内容'], ...defaults.map(row => Array.from(row).slice(0, 2))]);
+    assert.equal(result.settings.電話番号, defaults.find(row => row[0] === '電話番号')[1]);
+    assert.equal(result.stamps.settings, app.context.stampValues_(sheet.cells));
+    assert.ok(app.writes.every(write => write.name === '設定'));
+  });
 }
 
 function withoutDetails(reservation) {
@@ -211,7 +328,7 @@ for (const payload of BRIEF_REQUESTS) {
     assert.equal(full.send(fullPayload).ok, true);
     assert.deepEqual(app.reads, full.reads);
     assert.deepEqual(app.accesses, full.accesses);
-    assert.equal(app.reads.length, payload.startupOnly ? 7 : 2);
+    assert.equal(app.reads.length, payload.startupOnly ? 6 : 2);
   });
 
   test(`配送結果は実配送記録を維持し、配送シートの読込も増やさない：${JSON.stringify(payload)}`, () => {
