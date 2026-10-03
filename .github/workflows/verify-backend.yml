@@ -5,6 +5,16 @@ on:
     branches: [main]
     paths:
       - 'gas/**'
+      - 'tools/verify-booking.mjs'
+      - 'test/verify-booking.mjs'
+      - 'test/booking-*.mjs'
+      - 'test/phone-*.mjs'
+      - 'test/final-backend-boundaries.mjs'
+      - 'test/admin-auth-boundary.mjs'
+      - 'test/admin-legacy-preflight.mjs'
+      - 'test/admin-note-ack.mjs'
+      - 'test/admin-upload-lock.mjs'
+      - 'test/closed-save-validation.mjs'
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
       - 'test/admin-read-snapshot.mjs'
@@ -39,6 +49,16 @@ on:
   pull_request:
     paths:
       - 'gas/**'
+      - 'tools/verify-booking.mjs'
+      - 'test/verify-booking.mjs'
+      - 'test/booking-*.mjs'
+      - 'test/phone-*.mjs'
+      - 'test/final-backend-boundaries.mjs'
+      - 'test/admin-auth-boundary.mjs'
+      - 'test/admin-legacy-preflight.mjs'
+      - 'test/admin-note-ack.mjs'
+      - 'test/admin-upload-lock.mjs'
+      - 'test/closed-save-validation.mjs'
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
       - 'test/admin-read-snapshot.mjs'
@@ -86,6 +106,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
+      - run: node --test test/verify-booking.mjs
+      - run: node tools/verify-booking.mjs
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs test/admin-menu-deferred.mjs test/admin-editor-loading.mjs
       - run: node --test test/admin-refresh-schema.mjs test/admin-reservation-refresh.mjs test/admin-history-loading.mjs test/admin-customer-details-loading.mjs
