@@ -1958,7 +1958,11 @@ function shop(sheetsInit = {}, source = srcLive) {
         };
         return range;
       },
-      getDataRange: () => ({ getValues: () => (head ? [head.slice()] : []).concat(data.map(r => r.slice())) }),
+      getDataRange: () => ({ getValues: () => {
+        const width = Math.max(1, (head || data[0] || []).length);
+        return [head || Array(width).fill(''), ...data]
+          .map(values => Array.from({ length: width }, (_unused, index) => values[index] ?? ''));
+      } }),
       setFrozenRows() {}, setColumnWidth() {}, clear() {}, deleteRows() {}, _data: data,
       getParent: () => ss,
       // 見出しがどう変わったかを、試験から見るため

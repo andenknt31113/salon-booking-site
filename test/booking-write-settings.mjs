@@ -83,7 +83,7 @@ for (const calendar of [false, true]) {
     const app = fixture({ calendar });
     const response = app.send();
     assert.equal(response.ok, true);
-    assert.equal(app.reads.length, 2, '受付停止の確認と最新の受付条件をそれぞれ1回読む');
+    assert.equal(app.reads.length, 1, '受付停止・営業時間・通知の設定を同じ1回の読込から使う');
     assert.equal(app.rows.length, 1);
     assert.equal(app.messages.length, 2);
     assert.equal(app.messages[0][0], 'shop@example.test');
@@ -108,7 +108,7 @@ test('次の予約は前回の設定を持ち越さず、新しい営業時間�
   assert.equal(app.rows.length, 1);
   assert.equal(app.messages.length, 2);
   assert.equal(app.send({ code: 'LM-LATER', time: '12:00' }).ok, true);
-  assert.equal(app.reads.length, 6);
+  assert.equal(app.reads.length, 3);
   assert.equal(app.rows.length, 2);
   assert.equal(app.messages[2][0], 'new-shop@example.test');
   assert.match(app.messages[3][2], /03-1111-1111/);
@@ -131,15 +131,25 @@ test('送信者が受付条件を渡しても、店舗の停止・定休日・�
 });
 
 for (const failureAt of [1, 2]) {
-  test(`${failureAt}回目の設定読込失敗は、既定時間へ戻して予約を受け付けない`, () => {
+  test(`${failureAt}件目の設定読込失敗は、前の設定や既定時間で予約を受け付けない`, () => {
     const app = fixture({ failureAt });
+    if (failureAt === 2) assert.equal(app.send().ok, true);
+    const before = [app.rows.length, app.messages.length, app.events.length];
     assert.equal(app.send().ok, false);
-    assert.equal(app.rows.length, 0);
-    assert.equal(app.messages.length, 0);
-    assert.equal(app.events.length, 0);
+    assert.deepEqual([app.rows.length, app.messages.length, app.events.length], before);
     assert.equal(app.held(), false);
   });
 }
+
+test('準備中の案内も一度読んだ設定の電話番号を使い、設定を再取得しない', () => {
+  const app = fixture();
+  app.settings['準備中の帯'] = '出す';
+  const result = app.send();
+  assert.equal(result.draft, true);
+  assert.match(result.error, /03-0000-0000/);
+  assert.equal(app.reads.length, 1);
+  assert.deepEqual([app.rows.length, app.messages.length, app.events.length], [0, 0, 0]);
+});
 
 test('予約以外から個別に呼ぶ既存の設定関数も、変更した値を次の呼出しで読む', () => {
   const app = fixture();

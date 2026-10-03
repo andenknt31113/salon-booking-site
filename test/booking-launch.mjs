@@ -73,7 +73,7 @@ test('試験の受付状態は現在の公開設定に依存せず、両方向�
 test('受付開始後も設定が欠けたGASと新しいシートは準備中から始まる', () => {
   const source = readFileSync(new URL('../gas/Code.gs', import.meta.url), 'utf8');
   const fallback = source.match(/const DRAFT_DEFAULT = (true|false);/)?.[0];
-  const draftFunction = source.match(/function draftMode_\(\) \{[\s\S]*?\n\}/)?.[0];
+  const draftFunction = source.match(/function draftMode_\(settings\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(fallback && draftFunction);
   for (const setting of [undefined, '', '不明', '出す', '出さない']) {
     const paused = vm.runInNewContext(fallback + '\n' + draftFunction + ';draftMode_()', {

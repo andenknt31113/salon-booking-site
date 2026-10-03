@@ -897,7 +897,13 @@ function doReserve_(sheet, d, verifyCatalog) {
 
   /* 準備中のあいだは受けません。帯に「ご予約はまだお受けしていません」と
      書いてあるので、そのとおりに振る舞います。詳しくは draftMode_。 */
-  if (draftMode_()) return { ok: false, draft: true, error: draftMessage_() };
+  let settings;
+  try { settings = readBookingSettings_(sheet); }
+  catch (error) {
+    if (!DRAFT_DEFAULT) throw error;
+    return { ok: false, draft: true, error: draftMessage_({}) };
+  }
+  if (draftMode_(settings)) return { ok: false, draft: true, error: draftMessage_(settings) };
 
   const reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
   if (typeof d.code !== 'string' || !/^[A-Za-z0-9-]{1,20}$/.test(d.code)
@@ -946,7 +952,6 @@ function doReserve_(sheet, d, verifyCatalog) {
     const menuError = verifyReservationMenus_(sheet.getParent(), d);
     if (menuError) return { ok: false, catalogChanged: true, error: menuError };
   }
-  const settings = readBookingSettings_(sheet);
   const bad = checkReserve_(sheet, d, settings);
   if (bad) {
     const scheduleChanged = bad === '営業時間外のご予約は承れません。'
@@ -2737,9 +2742,9 @@ function lineAddUrl_(settings) {
 
    帯を下ろすのは管理ページの「店舗情報 → サイトの公開」からです。
    受け口側の停止を解除するだけで、公開サイト側の受付開始承認も必要です。 */
-function draftMode_() {
+function draftMode_(settings) {
   try {
-    const v = String(readSettings_(SpreadsheetApp.getActiveSpreadsheet())['準備中の帯'] || '').trim();
+    const v = String((settings || readSettings_(SpreadsheetApp.getActiveSpreadsheet()))['準備中の帯'] || '').trim();
     /* 空欄は「シートに項目が無い」なので、こちらの既定（出す）に従います。
        画面側（common.js の applySettings）と同じ読み方にしてあります。 */
     if (/^(出さない|表示しない|しない|いいえ|false|off|no|×|x)/i.test(v)) return false;
@@ -2752,8 +2757,8 @@ function draftMode_() {
    （test/settings.mjs が突き合わせています）。 */
 const DRAFT_DEFAULT = true;
 
-function draftMessage_() {
-  const tel = salonTel_();
+function draftMessage_(settings) {
+  const tel = salonTel_(settings);
   return 'ただいま準備中のため、ネットでのご予約はお受けしておりません。'
     + (tel ? 'お手数ですが、お電話（' + tel + '）でお問い合わせください。' : '');
 }
@@ -2835,6 +2840,18 @@ function validBookingHeaders_(head, options) {
 }
 
 function readSheetSnapshot_(sheet, fallback, withStamp) {
+  if (sheet && typeof sheet.getDataRange === 'function') {
+    const values = sheet.getDataRange().getValues();
+    const usedWidth = (values[0] || []).length;
+    if (!values.length || (values.length === 1 && usedWidth === 1 && values[0][0] === '' && !sheet.getLastRow())) {
+      return { head: fallback.slice(), rows: [], ...(withStamp ? { stamp: '0' } : {}) };
+    }
+    const width = Math.max(usedWidth, fallback.length);
+    const padded = values.map(row => row.concat(Array(Math.max(0, width - row.length)).fill('')));
+    const head = (padded[0] || []).map(value => String(value == null ? '' : value).trim());
+    return { head: head.some(Boolean) ? head : fallback.slice(), rows: padded.slice(1),
+      ...(withStamp ? { stamp: stampValues_(values) } : {}) };
+  }
   const last = sheet ? sheet.getLastRow() : 0;
   if (!last) return { head: fallback.slice(), rows: [], ...(withStamp ? { stamp: '0' } : {}) };
   const usedWidth = sheet.getLastColumn() || 0;
@@ -3123,9 +3140,10 @@ function readBookingEmailJobs_(queue) {
 }
 
 function currentBookingEmailJobs_(sheet, queue, reservationRows) {
-  const headers = headerRow_(sheet);
+  const snapshot = reservationRows ? { head: headerRow_(sheet), rows: reservationRows } : readSheetSnapshot_(sheet, HEADERS);
+  const headers = snapshot.head;
   const current = Object.create(null);
-  (reservationRows || readRows_(sheet)).forEach(function (values) {
+  snapshot.rows.forEach(function (values) {
     const code = codeKey_(values[headers.indexOf('予約番号')]);
     if (!code) return;
     if (current[code]) current[code] = { duplicate: true };

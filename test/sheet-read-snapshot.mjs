@@ -149,7 +149,10 @@ function fixture({ definitions = defaultSheets(), failure = null, occupied = fal
       getName() { recordRead('getName', name); return name; },
       getParent() { recordRead('getParent', name); return spreadsheet; },
       getRange: (row, column, numRows, numColumns) => rangeFor(name, row, column, numRows, numColumns),
-      getDataRange: () => rangeFor(name, 1, 1, Math.max(lastRow, 1), Math.max(lastColumn, 1))
+      getDataRange() {
+        recordRead('getDataRange', name);
+        return rangeFor(name, 1, 1, Math.max(lastRow, 1), Math.max(lastColumn, 1));
+      }
     };
     for (const operation of ['appendRow', 'clear', 'deleteRows', 'insertRows', 'setFrozenRows', 'setColumnWidth']) {
       sheet[operation] = forbidWrite(operation, name);
@@ -242,6 +245,13 @@ test('初回メニューと空席は五つのシートを各一回のgetValues�
       [1, 1, definitions[read.sheet].rows.length + 1, definitions[read.sheet].head.length],
       `${read.sheet}の見出しと全データを一つの矩形で読む`);
   }
+});
+
+test('初回読込は各シートの範囲を直接取得し、行数・列数の往復を追加しない', () => {
+  const app = fixture();
+  assertInitialBooking(app.send());
+  assert.equal(app.reads.filter(read => read.operation === 'getDataRange').length, SHEET_NAMES.length);
+  assert.equal(app.reads.filter(read => ['getLastRow', 'getLastColumn'].includes(read.operation)).length, 0);
 });
 
 test('非表示・空行・名前欠落・不正所要の行を飛ばしてもメニューIDとおすすめIDを詰め直さない', () => {
@@ -343,7 +353,9 @@ test('列数が少ない古いシートでも既定幅まで読み価格と枠�
     ['休業日', CLOSED_HEADERS.length], ['予約一覧', LEDGER_HEADERS.length]
   ]) {
     const reads = app.valuesReads.filter(read => read.sheet === sheet);
-    assert.ok(reads.length > 0 && reads.every(read => read.numColumns === width), `${sheet}を既定の幅まで読む`);
+    const usedWidth = definitions[sheet].head.length;
+    assert.ok(reads.length > 0 && reads.every(read => read.numColumns === usedWidth), `${sheet}は使用中の列だけを取得する`);
+    assert.ok(usedWidth < width, '欠けた末尾列を取得範囲の拡大なしで補える');
   }
 });
 
@@ -462,8 +474,7 @@ for (const sheet of SHEET_NAMES) {
 }
 
 for (const [label, failure] of [
-  ['台帳の行数取得', { sheet: '予約一覧', operation: 'getLastRow' }],
-  ['台帳の列数取得', { sheet: '予約一覧', operation: 'getLastColumn' }],
+  ['台帳の使用範囲取得', { sheet: '予約一覧', operation: 'getDataRange' }],
   ['Spreadsheetサービス取得', { operation: 'getActiveSpreadsheet' }],
   ['予約台帳の検索', { sheet: '予約一覧', operation: 'getSheetByName' }]
 ]) {
