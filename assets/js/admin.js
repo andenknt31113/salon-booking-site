@@ -1967,9 +1967,19 @@ function openMinutesOn(dateKey, hours, holidays) {
   if (closedAllDay(dateKey)) return 0;
   /* 受けないことにした時間帯は、営業時間から引きます。引かないと、
      店が自分で閉めた時間まで「空いていた」ことになり、稼働率が低く出ます。 */
-  const stop = closedBlocksOn(dateKey).reduce((sum, c) => sum
-    + Math.max(0, Math.min(hours.close, toMinutes(c.endTime))
-                 - Math.max(hours.open, toMinutes(c.time))), 0);
+  const intervals = closedBlocksOn(dateKey).map(block => ({
+    start: Math.max(hours.open, toMinutes(block.time)),
+    end: Math.min(hours.close, toMinutes(block.endTime))
+  }));
+  if (intervals.some(interval => !Number.isFinite(interval.start) || !Number.isFinite(interval.end))) return NaN;
+  intervals.sort((first, second) => first.start - second.start);
+  let stop = 0;
+  let previousEnd = hours.open;
+  for (const interval of intervals) {
+    if (interval.end <= interval.start) continue;
+    stop += Math.max(0, interval.end - Math.max(previousEnd, interval.start));
+    previousEnd = Math.max(previousEnd, interval.end);
+  }
   return Math.max(0, hours.close - hours.open - stop);
 }
 
