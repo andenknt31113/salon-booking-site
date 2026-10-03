@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
+const dataSource = readFileSync(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'reservationDetailsMessage', 'loadReservationDetails',
   'loadReservationDateDetails', 'sameSelectedReservationSnapshot', 'loadSelectedReservationDetails']
   .map(name => {
@@ -50,7 +51,7 @@ function fixture(rows = [PAST, TODAY], { throws = false } = {}) {
     renderSelectedReservationDetails() {}, renderCustomerDetails() {}, telKey: value => String(value),
     showReservationFreshness() {}
   });
-  vm.runInContext(functions, context);
+  vm.runInContext(dataSource + '\n' + functions, context);
   return { context, requests, read: () => context.loadReservationDetails(),
     finish: result => resolveRead(result ?? { ok: true, reservations: rows.map(complete), closedDates: [] }) };
 }
@@ -204,7 +205,7 @@ test('接続処理が同期的に失敗しても、未取得を空欄のメモ�
 test('既存番号を保持した最新の全量応答なら、新しい予約も含めて整合した件数へ更新する', async () => {
   const app = fixture();
   const pending = app.read();
-  app.finish({ ok: true, reservations: [complete(PAST), TODAY, complete({ ...TODAY, code: 'LM-NEW' })], closedDates: [] });
+  app.finish({ ok: true, reservations: [complete(PAST), complete(TODAY), complete({ ...TODAY, code: 'LM-NEW' })], closedDates: [] });
   assert.equal(await pending, true);
   assert.equal(app.context.adminData.reservations.length, 3);
 });

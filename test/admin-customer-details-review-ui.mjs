@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const source = await readFile(process.env.ADMIN_SOURCE || new URL('../assets/js/admin.js', import.meta.url), 'utf8');
 const common = await readFile(new URL('../assets/js/common.js', import.meta.url), 'utf8');
+const dataSource = await readFile(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const TEST_TIMEOUT_MS = 10000;
 const POLL_INTERVAL_MS = 20;
@@ -96,6 +97,7 @@ async function fixture(testContext, rows) {
     function renderNumbers() {}
     function showReservationFreshness() {}
     window.alert = message => reviewAlerts.push(message);
+    ${dataSource}
     ${helpers}
     ${functions}
     document.addEventListener('click', async event => {

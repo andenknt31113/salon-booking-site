@@ -5,10 +5,13 @@ import { test } from 'node:test';
 
 const gasSource = readFileSync(new URL('../gas/Code.gs', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
+const dataSource = readFileSync(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 const BOOKING = { 予約番号: 'LM-FRESH', 来店日: '2030-01-02', 開始: '10:00', 終了: '11:00',
   お名前: '架空の試験客', 電話番号: "'00000000000", 状態: '予約確定', メニュー: '試験カット',
   担当: '試験担当', 合計金額: 6900, メール: 'example@example.invalid', 施術メモ: '保存したメモ',
   予約の入口: 'LINE', 店舗メール状態: '送信処理受付', お客様メール状態: '送信処理受付' };
+const CLIENT_BOOKING = { code: 'LM-FRESH', date: '2030-01-02', time: '10:00', endTime: '11:00',
+  name: '架空の試験客', tel: '00000000000', status: '予約確定', price: 6900 };
 
 function gasFixture() {
   const reads = [];
@@ -113,7 +116,7 @@ function clientFixture(response) {
   const status = { textContent: '' };
   const button = { disabled: false };
   const requests = [];
-  const reservation = { code: 'LM-FRESH', date: '2030-01-02', time: '10:00' };
+  const reservation = { ...CLIENT_BOOKING };
   const adminData = { reservations: [reservation], closedDates: [{ 休業日: '2030-01-03' }],
     menus: [{ 名称: '入力中メニュー' }], stamps: { closed: 'old-stamp' } };
   const edits = { settings: [{ value: '未保存の設定' }] };
@@ -124,13 +127,13 @@ function clientFixture(response) {
     showReservationFreshness: () => { status.textContent = '最終読込'; },
     showChangedReservation: () => { context.activeChange = null; }
   });
-  vm.runInContext(functions, context);
+  vm.runInContext(dataSource + '\n' + functions, context);
   const checkButton = { disabled: false, closest: () => ({ querySelector: () => status }) };
   return { context, requests, status, button, adminData, edits, checkButton };
 }
 
 test('予約の更新は軽量取得を使い、編集中の設定・メニューとstampを保持する', async () => {
-  const app = clientFixture({ ok: true, reservations: [{ code: 'LM-NEW' }], closedDates: [] });
+  const app = clientFixture({ ok: true, reservations: [{ ...CLIENT_BOOKING, code: 'LM-NEW' }], closedDates: [] });
   const menus = app.adminData.menus;
   const stamps = app.adminData.stamps;
   await app.context.refreshReservations();
@@ -144,7 +147,7 @@ test('予約の更新は軽量取得を使い、編集中の設定・メニュ�
 });
 
 test('詳細未取得の起動データを更新する場合だけ軽量な過去詳細を指定し、件数を保持する', async () => {
-  const rows = [{ code: 'LM-FRESH', date: '2030-01-02', detailsPending: true }, { code: 'LM-NEW', note: '', request: '' }];
+  const rows = [{ ...CLIENT_BOOKING, detailsPending: true }, { ...CLIENT_BOOKING, code: 'LM-NEW', note: '', request: '' }];
   const app = clientFixture({ ok: true, reservations: rows, closedDates: [] });
   app.adminData.reservations[0].detailsPending = true;
   const menus = app.adminData.menus;
@@ -161,17 +164,17 @@ for (const reason of ['電話予約追加', '保存済みメモ', '休業日の�
     let finishRead;
     app.context.adminPost = () => new Promise(resolve => { finishRead = resolve; });
     const reading = app.context.refreshReservations();
-    if (reason === '電話予約追加') app.adminData.reservations.push({ code: 'LM-PHONE' });
+    if (reason === '電話予約追加') app.adminData.reservations.push({ ...CLIENT_BOOKING, code: 'LM-PHONE' });
     if (reason === '保存済みメモ') app.adminData.reservations[0].note = '通信中に保存したメモ';
     if (reason === '休業日の追加') app.adminData.closedDates.push({ 休業日: '2030-01-04' });
     if (reason === '休業日配列の入替') app.adminData.closedDates = [{ 休業日: '2030-01-05' }];
     if (reason === '再ログイン') {
       app.context.dashboardGeneration++;
-      app.adminData.reservations = [{ code: 'LM-LOGIN' }];
+      app.adminData.reservations = [{ ...CLIENT_BOOKING, code: 'LM-LOGIN' }];
       app.status.textContent = '新しいログイン後の表示';
     }
     const snapshot = structuredClone(app.adminData);
-    finishRead({ ok: true, reservations: [{ code: 'LM-OLD' }], closedDates: [] });
+    finishRead({ ok: true, reservations: [{ ...CLIENT_BOOKING, code: 'LM-OLD' }], closedDates: [] });
     assert.equal(await reading, undefined);
     assert.deepEqual(app.adminData, snapshot);
     assert.match(app.status.textContent, reason === '再ログイン' ? /新しいログイン後/ : /更新を保留/);
@@ -207,7 +210,7 @@ test('欠けた取得応答で表示中の予約・休業を消さず、再確�
 });
 
 test('日時変更の結果確認も軽量取得で行い、編集中データを再取得しない', async () => {
-  const app = clientFixture({ ok: true, reservations: [{ code: 'LM-FRESH', date: '2030-01-04', time: '14:00' }], closedDates: [] });
+  const app = clientFixture({ ok: true, reservations: [{ ...CLIENT_BOOKING, date: '2030-01-04', time: '14:00' }], closedDates: [] });
   app.context.activeChange = { code: 'LM-FRESH', date: '2030-01-04', time: '14:00', pending: false };
   await app.context.checkAdminChange(app.checkButton);
   assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true }]);
@@ -222,16 +225,16 @@ for (const reason of ['電話予約追加', '休業日の保存', '再ログイ�
     app.context.adminPost = () => new Promise(resolve => { finishRead = resolve; });
     app.context.activeChange = { code: 'LM-FRESH', date: '2030-01-04', time: '14:00', pending: false, uncertain: true };
     const reading = app.context.checkAdminChange(app.checkButton);
-    if (reason === '電話予約追加') app.adminData.reservations.push({ code: 'LM-PHONE' });
+    if (reason === '電話予約追加') app.adminData.reservations.push({ ...CLIENT_BOOKING, code: 'LM-PHONE' });
     if (reason === '休業日の保存') app.adminData.closedDates = [{ 休業日: '2030-01-05' }];
     if (reason === '再ログイン') {
       app.context.dashboardGeneration++;
       app.context.activeChange = null;
-      app.adminData.reservations = [{ code: 'LM-LOGIN' }];
+      app.adminData.reservations = [{ ...CLIENT_BOOKING, code: 'LM-LOGIN' }];
       app.status.textContent = '新しいログイン後の表示';
     }
     const snapshot = structuredClone(app.adminData);
-    finishRead({ ok: true, reservations: [{ code: 'LM-FRESH', date: '2030-01-04', time: '14:00' }], closedDates: [] });
+    finishRead({ ok: true, reservations: [{ ...CLIENT_BOOKING, date: '2030-01-04', time: '14:00' }], closedDates: [] });
     await reading;
     assert.deepEqual(app.adminData, snapshot);
     assert.match(app.status.textContent, reason === '再ログイン' ? /新しいログイン後/ : /更新を保留/);

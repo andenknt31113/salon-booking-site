@@ -6,17 +6,20 @@ const AdminData = (() => {
   const rows = (value, key) => Array.isArray(value)
     && value.every(row => values(row) && Object.hasOwn(row, key));
 
-  function validStartup(result) {
-    if (!record(result) || result.ok !== true || !Array.isArray(result.reservations)
-        || !result.reservations.every(row => values(row)
+  function validRefresh(result) {
+    return record(result) && result.ok === true && Array.isArray(result.reservations)
+        && result.reservations.every(row => values(row)
           && typeof row.code === 'string' && row.code.trim()
           && ['date', 'time', 'endTime', 'name', 'tel', 'status'].every(key => typeof row[key] === 'string')
           && typeof row.price === 'number' && Number.isFinite(row.price)
           && (row.detailsPending === undefined
             || row.detailsPending === true && row.note === undefined && row.request === undefined))
-        || new Set(result.reservations.map(row => row.code)).size !== result.reservations.length
-        || !rows(result.closedDates, '休業日') || !result.closedDates.every(row => typeof row.休業日 === 'string')
-        || !values(result.settings) || !record(result.stamps)) return false;
+        && new Set(result.reservations.map(row => row.code)).size === result.reservations.length
+        && rows(result.closedDates, '休業日') && result.closedDates.every(row => typeof row.休業日 === 'string');
+  }
+
+  function validStartup(result) {
+    if (!validRefresh(result) || !values(result.settings) || !record(result.stamps)) return false;
     const pending = result.pendingEditors === undefined ? [] : result.pendingEditors;
     if (!Array.isArray(pending) || pending.some(target => !['menus', 'coupons', 'styles', 'reviews'].includes(target))
         || new Set(pending).size !== pending.length) return false;
@@ -36,5 +39,5 @@ const AdminData = (() => {
         || typeof result.capabilities[key] === 'boolean');
   }
 
-  return Object.freeze({ validStartup });
+  return Object.freeze({ validStartup, validRefresh });
 })();

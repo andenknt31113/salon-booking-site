@@ -3274,14 +3274,7 @@ function showReservationFreshness() {
 }
 
 function validReservationRefresh(result) {
-  const rows = result?.reservations;
-  return result?.ok === true
-    && Array.isArray(rows)
-    && rows.every(row => row && !Array.isArray(row) && typeof row.code === 'string' && row.code.trim()
-      && (row.detailsPending === undefined || row.detailsPending === true && row.note === undefined && row.request === undefined))
-    && new Set(rows.map(row => row.code)).size === rows.length
-    && Array.isArray(result.closedDates)
-    && result.closedDates.every(row => row && !Array.isArray(row) && typeof row.休業日 === 'string');
+  return AdminData.validRefresh(result);
 }
 
 function hasPendingReservationDetails(rows = adminData?.reservations || []) {

@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8');
+const dataSource = readFileSync(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 const functions = ['validReservationRefresh', 'hasPendingReservationDetails', 'loadCustomerDetails', 'loadReservationDateDetails',
   'sameSelectedReservationSnapshot', 'loadSelectedReservationDetails', 'loadReservationDetails']
   .map(name => source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'))[0]).join('\n');
@@ -41,7 +42,7 @@ function fixture({ rows = [PAST, OTHER, READY], throws = false } = {}) {
     renderStats() {}, renderAdminCalendar() {}, renderNumbers() {},
     showReservationFreshness() {}
   });
-  vm.runInContext(functions, context);
+  vm.runInContext(dataSource + '\n' + functions, context);
   return { context, calls, completions, renders, read: (key = PAST.tel) => context.loadCustomerDetails(key) };
 }
 
@@ -111,7 +112,7 @@ for (const field of ['date', 'time', 'status', 'tel', 'name', 'price', 'email', 
     const before = JSON.stringify(app.context.adminData);
     const pending = app.read();
     await Promise.resolve();
-    app.completions[0]({ ok: true, reservations: [{ ...complete(PAST), [field]: '架空の変更値' }], closedDates: [] });
+    app.completions[0]({ ok: true, reservations: [{ ...complete(PAST), [field]: field === 'price' ? PAST.price + 1 : '架空の変更値' }], closedDates: [] });
     assert.equal(await pending, false);
     assert.equal(JSON.stringify(app.context.adminData), before);
     assert.match(app.context.scopedDetailsErrors.get(PAST.tel), /更新を保留/);
