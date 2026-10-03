@@ -514,6 +514,7 @@ let showPast = false;
 let renderedReservationFilters = {};
 let renderedCustomerFilters = {};
 let customersNeedRender = true;
+let closedNeedsRender = true;
 let customerPage = 0;
 const CUSTOMER_PAGE_SIZE = 50;
 
@@ -2563,14 +2564,20 @@ function renderClosedCalendar() {
   const today = toKey(new Date());
   const first = new Date(year, month, 1).getDay();
   const days = new Date(year, month + 1, 0).getDate();
+  const dates = Array.from({ length: days }, (_unused, index) => toKey(new Date(year, month, index + 1)));
+  const liveCounts = new Map(dates.map(date => [date, 0]));
+  for (const reservation of adminData.reservations || []) {
+    const date = reservation.date;
+    if (liveCounts.has(date) && !isCancelled(reservation)) liveCounts.set(date, liveCounts.get(date) + 1);
+  }
 
   const cells = [];
   for (let i = 0; i < first; i++) cells.push('<td class="ccal-empty"></td>');
-  for (let d = 1; d <= days; d++) {
-    const key = toKey(new Date(year, month, d));
+  for (let day = 1; day <= days; day++) {
+    const key = dates[day - 1];
     const state = closedStateOf(key);
     const past = key < today;
-    const live = liveCountOn(key);
+    const live = liveCounts.get(key);
     /* 過ぎた日は押せません。押しても意味が無いうえ、
        間違って過去の日を休みにすると、一覧に理由の分からない行が増えます。 */
     const cls = ['ccal-day', state === 'all' || state === 'invalid' ? 'is-off' : '', state === 'range' ? 'is-part' : '',
@@ -2578,8 +2585,8 @@ function renderClosedCalendar() {
     cells.push(`<td>
       <button type="button" class="${cls}" ${past ? 'disabled' : ''}
               data-ccal="${key}" aria-pressed="${state === 'all'}"
-              aria-label="${year}年${month + 1}月${d}日${state === 'invalid' ? '・休業の入力要確認' : state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}${live ? `・予約${live}件` : ''}">
-        <span class="ccal-n">${d}</span>
+              aria-label="${year}年${month + 1}月${day}日${state === 'invalid' ? '・休業の入力要確認' : state === 'all' ? '・終日休み' : state === 'range' ? '・一部休み' : ''}${live ? `・予約${live}件` : ''}">
+        <span class="ccal-n">${day}</span>
         ${state === 'invalid' ? '<span class="ccal-mark">要確認</span>' : state === 'all' ? '<span class="ccal-mark">休</span>'
           : state === 'range' ? '<span class="ccal-mark is-part">一部</span>'
           : live ? '' : '<span class="ccal-mark is-open">○</span>'}
@@ -2637,6 +2644,10 @@ function toggleClosedDay(key) {
 }
 
 function renderClosed() {
+  if ($('.admin-pane[data-pane="closed"]')?.hidden) {
+    closedNeedsRender = true;
+    return;
+  }
   renderClosedCalendar();
   const rows = edits.closed;
   $('#closed-rows').innerHTML = rows.length
@@ -2669,6 +2680,7 @@ function renderClosed() {
     }).join('')
     : '<p class="empty-state">まだ登録がありません。下のボタンから追加してください。</p>';
   rows.forEach((_row, index) => updateClosedValidation(index));
+  closedNeedsRender = false;
 }
 
 /* ============================================================
@@ -3591,6 +3603,10 @@ document.addEventListener('DOMContentLoaded', () => {
     $$('.admin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab.dataset.pane; });
     if (pendingEditors.has(tab.dataset.pane)) ensureEditorLoaded(tab.dataset.pane);
     if (tab.dataset.pane === 'customers' && customersNeedRender) renderCustomers();
+    if (tab.dataset.pane === 'closed') {
+      if (closedNeedsRender) renderClosed();
+      else renderClosedCalendar();
+    }
     /* 数字は、店舗情報タブで入れた手数料率をそのまま使います。
        開いたときに描き直さないと、入れた直後に見に来た店主の画面に
        「手数料率が入っていません」が残ります。 */
