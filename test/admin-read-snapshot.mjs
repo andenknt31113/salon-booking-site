@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const SOURCE = readFileSync(process.env.GAS_SOURCE || new URL('../gas/Code.gs', import.meta.url), 'utf8');
+const DATA_SOURCE = readFileSync(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 const BOOKINGS = [
   { 予約番号: 'LM-SNAPSHOT', 来店日: '2030-01-05', 開始: '10:00', 終了: '11:00',
     '所要(分)': 60, お名前: '架空 読取試験', 電話番号: "'00000000000", メール: 'customer@example.test',
@@ -82,6 +83,7 @@ test('初回管理取得は編集対象五シートと設定を各一回読み�
   const app = fixture();
   const result = app.send();
   assert.equal(result.ok, true);
+  assert.equal(vm.runInNewContext(DATA_SOURCE + '\nAdminData.validStartup(result)', { result }), true);
   for (const name of ['メニュー', 'おすすめメニュー', 'スタイル', '口コミ', '休業日']) {
     assert.equal(app.count(name), 1, `${name}は表示と更新印のために取り直さない`);
   }
@@ -101,6 +103,7 @@ test('起動用の取得は写真と口コミを読まず、予約全履歴と�
   const app = fixture();
   const result = app.send({ startupOnly: true });
   assert.equal(result.ok, true);
+  assert.equal(vm.runInNewContext(DATA_SOURCE + '\nAdminData.validStartup(result)', { result }), true);
   assert.deepEqual(result.pendingEditors, ['styles', 'reviews']);
   for (const key of ['reservations', 'closedDates', 'menus', 'coupons', 'settings', 'capabilities']) {
     assert.deepEqual(result[key], full[key], key);

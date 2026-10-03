@@ -8,10 +8,15 @@ on:
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
       - 'test/admin-read-snapshot.mjs'
+      - 'test/admin-startup-data.mjs'
+      - 'test/admin-startup-portal.mjs'
       - 'test/booking-email-queue.mjs'
       - 'test/gas-native-snapshot.mjs'
       - 'test/settings.mjs'
       - 'assets/js/data.js'
+      - 'assets/js/admin-data.js'
+      - 'assets/js/admin.js'
+      - 'assets/js/admin-portal.js'
       - '.github/workflows/verify-backend.yml'
   pull_request:
     paths:
@@ -19,10 +24,15 @@ on:
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
       - 'test/admin-read-snapshot.mjs'
+      - 'test/admin-startup-data.mjs'
+      - 'test/admin-startup-portal.mjs'
       - 'test/booking-email-queue.mjs'
       - 'test/gas-native-snapshot.mjs'
       - 'test/settings.mjs'
       - 'assets/js/data.js'
+      - 'assets/js/admin-data.js'
+      - 'assets/js/admin.js'
+      - 'assets/js/admin-portal.js'
       - '.github/workflows/verify-backend.yml'
   workflow_dispatch:
 
@@ -41,4 +51,5 @@ jobs:
         with:
           node-version: '22'
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
+      - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs
       - run: node test/settings.mjs

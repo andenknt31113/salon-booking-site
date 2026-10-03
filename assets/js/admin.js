@@ -336,9 +336,11 @@ function forgetDevice() {
 
 async function openDashboard(remembered = false) {
   const res = await adminPost({ type: 'adminData', startupOnly: true, briefPast: true });
-  if (!res.ok) {
-    let message = res.error || '読み込みに失敗しました。';
-    if (remembered && !res.transportError && res.error === 'パスワードが違います。') {
+  if (!res?.ok || !AdminData.validStartup(res)) {
+    let message = res?.ok
+      ? '台帳の読込内容を確認できません。表示・保存は開始していません。もう一度読み込んでください。'
+      : res?.error || '読み込みに失敗しました。';
+    if (remembered && !res?.transportError && res?.error === 'パスワードが違います。') {
       adminToken = '';
       try { localStorage.removeItem(TOKEN_KEY); } catch (error) {}
       message = 'この端末の記憶でログインできませんでした。もう一度パスワードを入力してください。';

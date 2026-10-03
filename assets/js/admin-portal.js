@@ -43,7 +43,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1&v=20261004-csv';
+  frame.src = 'admin.html?design=a&google=1&v=20261004-startup';
 }
 
 async function post(body, signal) {
@@ -119,7 +119,9 @@ window.authAdminRequest = async payload => {
 
 async function loadAdmin() {
   loginStatus.textContent = 'Googleのアカウント選択は完了しました。管理権限と台帳を確認しています。';
-  const result = await window.authAdminRequest({ type: 'adminData', startupOnly: true, briefPast: true });
+  let result = await window.authAdminRequest({ type: 'adminData', startupOnly: true, briefPast: true });
+  if (result.ok && !AdminData.validStartup(result)) result = { ok: false, transportError: true,
+    error: '台帳の読込内容を確認できません。表示・保存は開始していません。台帳をもう一度読み込んでください。' };
   if (result.ok) {
     showAdmin(result);
     return;

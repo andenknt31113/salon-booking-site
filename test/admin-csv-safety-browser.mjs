@@ -18,7 +18,8 @@ const rows = [{ code: 'LM-CSV-FIRST', date: '2099-01-01', time: '10:00', endTime
   menu: '架空カット', staffName: '架空担当', price: 0, name: '架空のお客様', tel: '00000000001',
   email: '', visit: '初めて', request: 'メモ,"引用";区切り\r\n次の行', status: 'キャンセル', note: "'=保存済みの文字" }];
 const seed = { ok: true, reservations: rows, closedDates: [], menus: [], coupons: [],
-  styles: [], reviews: [], settings: {}, stamps: {} };
+  styles: [], reviews: [], settings: {},
+  stamps: { closed: '0', menus: '0', coupons: '0', settings: '0', styles: '0', reviews: '0' } };
 const quoted = value => '"' + String(value ?? '').replaceAll('"', '""') + '"';
 const expected = [HEADERS, ...rows.map((row, index) => FIELDS.map(field =>
   (index === 0 && ['name', 'request', 'note'].includes(field) ? "'" : '') + String(row[field] ?? '')))]
@@ -52,19 +53,21 @@ for (const design of ['', '?design=a']) {
       page.setDefaultTimeout(TEST_TIMEOUT_MS);
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(base + '/admin.html' + design);
-      await page.evaluate(async data => {
+      assert.equal(await page.evaluate(async data => {
         window.fixtureRequests = [];
         adminPost = async payload => {
           window.fixtureRequests.push(payload);
           if (payload.type !== 'adminData') throw new Error('架空台帳でも書込はしない');
           return structuredClone(data);
         };
-        await openDashboard();
+        const opened = await openDashboard();
+        if (!opened) return false;
         document.querySelector('#filter-date').value = '';
         document.querySelector('#filter-status').value = 'all';
         showPast = true;
         renderReservations();
-      }, seed);
+        return opened;
+      }, seed), true, '完全な架空応答で管理画面が開く');
       const before = await page.evaluate(() => structuredClone(adminData.reservations));
       const download = page.waitForEvent('download');
       await page.locator('#export-csv').click();

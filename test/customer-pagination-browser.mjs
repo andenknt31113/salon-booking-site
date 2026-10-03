@@ -18,7 +18,8 @@ const records = Array.from({ length: CUSTOMER_COUNT }, (_unused, index) => {
   return [row, { ...row, code: row.code + '-NEXT', date: '2099-01-01', note: '' }];
 }).flat();
 const seed = { ok: true, reservations: records, closedDates: [], styles: [], reviews: [],
-  menus: [], coupons: [], settings: {}, stamps: {} };
+  menus: [], coupons: [], settings: {},
+  stamps: { closed: '0', menus: '0', coupons: '0', settings: '0', styles: '0', reviews: '0' } };
 
 async function fixture(design, run) {
   let handler;
@@ -49,15 +50,15 @@ async function fixture(design, run) {
     const warnings = [];
     page.on('dialog', async dialog => { warnings.push(dialog.message()); await dialog.dismiss(); });
     await page.goto(base + '/admin.html' + design);
-    await page.evaluate(async data => {
+    assert.equal(await page.evaluate(async data => {
       window.fixtureRequests = [];
       adminPost = async payload => {
         window.fixtureRequests.push(payload);
         if (payload.type !== 'adminData') throw new Error('架空台帳でも書込はしない');
         return structuredClone(data);
       };
-      await openDashboard();
-    }, seed);
+      return openDashboard();
+    }, seed), true, '完全な架空応答で管理画面が開く');
     await page.locator('#admin-tabs [data-pane="customers"]').click();
     await run({ page, warnings, base });
     assert.deepEqual(await page.evaluate(() => window.fixtureRequests),

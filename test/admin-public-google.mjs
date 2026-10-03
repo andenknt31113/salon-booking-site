@@ -55,7 +55,8 @@ const server = http.createServer((request, response) => {
             endTime: '13:00', menu: '試験用カット', staffName: '担当者', price: 5000,
             name: '試験太郎', tel: '09000000000', email: '', visit: '初めて',
             request: '', status: '', note: savedNote }], menus: [], coupons: [], styles: [], reviews: [],
-            closedDates: [], settings: {}, stamps: {} };
+            closedDates: [], settings: {}, stamps: { menus: '0', coupons: '0', styles: '0',
+              reviews: '0', closed: '0', settings: '0' } };
         }
       }
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
