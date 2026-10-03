@@ -94,8 +94,51 @@ test('新トップでも予約メニューを引き継ぎ、準備中の予約�
     await link.click();
     assert.equal(new URL(page.url()).pathname, '/reserve.html');
     assert.equal(new URL(page.url()).search, new URL(target, base).search);
+    await page.locator('#booking-paused-notice').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#booking-paused-notice').isVisible(), true);
     assert.equal(await page.locator('#booking-paused-notice a[href^="tel:"]').isVisible(), true);
     assert.equal(await page.locator('.reserve-layout').isVisible(), false, '見た目の変更で受付停止を解除しない');
   } finally { await context.close(); }
+});
+
+test('予約画面の初期化が遅くても、描画後の受付停止と問い合わせ導線を確認する', async () => {
+  const { context, page } = await openHome({}, true);
+  let releaseInitialization;
+  let signalRequested;
+  const initialize = new Promise(resolve => { releaseInitialization = resolve; });
+  const requested = new Promise(resolve => { signalRequested = resolve; });
+  const errors = [];
+  const writes = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/exec' && request.method() === 'POST') {
+      const payload = request.postDataJSON();
+      if (!['menu', 'availability'].includes(payload.type)) writes.push(payload.type);
+    }
+  });
+  try {
+    await context.route('**/assets/js/common.js*', async route => {
+      signalRequested();
+      await initialize;
+      await route.continue();
+    });
+    const link = page.locator('#home-coupons a[href^="reserve.html?"]').first();
+    const target = await link.getAttribute('href');
+    const navigation = link.click();
+    await requested;
+    const notice = page.locator('#booking-paused-notice');
+    await notice.waitFor({ state: 'attached' });
+    assert.equal(await notice.isVisible(), false, 'URLへ移動しただけでは案内の描画は終わっていない');
+    releaseInitialization();
+    await navigation;
+    await notice.waitFor({ state: 'visible' });
+    assert.equal(new URL(page.url()).search, new URL(target, base).search);
+    assert.equal(await notice.locator('a[href^="tel:"]').isVisible(), true);
+    assert.equal(await page.locator('#reserve-layout').isVisible(), false);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(writes, [], '初期化や問い合わせ案内で予約を書き込まない');
+  } finally {
+    releaseInitialization();
+    await context.close();
+  }
 });
