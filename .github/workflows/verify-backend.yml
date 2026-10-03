@@ -7,6 +7,7 @@ on:
       - 'gas/**'
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
+      - 'test/admin-read-snapshot.mjs'
       - 'test/booking-email-queue.mjs'
       - 'test/gas-native-snapshot.mjs'
       - 'test/settings.mjs'
@@ -17,6 +18,7 @@ on:
       - 'gas/**'
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
+      - 'test/admin-read-snapshot.mjs'
       - 'test/booking-email-queue.mjs'
       - 'test/gas-native-snapshot.mjs'
       - 'test/settings.mjs'
@@ -38,5 +40,5 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
-      - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
+      - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
       - run: node test/settings.mjs

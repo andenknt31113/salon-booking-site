@@ -78,16 +78,16 @@ function fixture({ failure = '', afterRead, denied = false } = {}) {
     fullReads: name => reads.filter(read => read.name === name && read.row === 1 && read.height > 1).length };
 }
 
-test('初回管理取得は編集対象五シートを各一回読み、設定は補完確認と表示の二回だけ読む', () => {
+test('初回管理取得は編集対象五シートと設定を各一回読み、同じ値から表示と更新印を作る', () => {
   const app = fixture();
   const result = app.send();
   assert.equal(result.ok, true);
   for (const name of ['メニュー', 'おすすめメニュー', 'スタイル', '口コミ', '休業日']) {
     assert.equal(app.count(name), 1, `${name}は表示と更新印のために取り直さない`);
   }
-  assert.equal(app.count('設定'), 2);
+  assert.equal(app.count('設定'), 1);
   assert.equal(app.count('予約一覧'), 2, '見出しの補完確認と全行の一回取得だけ');
-  assert.equal(app.reads.length, 9);
+  assert.equal(app.reads.length, 8);
   assert.equal(result.reservations.length, 2, '過去の予約・取消を省略しない');
   assert.equal(result.reservations[0].note, '保持するメモ');
   assert.equal(result.reservations[0].email, 'customer@example.test');
@@ -109,7 +109,7 @@ test('起動用の取得は写真と口コミを読まず、予約全履歴と�
   assert.equal(Object.hasOwn(result, 'reviews'), false);
   assert.equal(app.count('スタイル'), 0);
   assert.equal(app.count('口コミ'), 0);
-  assert.equal(app.reads.length, 7);
+  assert.equal(app.reads.length, 6);
   assert.deepEqual(Object.keys(result.stamps).sort(), ['closed', 'coupons', 'menus', 'settings']);
   assert.equal(app.held(), false);
 });
