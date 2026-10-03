@@ -313,8 +313,15 @@
           <p class="note" style="margin:0 0 16px;">
             まず一覧から<b>直したい1件を押してください</b>。その1件だけ入力欄が開きます。<br />
             所要時間は空席カレンダーの押さえ時間になります。実際の施術時間を入れてください。
-            「表示」を外すと、消さずにサイトから隠せます（一覧には「非表示」と出ます）。
+            「表示」を外すと、予約画面で非表示になります。公開ページの掲載は別途更新が必要です。
           </p>
+          <div class="notice is-info">
+            <b>公開掲載</b>
+            <div>
+              <p class="note" role="status" aria-live="polite" data-publication-note>公開ページの掲載状況は未確認です。</p>
+              <button class="btn btn-outline" type="button" data-publication-check disabled>掲載状況を確認</button>
+            </div>
+          </div>
           <div id="menu-rows"></div>
           <div class="admin-savebar">
             <p class="admin-savebar-note" data-note="menus"></p>
@@ -328,6 +335,13 @@
             一番上に大きく並ぶメニューです。通常価格を入れた場合だけ、その金額に取り消し線が付きます。<br />
             一覧から<b>直したい1件を押す</b>と、その1件だけ入力欄が開きます。
           </p>
+          <div class="notice is-info">
+            <b>公開掲載</b>
+            <div>
+              <p class="note" role="status" aria-live="polite" data-publication-note>公開ページの掲載状況は未確認です。</p>
+              <button class="btn btn-outline" type="button" data-publication-check disabled>掲載状況を確認</button>
+            </div>
+          </div>
           <div id="coupon-rows"></div>
           <div class="admin-savebar">
             <p class="admin-savebar-note" data-note="coupons"></p>
@@ -391,7 +405,8 @@
 
   <script src="assets/js/data.js?v=20261002-recovery"></script>
   <script src="assets/js/common.js?v=20261002-completion"></script>
-  <script src="assets/js/admin.js?v=20261003-date"></script>
+  <script src="assets/js/admin.js?v=20261004-publication"></script>
+  <script src="assets/js/admin-publication.js?v=20261004-publication"></script>
   <script src="assets/js/admin-notifications.js?v=20261002-notification-guard"></script>
   <script src="assets/js/admin-google-bridge.js"></script>
 </body>

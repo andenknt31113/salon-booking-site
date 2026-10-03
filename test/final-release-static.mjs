@@ -116,4 +116,6 @@ test('Google管理入口・管理HTML・管理JSの読込版番号が一致す�
   assert.equal(frameUrl.searchParams.get('google'), '1', '管理iframeはGoogle管理用の入口を使う');
   assert.equal(frameUrl.searchParams.get('v'), portalVersion, '入口JSと管理HTMLの版を揃える');
   assert.equal(adminVersion, portalVersion, '管理HTMLと管理JSの版を揃える');
+  assert.equal(scriptVersion('admin.html', 'assets/js/admin-publication.js'), adminVersion,
+    '掲載確認も管理JSと同じ版を読む');
 });

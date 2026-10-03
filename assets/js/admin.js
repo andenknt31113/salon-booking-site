@@ -358,6 +358,7 @@ async function openDashboard(remembered = false) {
   }
   adminData = res;
   dashboardGeneration += 1;
+  if (typeof invalidatePublicMenuCheck === 'function') invalidatePublicMenuCheck();
   pendingBookingFocus = null;
   reservationDetailsRead = null;
   reservationDetailsError = '';
@@ -3086,6 +3087,7 @@ async function save(target) {
   const payload = { type: 'adminSave', target, rows: submitted, stamp: stamps[target] };
 
   pendingSaves.add(target);
+  if (['menus', 'coupons'].includes(target) && typeof invalidatePublicMenuCheck === 'function') invalidatePublicMenuCheck();
   let res;
   try {
     res = await adminPost(payload);
