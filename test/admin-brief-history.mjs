@@ -167,9 +167,9 @@ for (const delivery of [false, true]) {
     assert.equal(result.ok, true);
     testContext.diagnostic(`架空シートのgetValues: ${app.reads.length}回`);
     assert.equal(app.reads.filter(read => read.name === '設定').length, 1);
-    assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 1,
-      'getSheet_の列確認だけにし、配送表示用には読み直さない');
-    assert.equal(app.reads.length, delivery ? 8 : 6);
+    assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 0,
+      '完成した見出しは全行の取得から確認し、配送表示用にも読み直さない');
+    assert.equal(app.reads.length, delivery ? 7 : 5);
     assert.equal(result.reservations.length, 1);
     assertPending(result.reservations[0]);
     if (delivery) assert.match(result.reservations[0].customerMailStatus, /送信結果不明/);
@@ -183,8 +183,7 @@ for (const payload of [{}, { reservationsOnly: true }, { reservationsOnly: true,
     const result = app.send(payload);
     assert.equal(result.ok, true);
     assert.match(result.reservations[0].customerMailStatus, /送信結果不明/);
-    assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length,
-      Object.keys(payload).length ? 0 : 1);
+    assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 0);
     if (payload.notificationsOnly) {
       assert.equal(Object.hasOwn(result.reservations[0], 'note'), false);
       assert.equal(Object.hasOwn(result.reservations[0], 'email'), false);
@@ -328,7 +327,7 @@ for (const payload of BRIEF_REQUESTS) {
     assert.equal(full.send(fullPayload).ok, true);
     assert.deepEqual(app.reads, full.reads);
     assert.deepEqual(app.accesses, full.accesses);
-    assert.equal(app.reads.length, payload.startupOnly ? 6 : 2);
+    assert.equal(app.reads.length, payload.startupOnly ? 5 : 2);
   });
 
   test(`配送結果は実配送記録を維持し、配送シートの読込も増やさない：${JSON.stringify(payload)}`, () => {

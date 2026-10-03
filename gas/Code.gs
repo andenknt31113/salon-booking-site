@@ -2268,8 +2268,12 @@ function doAdminData_(d) {
   /* 台帳にも、こちらが知っている列が全部あるようにしておきます。
      「施術メモ」はあとから足した列で、先に作られた台帳にはありません。
      ここで足しておかないと、店が書いたメモの行き先がなくなります。 */
-  const sheet = getSheet_();
-  const reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  let reservationSnapshot = sheet ? readSheetSnapshot_(sheet, []) : null;
+  if (!reservationSnapshot || HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) {
+    sheet = getSheet_();
+    reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
+  }
   if (!validBookingHeaders_(reservationSnapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
   const col = header => {
     const index = reservationSnapshot.head.indexOf(header);

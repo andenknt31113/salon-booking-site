@@ -18,11 +18,19 @@ function digest(values) {
   return createHash('md5').update(JSON.stringify(values)).digest('hex').slice(0, 12);
 }
 
-function fixture({ failure = '', afterRead, denied = false } = {}) {
+function fixture({ failure = '', afterRead, denied = false, repairBookings = false } = {}) {
   let held = false;
   const reads = [];
+  const writes = [];
   const sheets = new Map();
-  const spreadsheet = { getSheetByName: name => sheets.get(name) || null };
+  const spreadsheet = { getSheetByName: name => sheets.get(name) || null,
+    insertSheet(name) {
+      assert.ok(repairBookings && name === '予約一覧' && held);
+      const sheet = add(name, []);
+      sheet.cells.length = 0;
+      writes.push({ name, operation: 'insert' });
+      return sheet;
+    } };
   const context = vm.createContext({ Date,
     console: { error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => key === 'ADMIN_GOOGLE_ONLY' ? 'true' : null }) },
@@ -55,11 +63,27 @@ function fixture({ failure = '', afterRead, denied = false } = {}) {
         afterRead?.({ name, row, height, cells, values, count: reads.filter(read => read.name === name).length });
         return values;
       },
-      setValues() { throw new Error('読取で既存の列を変更しない'); }
+      setValues(values) {
+        assert.ok(repairBookings && name === '予約一覧' && held && row === 1,
+          '補完を明示した架空台帳の見出し以外には書かない');
+        writes.push({ name, operation: 'headers', column, values: structuredClone(values) });
+        values.forEach((line, rowIndex) => line.forEach((value, columnIndex) => {
+          cells[row - 1 + rowIndex] ||= [];
+          cells[row - 1 + rowIndex][column - 1 + columnIndex] = value;
+        }));
+        return this;
+      },
+      setFontWeight() { return this; }, setBackground() { return this; }
     });
     const sheet = { cells, getParent: () => spreadsheet, getLastRow: () => cells.length,
       getLastColumn: width, getRange: range,
-      getDataRange: () => range(1, 1, cells.length, width()) };
+      getDataRange: () => range(1, 1, cells.length, width()),
+      appendRow(values) {
+        assert.ok(repairBookings && name === '予約一覧' && held && cells.length === 0,
+          '初期化する架空台帳へ見出しだけを書く');
+        writes.push({ name, operation: 'headers', column: 1, values: [Array.from(values)] });
+        cells.push(Array.from(values));
+      }, setFrozenRows() {}, setColumnWidth() {} };
     sheets.set(name, sheet);
     return sheet;
   }
@@ -74,7 +98,7 @@ function fixture({ failure = '', afterRead, denied = false } = {}) {
   const send = (payload = {}) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify({
     type: 'googleAdmin', action: 'adminData', payload
   }) } }));
-  return { context, sheets, reads, send, held: () => held,
+  return { context, sheets, reads, writes, send, held: () => held,
     count: name => reads.filter(read => read.name === name).length,
     fullReads: name => reads.filter(read => read.name === name && read.row === 1 && read.height > 1).length };
 }
@@ -88,8 +112,8 @@ test('初回管理取得は編集対象五シートと設定を各一回読み�
     assert.equal(app.count(name), 1, `${name}は表示と更新印のために取り直さない`);
   }
   assert.equal(app.count('設定'), 1);
-  assert.equal(app.count('予約一覧'), 2, '見出しの補完確認と全行の一回取得だけ');
-  assert.equal(app.reads.length, 8);
+  assert.equal(app.count('予約一覧'), 1, '完成した見出しの検査と全行の表示を一回の取得から作る');
+  assert.equal(app.reads.length, 7);
   assert.equal(result.reservations.length, 2, '過去の予約・取消を省略しない');
   assert.equal(result.reservations[0].note, '保持するメモ');
   assert.equal(result.reservations[0].email, 'customer@example.test');
@@ -112,9 +136,147 @@ test('起動用の取得は写真と口コミを読まず、予約全履歴と�
   assert.equal(Object.hasOwn(result, 'reviews'), false);
   assert.equal(app.count('スタイル'), 0);
   assert.equal(app.count('口コミ'), 0);
-  assert.equal(app.reads.length, 6);
+  assert.equal(app.reads.length, 5);
   assert.deepEqual(Object.keys(result.stamps).sort(), ['closed', 'coupons', 'menus', 'settings']);
   assert.equal(app.held(), false);
+});
+
+for (const payload of [{}, { startupOnly: true, briefPast: true }]) {
+  test(`完成した台帳は独自列・列順・空白見出しを保持して一回だけ読む：${JSON.stringify(payload)}`, () => {
+    const app = fixture();
+    const cells = app.sheets.get('予約一覧').cells;
+    cells.forEach((row, index) => {
+      row.push(index ? '残す独自の値' : '独自列');
+      row.reverse();
+    });
+    cells[0] = cells[0].map(header => ' ' + header + ' ');
+    const before = structuredClone(cells);
+    const result = app.send(payload);
+    assert.equal(result.ok, true);
+    assert.equal(app.count('予約一覧'), 1);
+    assert.equal(result.reservations.length, BOOKINGS.length);
+    const reservation = result.reservations.find(row => row.code === 'LM-SNAPSHOT');
+    assert.equal(reservation.tel, '00000000000');
+    assert.equal(reservation.price, 4000);
+    assert.equal(reservation.note, '保持するメモ');
+    assert.deepEqual(cells, before);
+    assert.deepEqual(app.writes, []);
+  });
+
+  test(`足りない任意列は右端へ補完して再取得し、既存の予約・独自列を動かさない：${JSON.stringify(payload)}`, () => {
+    const app = fixture({ repairBookings: true });
+    const cells = app.sheets.get('予約一覧').cells;
+    const noteColumn = cells[0].indexOf('施術メモ');
+    cells.forEach((row, index) => {
+      row.splice(noteColumn, 1);
+      row.push(index ? '保持する独自の値' : '独自列');
+    });
+    const before = structuredClone(cells);
+    const result = app.send(payload);
+    assert.equal(result.ok, true);
+    assert.equal(cells[0].at(-1), '施術メモ');
+    assert.deepEqual(cells.map(row => row.slice(0, before[0].length)), before);
+    assert.equal(result.reservations.length, BOOKINGS.length);
+    const reservation = result.reservations.find(row => row.code === 'LM-SNAPSHOT');
+    assert.equal(reservation.tel, '00000000000');
+    assert.equal(reservation.email, 'customer@example.test');
+    assert.equal(reservation.note, '');
+    assert.deepEqual(app.writes, [{ name: '予約一覧', operation: 'headers',
+      column: before[0].length + 1, values: [['施術メモ']] }]);
+    assert.equal(app.held(), false);
+  });
+}
+
+for (const state of ['未作成', '空シート', '見出しだけ']) {
+  test(`起動時の初期化・空一覧の互換性を保持する：${state}`, () => {
+    const app = fixture({ repairBookings: true });
+    if (state === '未作成') app.sheets.delete('予約一覧');
+    else app.sheets.get('予約一覧').cells.length = state === '空シート' ? 0 : 1;
+    const result = app.send({ startupOnly: true, briefPast: true });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.reservations, []);
+    assert.deepEqual(app.sheets.get('予約一覧').cells, [Array.from(vm.runInContext('HEADERS', app.context))]);
+    assert.ok(app.writes.every(write => write.operation === 'insert' || write.operation === 'headers'));
+    assert.equal(app.held(), false);
+  });
+}
+
+test('5,000件の過去・未来・取消を切り捨てず、一回の予約取得から起動する', () => {
+  const app = fixture();
+  const cells = app.sheets.get('予約一覧').cells;
+  const headers = cells[0];
+  const originals = cells.slice(1);
+  const count = 5000;
+  cells.splice(1, cells.length - 1, ...Array.from({ length: count }, (_unused, index) => {
+    const row = Array.from(originals[index % originals.length]);
+    row[headers.indexOf('予約番号')] = 'LM-SNAPSHOT-' + index;
+    return row;
+  }));
+  const before = structuredClone(cells);
+  const result = app.send({ startupOnly: true, briefPast: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.reservations.length, count);
+  assert.equal(new Set(result.reservations.map(row => row.code)).size, count);
+  assert.equal(result.reservations.filter(row => row.status === 'キャンセル').length, count / 2);
+  assert.equal(app.count('予約一覧'), 1);
+  assert.deepEqual(cells, before);
+  assert.deepEqual(app.writes, []);
+});
+
+test('初回の予約読込失敗は補完・再読込で成功へ置き換えず、入力元へ書かない', () => {
+  const app = fixture({ failure: '予約一覧', repairBookings: true });
+  assert.equal(app.send({ startupOnly: true, briefPast: true }).ok, false);
+  assert.equal(app.count('予約一覧'), 1);
+  assert.deepEqual(app.writes, []);
+  assert.equal(app.held(), false);
+});
+
+test('起動時の権限拒否では初期化・予約読込を一切行わない', () => {
+  const app = fixture({ denied: true, repairBookings: true });
+  app.sheets.delete('予約一覧');
+  assert.equal(app.send({ startupOnly: true, briefPast: true }).ok, false);
+  assert.deepEqual(app.reads, []);
+  assert.deepEqual(app.writes, []);
+});
+
+for (const state of ['必須列の欠落', '必須列の重複', '無名の見出し']) {
+  test(`初回でも不正な見出しは空台帳へ置き換えず補完で直したことにしない：${state}`, () => {
+    const app = fixture({ repairBookings: true });
+    const cells = app.sheets.get('予約一覧').cells;
+    if (state === '必須列の欠落') {
+      const startColumn = cells[0].indexOf('開始');
+      cells.forEach(row => row.splice(startColumn, 1));
+    }
+    else if (state === '必須列の重複') cells.forEach((row, index) => row.push(index ? row[0] : '予約番号'));
+    else cells[0].fill('');
+    const before = structuredClone(cells);
+    const result = app.send({ startupOnly: true, briefPast: true });
+    assert.equal(result.ok, false);
+    assert.equal(Object.hasOwn(result, 'reservations'), false);
+    assert.deepEqual(cells, before);
+    assert.deepEqual(app.writes, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('初回の見出しと表示は同じsnapshotを使い、次の要求では新しい予約を読む', () => {
+  let changed = false;
+  const app = fixture({ afterRead({ name, cells }) {
+    if (name !== '予約一覧' || changed) return;
+    changed = true;
+    cells[1][cells[0].indexOf('お名前')] = '次の要求で確認するお名前';
+    cells.forEach(row => row.reverse());
+  } });
+  const first = app.send({ startupOnly: true, briefPast: true });
+  assert.equal(first.ok, true);
+  assert.equal(first.reservations.find(row => row.code === 'LM-SNAPSHOT').name, BOOKINGS[0].お名前);
+  assert.equal(first.reservations.find(row => row.code === 'LM-SNAPSHOT').note, '保持するメモ');
+  const second = app.send({ startupOnly: true, briefPast: true });
+  assert.equal(second.ok, true);
+  assert.equal(second.reservations.find(row => row.code === 'LM-SNAPSHOT').name, '次の要求で確認するお名前');
+  assert.equal(second.reservations.find(row => row.code === 'LM-SNAPSHOT').note, '保持するメモ');
+  assert.equal(app.count('予約一覧'), 2, '二要求で一回ずつ読み、前の要求の結果を使い回さない');
+  assert.deepEqual(app.writes, []);
 });
 
 for (const [target, name] of [['styles', 'スタイル'], ['reviews', '口コミ']]) {

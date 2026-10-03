@@ -344,12 +344,17 @@ test('指定なしの全量・briefPast・startup・編集・通知の既存契�
       assert.deepEqual(app.reads.filter(unchangedRead), baseline.reads.filter(unchangedRead));
       const full = !payload.reservationsOnly && !payload.notificationsOnly && !payload.editorTarget;
       const deliveryReads = deliveryIndices.length ? 2 : 0;
-      const expectedReads = full ? (payload.startupOnly ? 6 : 8) + deliveryReads
+      const expectedReads = full ? (payload.startupOnly ? 5 : 7) + deliveryReads
         : payload.editorTarget ? 1 : (payload.notificationsOnly ? 1 : 2) + deliveryReads;
       assert.equal(app.reads.length, expectedReads);
       assert.equal(app.reads.filter(read => read.name === '設定').length, full ? 1 : 0);
-      assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, full ? 1 : 0);
-      assert.deepEqual(app.accesses.toSorted(), baseline.accesses.toSorted());
+      assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 0);
+      for (const target of ['spreadsheet', '予約一覧']) {
+        assert.equal(app.accesses.filter(name => name === target).length,
+          baseline.accesses.filter(name => name === target).length - (full ? 1 : 0));
+      }
+      const otherAccess = name => !['spreadsheet', '予約一覧'].includes(name);
+      assert.deepEqual(app.accesses.filter(otherAccess).toSorted(), baseline.accesses.filter(otherAccess).toSorted());
     }
   }
   for (const header of ['施術メモ', 'ご要望']) {
