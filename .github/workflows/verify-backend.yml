@@ -11,6 +11,7 @@ on:
       - 'test/admin-menu-deferred.mjs'
       - 'test/admin-editor-loading.mjs'
       - 'test/admin-notification-race.mjs'
+      - 'test/admin-mail-status-index.mjs'
       - 'test/admin-notification-health.mjs'
       - 'test/final-admin-notifications.mjs'
       - 'test/booking-email-queue-ui.mjs'
@@ -40,6 +41,7 @@ on:
       - 'test/admin-menu-deferred.mjs'
       - 'test/admin-editor-loading.mjs'
       - 'test/admin-notification-race.mjs'
+      - 'test/admin-mail-status-index.mjs'
       - 'test/admin-notification-health.mjs'
       - 'test/final-admin-notifications.mjs'
       - 'test/booking-email-queue-ui.mjs'
@@ -78,7 +80,7 @@ jobs:
           node-version: '22'
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs test/admin-menu-deferred.mjs test/admin-editor-loading.mjs
-      - run: node --test test/admin-notification-race.mjs test/admin-notification-health.mjs test/final-admin-notifications.mjs test/booking-email-queue-ui.mjs
+      - run: node --test test/admin-notification-race.mjs test/admin-mail-status-index.mjs test/admin-notification-health.mjs test/final-admin-notifications.mjs test/booking-email-queue-ui.mjs
       - run: node --test test/customer-pagination.mjs test/customer-roster-deferred.mjs test/customer-profile.mjs
       - run: node --test test/measure-booking-backend.mjs test/read-probe-cli.mjs
       - run: node test/settings.mjs

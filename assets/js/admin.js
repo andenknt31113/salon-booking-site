@@ -771,9 +771,15 @@ function applyMailStatusUpdate(rows) {
       || typeof row.shopMailStatus !== 'string' || typeof row.customerMailStatus !== 'string'
       || row.shopMailStatus.length > MAIL_STATUS_MAX_LENGTH || row.customerMailStatus.length > MAIL_STATUS_MAX_LENGTH)
       || new Set(rows.map(row => row.code)).size !== rows.length) return false;
+  if (!rows.length) return true;
+  const reservationByCode = new Map();
+  for (const reservation of adminData.reservations || []) {
+    const code = reservation.code;
+    if (!reservationByCode.has(code)) reservationByCode.set(code, reservation);
+  }
   let changed = false;
   rows.forEach(row => {
-    const reservation = (adminData.reservations || []).find(current => current.code === row.code);
+    const reservation = reservationByCode.get(row.code);
     if (!reservation || ['name', 'date', 'time', 'endTime', 'status'].some(field => reservation[field] !== row[field])) return;
     if (reservation.shopMailStatus === row.shopMailStatus && reservation.customerMailStatus === row.customerMailStatus) return;
     reservation.shopMailStatus = row.shopMailStatus;
