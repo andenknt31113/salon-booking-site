@@ -43,7 +43,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1&v=20261004-startup';
+  frame.src = 'admin.html?design=a&google=1&v=20261004-retry';
 }
 
 async function post(body, signal) {
@@ -126,14 +126,12 @@ async function loadAdmin() {
     showAdmin(result);
     return;
   }
-  if (!result.transportError && user) {
-    user = null;
-    await sdk.signOut(auth);
-  }
   retryAccessButton.hidden = !user;
   loginStatus.textContent = user ? 'Googleのアカウント選択は完了しています。台帳の読込は未完了です。'
     : '管理者のGoogleアカウントでログインしてください。';
-  showError(result.error || '管理権限を確認できません。');
+  showError(result.error || (result.authDenied
+    ? '管理権限を確認できません。もう一度ログインしてください。'
+    : '台帳を読み込めません。「台帳をもう一度読み込む」で再確認してください。'));
 }
 
 async function signIn() {

@@ -12,6 +12,7 @@ const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascr
 const requests = [];
 let allowed = true;
 let authUnavailable = false;
+let ledgerUnavailable = false;
 let savedNote = '';
 let noteWrites = 0;
 let loseNextNoteResponse = false;
@@ -33,6 +34,8 @@ const server = http.createServer((request, response) => {
           result = { ok: false, transportError: true, error: '試験用：Googleとの通信を確認できません。' };
         } else if (!allowed || data.idToken !== '試験用IDトークン') {
           result = { ok: false, authDenied: true, error: 'このGoogleアカウントには管理権限がありません。' };
+        } else if (data.action === 'adminData' && ledgerUnavailable) {
+          result = { ok: false, error: '試験用：予約台帳の見出しを確認できません。' };
         } else if (data.action === 'adminNote') {
           if (typeof data.payload.expectedNote !== 'string') {
             result = { ok: false, error: '元のメモを確認できません。' };
@@ -125,7 +128,18 @@ try {
   await page.goto(base + '/admin-google.html');
   await page.waitForFunction(() => !document.querySelector('#google-login').disabled);
   assert.equal(requests.filter(item => item.type === 'googleAdmin').length, 0, '認証前には台帳を読まない');
+  ledgerUnavailable = true;
   await page.locator('#google-login').click();
+  await page.locator('#login-error').getByText(/予約台帳の見出し/).waitFor();
+  assert.equal(await page.locator('#management-view').isVisible(), false, '読込失敗で台帳を開かない');
+  assert.equal(await page.locator('#admin-frame').getAttribute('src'), null);
+  assert.equal(await page.locator('#retry-access').isVisible(), true, 'Google選択を残して再読込できる');
+  assert.equal(popupCalls, 1);
+  assert.equal(requests.filter(item => item.type === 'googleAdmin').length, 1, '失敗を自動では再送しない');
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('test-signed-in')), 'yes',
+    '台帳失敗だけで架空Googleのタブ内ログイン状態を消さない');
+  ledgerUnavailable = false;
+  await page.locator('#retry-access').click();
   const frame = page.frameLocator('#admin-frame');
   try { await frame.locator('#dashboard:not([hidden])').waitFor({ timeout: 8000 }); }
   catch (error) {
@@ -145,18 +159,27 @@ try {
   assert.equal(await frame.locator('#gate').isVisible(), false, '旧パスワード欄を出さない');
   assert.equal(await frame.locator('html').getAttribute('data-admin-design'), 'a');
   const adminCalls = requests.filter(item => item.type === 'googleAdmin');
-  assert.equal(adminCalls.length, 1, '認証済みの台帳読込結果を初回表示に使い、重複取得しない');
+  assert.equal(adminCalls.length, 2, '失敗した初回と手動再読込の2回だけで、iframe用の重複取得をしない');
+  assert.equal(popupCalls, 1, '台帳だけ読み直してGoogleのアカウント選択を増やさない');
   assert.ok(adminCalls.every(item => item.idToken === '試験用IDトークン'
     && item.action === 'adminData' && !item.payload.password && !item.payload.token), '旧パスワード・合鍵は送らない');
   const popupsBeforeReload = popupCalls;
+  ledgerUnavailable = true;
   await page.reload();
+  await page.locator('#login-error').getByText(/予約台帳の見出し/).waitFor();
+  assert.equal(popupCalls, popupsBeforeReload, '復元済みGoogleの台帳失敗でも選択画面を出さない');
+  assert.equal(await page.locator('#management-view').isVisible(), false);
+  assert.equal(await page.locator('#admin-frame').getAttribute('src'), null);
+  assert.equal(await page.locator('#retry-access').isVisible(), true);
+  ledgerUnavailable = false;
+  await page.locator('#retry-access').click();
   await frame.locator('#dashboard:not([hidden])').waitFor();
   assert.equal(popupCalls, popupsBeforeReload, '同じタブの再読込でGoogleの小窓を出し直さない');
-  assert.equal(requests.filter(item => item.type === 'googleAdmin' && item.action === 'adminData').length, 2,
-    '復帰後は保存済み台帳を流用せずサーバーで再認証・再読込する');
+  assert.equal(requests.filter(item => item.type === 'googleAdmin' && item.action === 'adminData').length, 4,
+    '復帰時の失敗と手動再読込もサーバーで再認証し、古い台帳を流用しない');
   await frame.locator('#refresh-reservations').click();
   await page.waitForFunction(() => !document.querySelector('#admin-frame').contentDocument.querySelector('#refresh-reservations').disabled);
-  assert.equal(requests.filter(item => item.type === 'googleAdmin' && item.action === 'adminData').length, 3,
+  assert.equal(requests.filter(item => item.type === 'googleAdmin' && item.action === 'adminData').length, 5,
     '次の再読込は必ずサーバーで認証し、最新台帳を取得する');
   const otherPage = await context.newPage();
   const dialogs = [];
@@ -266,7 +289,7 @@ try {
   assert.equal(await page.locator('#admin-frame').getAttribute('src'), null);
   assert.deepEqual(errors, [], '画面のJSエラーなし');
   assert.deepEqual(unexpected, [], '試験から実Firebase・実GASへ通信しない');
-  console.log('公開Google管理入口：認証前拒否・台帳表示・施術メモの競合保護と再送・旧ログイン非使用・権限失効の試験に成功');
+  console.log('公開Google管理入口：台帳失敗からの選択不要の手動復旧・認証前拒否・台帳表示・施術メモの競合保護と再送・旧ログイン非使用・権限失効の試験に成功');
 } finally {
   await browser.close();
   server.close();
