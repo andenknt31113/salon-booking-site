@@ -5,6 +5,11 @@ const AdminNotifications = (() => {
   let busy = false;
   let opening = false;
   let paused = false;
+  let generation = 0;
+
+  function invalidate() {
+    generation += 1;
+  }
 
   function validRows(rows) {
     if (!Array.isArray(rows)) return false;
@@ -68,10 +73,12 @@ const AdminNotifications = (() => {
   async function check() {
     if (!previous || busy || document.hidden) return;
     busy = true;
+    const readingGeneration = generation;
     clearTimeout(timer);
     $('#notification-check').disabled = true;
     try {
       const result = await adminPost({ type: 'adminData', notificationsOnly: true });
+      if (readingGeneration !== generation) return;
       if (!result.ok || !validRows(result.reservations)) throw new Error('通知を確認できません');
       if (result.mailStatuses === true && !applyMailStatusUpdate(result.reservations)) {
         throw new Error('メール配送の状態を確認できません');
@@ -81,6 +88,7 @@ const AdminNotifications = (() => {
       showHealthWarning(false);
       $('#notification-status').textContent = `通知の最終確認：${new Date().toLocaleString('ja-JP')}。予定表の読込時刻とは別です。`;
     } catch {
+      if (readingGeneration !== generation) return;
       paused = true;
       showHealthWarning(true);
       $('#notification-status').textContent = '通知を確認できないため自動確認を停止しました。表示中の通知は最新とは限りません。接続を確認して「今すぐ確認」を押してください。再ログインが必要な場合もあります。';
@@ -120,7 +128,7 @@ const AdminNotifications = (() => {
   }
 
   function start(rows) {
-    if (previous) return;
+    if (previous) { invalidate(); return; }
     receive(rows);
     $('#notification-status').textContent = 'ログイン時の予約を基準に、新しい変更を確認します。';
     $('#notification-check').addEventListener('click', check);
@@ -137,5 +145,5 @@ const AdminNotifications = (() => {
     schedule();
   }
 
-  return { start, check };
+  return { start, check, invalidate };
 })();

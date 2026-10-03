@@ -868,6 +868,7 @@ function closeAdminChange() {
 }
 
 function showChangedReservation(reservation) {
+  AdminNotifications.invalidate();
   const rows = adminData.reservations || [];
   const index = rows.findIndex(row => row.code === reservation.code);
   if (index >= 0) rows[index] = reservation;
@@ -1595,6 +1596,7 @@ function finishPhoneBooking(res) {
   phonePayload = null;
   phoneUncertain = false;
   phoneConflict = false;
+  AdminNotifications.invalidate();
   const reservations = adminData.reservations ||= [];
   const existing = reservations.findIndex(row => row.code === reservation.code);
   if (existing < 0) reservations.push(reservation);
@@ -3261,6 +3263,7 @@ async function exportCsv() {
 }
 
 function showReservationFreshness() {
+  AdminNotifications.invalidate();
   $('#reservation-freshness').textContent = `最終読込：${new Date().toLocaleString('ja-JP')}（自動更新ではありません）`;
 }
 
