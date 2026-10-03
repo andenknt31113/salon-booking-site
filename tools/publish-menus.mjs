@@ -1,0 +1,93 @@
+import { readFile, writeFile, rename } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { publicHtml } from './public-content.mjs';
+
+const OUTPUT = new URL('../assets/js/published-menus.js', import.meta.url);
+const TIMEOUT_MS = 15000;
+const argumentsList = process.argv.slice(2);
+const mode = argumentsList[0];
+if (!['--check', '--write', '--check-local', '--write-local'].includes(mode) || argumentsList.length !== 1) {
+  throw new Error('--check / --write、外部へ接続しない場合は --check-local / --write-local を指定してください。');
+}
+async function loadCatalog() {
+  const endpoint = process.env.RESERVATION_ENDPOINT || (await readFile(new URL('../assets/js/data.js', import.meta.url), 'utf8'))
+    .match(/reservationEndpoint:\s*'([^']*)'/)?.[1];
+  if (!endpoint) throw new Error('店舗設定またはRESERVATION_ENDPOINTに接続先を指定してください。');
+  const url = new URL(endpoint);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))) {
+    throw new Error('接続先はHTTPSで指定してください。');
+  }
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  let response = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ type: 'menu', booking: true }), redirect: 'manual',
+    credentials: 'omit', cache: 'no-store', signal
+  });
+  if ([302, 303].includes(response.status)) {
+    let destination;
+    try {
+      const location = response.headers.get('location');
+      if (!location) throw new Error();
+      destination = new URL(location, url);
+      const local = ['127.0.0.1', 'localhost'].includes(url.hostname) && destination.origin === url.origin;
+      const google = url.hostname === 'script.google.com' && destination.protocol === 'https:'
+        && destination.hostname === 'script.googleusercontent.com' && destination.pathname === '/macros/echo'
+        && !destination.port;
+      if ((!local && !google) || destination.username || destination.password || destination.hash) throw new Error();
+    } catch {
+      throw new Error('メニュー応答の転送先を確認できません。公開ファイルは変更しません。');
+    }
+    response = await fetch(destination, { method: 'GET', redirect: 'manual', credentials: 'omit', cache: 'no-store', signal });
+  }
+  if (!response.ok) throw new Error('メニューを取得できませんでした。公開ファイルは変更しません。');
+  const data = await response.json();
+  if (!data || data.ok !== true || !Object.hasOwn(data, 'categories') || !Object.hasOwn(data, 'coupons')) {
+    throw new Error('メニュー応答が不正です。公開ファイルは変更しません。');
+  }
+  const list = value => {
+    if (value === null) return [];
+    if (!Array.isArray(value)) throw new Error('メニュー一覧の形式が不正です。');
+    return value;
+  };
+  const seen = new Set();
+  const item = (value, coupon) => {
+    if (!value || typeof value.id !== 'string' || !value.id || seen.has(value.id)
+        || typeof value[coupon ? 'title' : 'name'] !== 'string'
+        || !value[coupon ? 'title' : 'name'].trim()
+        || !Number.isFinite(Number(value.minutes)) || Number(value.minutes) <= 0
+        || !Number.isFinite(Number(value.price)) || Number(value.price) < 0) {
+      throw new Error('メニューのID・名前・価格・所要時間が不正です。');
+    }
+    seen.add(value.id);
+    const keys = coupon
+      ? ['id', 'title', 'badge', 'tags', 'detail', 'price', 'priceFrom', 'listPrice', 'minutes', 'terms', 'image']
+      : ['id', 'name', 'price', 'priceFrom', 'minutes', 'note', 'image'];
+    return Object.fromEntries(keys.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
+  };
+  const published = {
+    categories: list(data.categories).map(category => {
+      if (!category || typeof category.id !== 'string' || typeof category.name !== 'string') throw new Error('メニュー分類が不正です。');
+      return { id: category.id, name: category.name, items: list(category.items).map(value => item(value, false)) };
+    }),
+    coupons: list(data.coupons).map(value => item(value, true))
+  };
+  return 'const PUBLISHED_MENUS = ' + JSON.stringify(published, null, 2).replaceAll('<', '\\u003c') + ';\n';
+}
+const previous = await readFile(OUTPUT, 'utf8');
+const next = mode.endsWith('-local') ? previous : await loadCatalog();
+const files = [{ name: 'assets/js/published-menus.js', previous, next }, ...await publicHtml(next)];
+const changes = files.filter(file => file.previous !== file.next);
+if (!changes.length) {
+  console.log(mode.endsWith('-local') ? '初期HTMLと公開用データは一致しています。予約側への接続は行っていません。' : '公開用メニュー・初期HTMLは予約側と一致しています。');
+} else if (mode.startsWith('--check')) {
+  console.error('公開用データまたは初期HTMLに差分があります：' + changes.map(file => file.name).join('、'));
+  process.exitCode = 1;
+} else {
+  for (const file of changes) {
+    const destination = new URL('../' + file.name, import.meta.url);
+    const temporary = fileURLToPath(destination) + '.tmp';
+    await writeFile(temporary, file.next, 'utf8');
+    await rename(temporary, destination);
+  }
+  console.log('公開用データと初期HTMLを書き出しました。本番への公開・予約側の変更は行っていません。');
+}
