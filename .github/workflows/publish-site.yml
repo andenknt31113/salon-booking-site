@@ -19,6 +19,7 @@ on:
       - 'test/admin-publication.mjs'
       - 'test/customer-pagination.mjs'
       - 'test/customer-roster-deferred.mjs'
+      - 'test/admin-csv-safety.mjs'
       - 'test/publish-menus.mjs'
       - 'test/publish-menu-redirect.mjs'
       - 'test/final-release-static.mjs'
@@ -50,6 +51,7 @@ jobs:
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
       - run: node --test test/publication-gate.mjs test/publication-write-safety.mjs test/publish-menu-redirect.mjs test/admin-publication.mjs
       - run: node --test test/customer-pagination.mjs test/customer-roster-deferred.mjs
+      - run: node --test test/admin-csv-safety.mjs
       - run: node test/publish-menus.mjs
       - run: node tools/publish-menus.mjs --check-local
       - run: node --test test/prepare-site.mjs

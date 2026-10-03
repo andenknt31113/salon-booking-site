@@ -3205,7 +3205,7 @@ async function exportCsv() {
      このCSVを開いた店側の端末でそれが動きます。先頭に ' を足して文字に固定します。 */
   const safe = v => {
     const t = String(v ?? '');
-    return (/^[=+\-@]/.test(t) ? "'" + t : t).replace(/"/g, '""');
+    return (/^[\t\r\n]|^[\s\u0000-\u001f\u007f]*[=+\-@＝＋－＠]/u.test(t) ? "'" + t : t).replace(/"/g, '""');
   };
   const csv = [head, ...body]
     .map(cols => cols.map(c => `"${safe(c)}"`).join(','))
