@@ -2248,9 +2248,11 @@ function doAdminData_(d) {
     if (d.briefPast === true && result.ok) result.reservations = briefPastReservations_(result.reservations);
     return result;
   }
+  const headersByTarget = { menus: MENU_HEADERS, coupons: COUPON_HEADERS, styles: STYLE_HEADERS,
+    reviews: REVIEW_HEADERS, closed: CLOSED_HEADERS, settings: ['項目', '内容'] };
   if (d.editorTarget !== undefined) {
-    if (!['styles', 'reviews'].includes(d.editorTarget)) return { ok: false, error: '編集対象を確認できません。' };
-    const headers = d.editorTarget === 'styles' ? STYLE_HEADERS : REVIEW_HEADERS;
+    if (!['menus', 'coupons', 'styles', 'reviews'].includes(d.editorTarget)) return { ok: false, error: '編集対象を確認できません。' };
+    const headers = headersByTarget[d.editorTarget];
     const name = SAVE_TARGETS[d.editorTarget];
     const snapshot = readSheetSnapshot_(ss.getSheetByName(name), headers, true);
     return { ok: true, editorTarget: d.editorTarget,
@@ -2283,12 +2285,12 @@ function doAdminData_(d) {
   const reservationRows = reservationSnapshot.rows;
   const reservations = reservationRows.map(row => adminReservation_(row, col))
     .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time));
-  const headersByTarget = { menus: MENU_HEADERS, coupons: COUPON_HEADERS, styles: STYLE_HEADERS,
-    reviews: REVIEW_HEADERS, closed: CLOSED_HEADERS, settings: ['項目', '内容'] };
+  const pending = d.startupOnly === true
+    ? d.deferMenus === true ? ['menus', 'coupons', 'styles', 'reviews'] : ['styles', 'reviews'] : [];
   const snapshots = {};
   const stamps = {};
   Object.keys(headersByTarget).forEach(target => {
-    if (d.startupOnly === true && ['styles', 'reviews'].includes(target)) return;
+    if (pending.includes(target)) return;
     const snapshot = target === 'settings' && settingSnapshot ? settingSnapshot
       : readSheetSnapshot_(ss.getSheetByName(SAVE_TARGETS[target]), headersByTarget[target], true);
     snapshots[target] = snapshot;
@@ -2299,17 +2301,14 @@ function doAdminData_(d) {
     ok: true,
     capabilities: { phoneRequestIds: true, adminChange: true },
     reservations: applyBookingEmailSummary_(reservations, bookingEmailSummary_(sheet, reservationRows, reservationSnapshot.head)),
-    menus: readSheetRows_(ss, MENU_SHEET, MENU_HEADERS, snapshots.menus),
-    coupons: readSheetRows_(ss, COUPON_SHEET, COUPON_HEADERS, snapshots.coupons),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, snapshots.closed),
     settings: readSettings_(ss, snapshots.settings),
     stamps: stamps
   };
-  if (d.startupOnly === true) result.pendingEditors = ['styles', 'reviews'];
-  else {
-    result.styles = readSheetRows_(ss, STYLE_SHEET, STYLE_HEADERS, snapshots.styles);
-    result.reviews = readSheetRows_(ss, REVIEW_SHEET, REVIEW_HEADERS, snapshots.reviews);
+  for (const target of ['menus', 'coupons', 'styles', 'reviews']) {
+    if (!pending.includes(target)) result[target] = readSheetRows_(ss, SAVE_TARGETS[target], headersByTarget[target], snapshots[target]);
   }
+  if (d.startupOnly === true) result.pendingEditors = pending;
   if (d.startupOnly === true && d.briefPast === true) result.reservations = briefPastReservations_(result.reservations);
   return result;
 }

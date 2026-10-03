@@ -43,7 +43,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1&v=20261004-roster';
+  frame.src = 'admin.html?design=a&google=1&v=20261004-menu-read';
 }
 
 async function post(body, signal) {
@@ -82,10 +82,12 @@ window.authAdminRequest = async payload => {
   if (!user || !payload || !actions.has(payload.type)) return unknown;
   const incompleteSeed = Array.isArray(initialAdminData?.reservations)
     && initialAdminData.reservations.some(row => row?.detailsPending === true);
+  const incompleteMenus = initialAdminData?.pendingEditors?.some(target => ['menus', 'coupons'].includes(target));
   const initialRequest = payload.type === 'adminData'
-    && (Object.keys(payload).length === 3 && payload.startupOnly === true && payload.briefPast === true
+    && (Object.keys(payload).length === 4 && payload.startupOnly === true && payload.briefPast === true && payload.deferMenus === true
+      || Object.keys(payload).length === 3 && payload.startupOnly === true && payload.briefPast === true && !incompleteMenus
       || Object.keys(payload).length === 2 && payload.startupOnly === true
-        && !incompleteSeed
+        && !incompleteSeed && !incompleteMenus
       || Object.keys(payload).length === 1 && !initialAdminData?.pendingEditors
         && !incompleteSeed);
   if (initialRequest && initialAdminData) {
@@ -119,7 +121,7 @@ window.authAdminRequest = async payload => {
 
 async function loadAdmin() {
   loginStatus.textContent = 'Googleのアカウント選択は完了しました。管理権限と台帳を確認しています。';
-  let result = await window.authAdminRequest({ type: 'adminData', startupOnly: true, briefPast: true });
+  let result = await window.authAdminRequest({ type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true });
   if (result.ok && !AdminData.validStartup(result)) result = { ok: false, transportError: true,
     error: '台帳の読込内容を確認できません。表示・保存は開始していません。台帳をもう一度読み込んでください。' };
   if (result.ok) {

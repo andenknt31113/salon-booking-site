@@ -349,7 +349,7 @@ for (const [target, name] of [['styles', 'スタイル'], ['reviews', '口コミ
 }
 
 test('編集用取得では未知の対象や他の保存対象を読めず、通常の全件APIも維持する', () => {
-  for (const target of ['settings', 'closed', 'menus', '__proto__', '', null]) {
+  for (const target of ['settings', 'closed', '__proto__', '', null]) {
     const app = fixture();
     assert.equal(app.send({ editorTarget: target }).ok, false);
     assert.equal(app.reads.length, 0);
@@ -503,5 +503,97 @@ for (const [failure, payload] of [['メニュー', {}], ['設定', {}], ['予約
     assert.equal(result.reservations, undefined);
     assert.equal(result.stamps, undefined);
     assert.equal(app.held(), false);
+  });
+}
+
+test('明示した初回読込は予約・休業・設定だけを読み、未取得メニューを空一覧として返さない', () => {
+  const app = fixture();
+  const before = Object.fromEntries([...app.sheets].map(([name, sheet]) => [name, structuredClone(sheet.cells)]));
+  const result = app.send({ startupOnly: true, briefPast: true, deferMenus: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.pendingEditors, ['menus', 'coupons', 'styles', 'reviews']);
+  assert.deepEqual(Object.keys(result.stamps).sort(), ['closed', 'settings']);
+  for (const target of result.pendingEditors) assert.equal(Object.hasOwn(result, target), false);
+  assert.deepEqual(app.reads.map(read => read.name).sort(), ['休業日', '予約一覧', '設定'].sort());
+  assert.deepEqual(result.reservations, fixture().send({ startupOnly: true, briefPast: true }).reservations);
+  assert.deepEqual(result.closedDates, fixture().send({ startupOnly: true }).closedDates);
+  assert.deepEqual(result.settings, fixture().send({ startupOnly: true }).settings);
+  assert.deepEqual(Object.fromEntries([...app.sheets].map(([name, sheet]) => [name, sheet.cells])), before);
+  assert.deepEqual(app.writes, []);
+  assert.equal(app.held(), false);
+});
+
+for (const [target, name] of [['menus', 'メニュー'], ['coupons', 'おすすめメニュー']]) {
+  test(`遅延した${target}は開いた一つのシートと同じsnapshotの更新印だけを返す`, () => {
+    let changed = false;
+    const app = fixture({ afterRead({ name: current, cells }) {
+      if (current === name && !changed) { changed = true; cells[1][cells[0].indexOf('メニュー名')] = '次の読込の名前'; }
+    } });
+    const cells = structuredClone(app.sheets.get(name).cells);
+    const expected = fixture().send({})[target];
+    const result = app.send({ editorTarget: target });
+    assert.equal(result.ok, true);
+    assert.deepEqual(Object.keys(result).sort(), ['editorTarget', 'ok', 'rows', 'stamp']);
+    assert.equal(result.editorTarget, target);
+    assert.deepEqual(result.rows, expected);
+    assert.equal(result.stamp, digest(cells));
+    assert.deepEqual(app.reads.map(read => read.name), [name]);
+    assert.deepEqual(app.writes, []);
+    const next = app.send({ editorTarget: target });
+    assert.equal(next.rows[0]['メニュー名'], '次の読込の名前');
+    assert.notEqual(next.stamp, result.stamp);
+  });
+
+  test(`未作成・空の${target}も他の編集内容を取得せず、空一覧とstamp 0を区別して返す`, () => {
+    const missing = fixture();
+    missing.sheets.delete(name);
+    assert.deepEqual(missing.send({ editorTarget: target }), { ok: true, editorTarget: target, rows: [], stamp: '0' });
+    assert.deepEqual(missing.reads, []);
+    const empty = fixture();
+    empty.sheets.get(name).cells.length = 0;
+    assert.deepEqual(empty.send({ editorTarget: target }), { ok: true, editorTarget: target, rows: [], stamp: '0' });
+    assert.deepEqual(empty.reads.map(read => read.name), [name]);
+    assert.deepEqual(empty.writes, []);
+  });
+
+  test(`${target}の読込障害は初回予定を妨げず、編集取得だけを失敗として保存印を返さない`, () => {
+    const app = fixture({ failure: name });
+    assert.equal(app.send({ startupOnly: true, briefPast: true, deferMenus: true }).ok, true);
+    const result = app.send({ editorTarget: target });
+    assert.equal(result.ok, false);
+    assert.equal(result.rows, undefined);
+    assert.equal(result.stamp, undefined);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
+  });
+
+  test(`${target}の取得も認証より前にシートへ触れず、未取得で保存を始めない`, () => {
+    const app = fixture({ denied: true });
+    const result = app.send({ editorTarget: target });
+    assert.equal(result.ok, false);
+    assert.equal(result.rows, undefined);
+    assert.deepEqual(app.reads, []);
+    assert.deepEqual(app.writes, []);
+  });
+}
+
+test('新しい遅延指定はbooleanの初回だけに作用し、従来全量・日常更新・通知を変更しない', () => {
+  for (const payload of [{}, { startupOnly: 'true' }, { reservationsOnly: true }, { notificationsOnly: true }]) {
+    assert.deepEqual(fixture().send({ ...payload, deferMenus: true }), fixture().send(payload));
+  }
+  for (const deferMenus of [false, 'true', 1, null]) {
+    assert.deepEqual(fixture().send({ startupOnly: true, briefPast: true, deferMenus }),
+      fixture().send({ startupOnly: true, briefPast: true }));
+  }
+});
+
+for (const failure of ['予約一覧', '休業日', '設定']) {
+  test(`必要な${failure}が読めなければ、編集を遅延しても起動を成功扱いしない`, () => {
+    const app = fixture({ failure });
+    const result = app.send({ startupOnly: true, briefPast: true, deferMenus: true });
+    assert.equal(result.ok, false);
+    assert.equal(result.reservations, undefined);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
   });
 }

@@ -16,13 +16,12 @@ const AdminData = (() => {
             || row.detailsPending === true && row.note === undefined && row.request === undefined))
         || new Set(result.reservations.map(row => row.code)).size !== result.reservations.length
         || !rows(result.closedDates, '休業日') || !result.closedDates.every(row => typeof row.休業日 === 'string')
-        || !rows(result.menus, 'メニュー名') || !rows(result.coupons, 'メニュー名')
         || !values(result.settings) || !record(result.stamps)) return false;
     const pending = result.pendingEditors === undefined ? [] : result.pendingEditors;
-    if (!Array.isArray(pending) || pending.some(target => !['styles', 'reviews'].includes(target))
+    if (!Array.isArray(pending) || pending.some(target => !['menus', 'coupons', 'styles', 'reviews'].includes(target))
         || new Set(pending).size !== pending.length) return false;
-    const targets = ['closed', 'menus', 'coupons', 'settings'];
-    for (const [target, key] of [['styles', 'タイトル'], ['reviews', '投稿日']]) {
+    const targets = ['closed', 'settings'];
+    for (const [target, key] of [['menus', 'メニュー名'], ['coupons', 'メニュー名'], ['styles', 'タイトル'], ['reviews', '投稿日']]) {
       if (pending.includes(target)) {
         if (Object.hasOwn(result, target)) return false;
       } else {

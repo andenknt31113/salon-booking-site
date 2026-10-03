@@ -20,6 +20,7 @@ let phoneUncertain = false;
 let phoneConflict = false;
 let phonePayload = null;
 let phonePresets = [];
+let phonePresetGeneration = 0;
 let phonePriceNeedsInput = false;
 let activeChange = null;
 /* 読み込んだ時点のシートの印。保存時に送って、
@@ -335,7 +336,7 @@ function forgetDevice() {
 }
 
 async function openDashboard(remembered = false) {
-  const res = await adminPost({ type: 'adminData', startupOnly: true, briefPast: true });
+  const res = await adminPost({ type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true });
   if (!res?.ok || !AdminData.validStartup(res)) {
     let message = res?.ok
       ? '台帳の読込内容を確認できません。表示・保存は開始していません。もう一度読み込んでください。'
@@ -369,7 +370,7 @@ async function openDashboard(remembered = false) {
   scopedDetailsErrors.clear();
   pendingEditors.clear();
   editorReads.clear();
-  for (const target of ['styles', 'reviews']) {
+  for (const target of ['menus', 'coupons', 'styles', 'reviews']) {
     if (res.pendingEditors?.includes(target)) pendingEditors.add(target);
     const button = document.querySelector(`[data-save="${target}"]`);
     if (button) button.disabled = pendingEditors.has(target);
@@ -400,9 +401,7 @@ async function openDashboard(remembered = false) {
   renderCustomers();
   renderNumbers();
   renderClosed();
-  renderList('menus');
-  renderList('coupons');
-  for (const target of ['styles', 'reviews']) {
+  for (const target of ['menus', 'coupons', 'styles', 'reviews']) {
     if (pendingEditors.has(target)) showEditorLoading(target);
     else redraw(target);
   }
@@ -414,7 +413,7 @@ async function openDashboard(remembered = false) {
 }
 
 function showEditorLoading(target, message = 'このタブを開くと内容を読み込みます。', retry = false) {
-  const host = target === 'styles' ? $('#style-rows') : $('#review-rows');
+  const host = $({ menus: '#menu-rows', coupons: '#coupon-rows', styles: '#style-rows', reviews: '#review-rows' }[target]);
   host.innerHTML = `<p role="status" class="empty-state">${esc(message)}</p>`
     + (retry ? `<button type="button" class="btn btn-outline" data-retry-editor="${target}">もう一度読み込む</button>` : '');
 }
@@ -431,12 +430,13 @@ function ensureEditorLoaded(target) {
       const valid = result?.ok === true && result.editorTarget === target
         && typeof result.stamp === 'string' && /^(0|[a-f0-9]{12})$/.test(result.stamp)
         && Array.isArray(result.rows) && result.rows.every(row => row && typeof row === 'object'
-          && !Array.isArray(row) && Object.hasOwn(row, target === 'styles' ? 'タイトル' : '投稿日')
+          && !Array.isArray(row) && Object.hasOwn(row, { menus: 'メニュー名', coupons: 'メニュー名', styles: 'タイトル', reviews: '投稿日' }[target])
           && Object.values(row).every(value =>
             ['string', 'boolean', 'number'].includes(typeof value) && (typeof value !== 'number' || Number.isFinite(value))));
       if (!valid) throw new Error(result?.ok === false && typeof result.error === 'string'
         ? result.error : '読込結果を確認できません。');
       edits[target] = result.rows.map(row => ({ ...row }));
+      if (['menus', 'coupons'].includes(target)) adminData[target] = result.rows.map(row => ({ ...row }));
       stamps[target] = result.stamp;
       markSaved(target);
       pendingEditors.delete(target);
@@ -1318,13 +1318,14 @@ function phoneTimeOptions() {
 
 function toggleAddBooking(open) {
   if (phoneSubmitting) return;
+  if (!open) phonePresetGeneration += 1;
   if (open && $('#ab-time').options.length === 1) $('#ab-time').innerHTML = phoneTimeOptions();
   $('#add-booking-form').hidden = !open;
   $('#ab-error').style.display = 'none';
   // 前に入れたぶんの結果が残っていると、今入れた結果と読み違えます
   if (open) $('#add-result').hidden = true;
   if (open) {
-    renderPhonePresets();
+    loadPhonePresets();
     $('#ab-recovery').textContent = phoneRequestId ? '前の電話受付を確認中です。同じ受付として再試行し、別の予約を重ねて登録しないでください。'
       : supportsPhoneRetry() ? '通信が途切れたときは、同じ受付IDで結果を確認します。受付IDだけをこの端末に保存します。'
         : 'この接続先は再送防止に未対応です。登録結果が不明な場合は繰り返し登録せず、台帳を確認してください。更新は制作担当者へご依頼ください。';
@@ -1384,6 +1385,29 @@ function renderPhonePresets() {
     .map(row => ({ ...row, group: target === 'coupons' ? 'おすすめ' : '単品' })));
   $('#ab-menu-preset').innerHTML = '<option value="">メニュー・時間・金額を手入力</option>'
     + phonePresets.map((row, index) => `<option value="${index}">${esc(row.group)}：${esc(row['メニュー名'])}／${esc(minutesText(row['所要(分)']))}／${esc(priceText(row['価格']))}</option>`).join('');
+}
+
+async function loadPhonePresets() {
+  const generation = ++phonePresetGeneration;
+  const dashboard = dashboardGeneration;
+  const selector = $('#ab-menu-preset');
+  const status = $('#ab-presets-status');
+  selector.disabled = true;
+  status.hidden = false;
+  status.textContent = '登録済みメニューを読み込んでいます。メニュー・時間・金額は手入力できます。';
+  const loaded = await Promise.all(['menus', 'coupons'].map(ensureEditorLoaded));
+  if (generation !== phonePresetGeneration || dashboard !== dashboardGeneration
+      || $('#add-booking-form').hidden) return false;
+  if (!loaded.every(Boolean)) {
+    status.innerHTML = '登録済みメニューを読み込めませんでした。手入力で受付できます。 '
+      + '<button type="button" class="btn btn-outline" data-retry-phone-presets>メニューをもう一度読み込む</button>';
+    return false;
+  }
+  renderPhonePresets();
+  selector.disabled = false;
+  status.hidden = true;
+  status.textContent = '';
+  return true;
 }
 
 function applyPhonePreset() {
@@ -3099,7 +3123,7 @@ function showSaveError(target, message, rowIndex = -1, invalidField = '') {
 }
 
 async function save(target) {
-  if (['styles', 'reviews'].includes(target) && pendingEditors.has(target)) {
+  if (pendingEditors.has(target)) {
     showSaveError(target, '内容の読込が完了するまで保存できません。タブの「もう一度読み込む」で確認してください。');
     return;
   }
@@ -3717,6 +3741,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const retryEditor = e.target.closest('[data-retry-editor]');
     if (retryEditor) { await ensureEditorLoaded(retryEditor.dataset.retryEditor); return; }
+    if (e.target.closest('[data-retry-phone-presets]')) { await loadPhonePresets(); return; }
 
     if (e.target.closest('#numbers-to-settings')) {
       openSettingSection('ホットペッパーとの比較');

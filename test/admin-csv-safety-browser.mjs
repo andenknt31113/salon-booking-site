@@ -78,7 +78,7 @@ for (const design of ['', '?design=a']) {
       assert.equal(bytes.toString('utf8').slice(1), expected);
       assert.deepEqual(await page.evaluate(() => adminData.reservations), before);
       assert.deepEqual(await page.evaluate(() => window.fixtureRequests),
-        [{ type: 'adminData', startupOnly: true, briefPast: true }], 'CSVで新しい通信・書込を加えない');
+        [{ type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true }], 'CSVで新しい通信・書込を加えない');
       assert.deepEqual(errors, []);
       assert.deepEqual(unexpected, []);
     } finally {

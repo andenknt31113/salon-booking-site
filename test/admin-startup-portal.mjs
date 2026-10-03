@@ -40,12 +40,37 @@ test('Google入口は起動用データを要求し、管理HTMLは同じ応答�
   const app = fixture();
   await app.context.loadAdmin();
   assert.equal(app.calls.length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(app.calls[0])), { action: 'adminData', payload: { startupOnly: true, briefPast: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(app.calls[0])), { action: 'adminData', payload: { startupOnly: true, briefPast: true, deferMenus: true } });
   const seed = app.context.initialAdminData;
   assert.equal(await app.request({ type: 'adminData', startupOnly: true, briefPast: true }), seed);
   assert.equal(app.calls.length, 1);
   await app.request({ type: 'adminData', startupOnly: true, briefPast: true });
   assert.equal(app.calls.length, 2);
+});
+
+test('メニュー未取得の初回応答は明示した新しい起動要求へ一回だけ渡す', async () => {
+  const seed = { ok: true, reservations: [], pendingEditors: ['menus', 'coupons', 'styles', 'reviews'] };
+  const app = fixture(seed);
+  const payload = { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true };
+  assert.equal(await app.request(payload), seed);
+  assert.equal(app.calls.length, 0);
+  await app.request(payload);
+  assert.equal(app.calls.length, 1);
+});
+
+test('メニュー未取得の応答を旧起動・全件・単一編集・通知へ混ぜず、明示した要求だけに残す', async () => {
+  const seed = { ok: true, reservations: [], pendingEditors: ['menus', 'coupons', 'styles', 'reviews'] };
+  const app = fixture(seed);
+  const payloads = [{ type: 'adminData' }, { type: 'adminData', startupOnly: true },
+    { type: 'adminData', startupOnly: true, briefPast: true }, { type: 'adminData', editorTarget: 'menus' },
+    { type: 'adminData', notificationsOnly: true }, { type: 'adminData', reservationsOnly: true },
+    { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: false },
+    { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: 'true' },
+    { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true, unknown: true }];
+  for (const payload of payloads) assert.notEqual(await app.request(payload), seed);
+  assert.equal(app.calls.length, payloads.length);
+  assert.equal(await app.request({ type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true }), seed);
+  assert.equal(app.calls.length, payloads.length);
 });
 
 test('過去の詳細を省略した初回応答は、詳細の全量を求める要求へ流用しない', async () => {

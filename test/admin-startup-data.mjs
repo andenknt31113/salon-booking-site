@@ -37,8 +37,8 @@ function fixture({ visible = false } = {}) {
     renderStats: () => effects.push('stats'), renderReservations: () => effects.push('reservations'),
     setReserveView: () => effects.push('view'), renderCustomers: () => effects.push('customers'),
     renderNumbers: () => effects.push('numbers'), renderClosed: () => effects.push('closed'),
-    renderList: () => effects.push('list'), showEditorLoading: () => effects.push('editor-loading'),
-    redraw: () => effects.push('editor'), renderSettings: () => effects.push('settings'),
+    renderList: () => effects.push('list'), showEditorLoading: target => effects.push('editor-loading:' + target),
+    redraw: target => effects.push('editor:' + target), renderSettings: () => effects.push('settings'),
     updateDirty: () => effects.push('dirty'),
     AdminNotifications: { start: () => effects.push('notifications') }, restorePhoneBooking: async () => {},
     invalidatePublicMenuCheck: () => effects.push('publication'), alert: message => effects.push({ alert: message })
@@ -77,7 +77,7 @@ const invalid = [
   ['設定のobject値', result => { result.settings.独自設定 = {}; }],
   ['設定がnull', result => { result.settings = null; }],
   ['未取得対象がnull', result => { result.pendingEditors = null; }],
-  ['未知の未取得対象', result => { result.pendingEditors = ['menus']; }],
+  ['未知の未取得対象', result => { result.pendingEditors = ['settings']; }],
   ['未取得対象の重複', result => { result.pendingEditors = ['styles', 'styles']; }],
   ['未取得対象が文字列', result => { result.pendingEditors = 'styles'; }],
   ['完全取得なのに写真欠落', result => { delete result.pendingEditors; }],
@@ -120,6 +120,28 @@ test('失敗した再読込も画面・下書き・予定を保持し、空一�
   assert.equal(app.effects.length, 1);
   assert.match(app.effects[0].alert, /最新の予定を読み込めませんでした/);
   assert.equal(app.context.edits.menus[0].メニュー名, '未保存のメニュー');
+});
+
+test('新しい初回は4編集を遅延し、未取得を保存可能な空一覧へ変換せず、必要な予定は表示する', async () => {
+  const result = startup();
+  result.pendingEditors = ['menus', 'coupons', 'styles', 'reviews'];
+  delete result.menus;
+  delete result.coupons;
+  delete result.stamps.menus;
+  delete result.stamps.coupons;
+  const app = fixture();
+  assert.equal(await app.send(result), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.calls)), [{ type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true }]);
+  assert.deepEqual([...app.context.pendingEditors], result.pendingEditors);
+  for (const target of result.pendingEditors) {
+    assert.ok(app.effects.includes('editor-loading:' + target));
+    assert.equal(app.effects.includes('editor:' + target), false);
+    assert.equal(app.context.stamps[target], undefined);
+  }
+  assert.ok(app.effects.includes('reservations'));
+  assert.ok(app.effects.includes('closed'));
+  assert.ok(app.effects.includes('settings'));
+  assert.deepEqual(Object.entries(app.context.stamps), Object.entries(result.stamps));
 });
 
 test('正しい空台帳と過去詳細未取得の応答は開け、件数・メモの状態を保持する', async () => {

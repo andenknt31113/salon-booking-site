@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { once } from 'node:events';
@@ -16,6 +16,9 @@ let ledgerUnavailable = false;
 let savedNote = '';
 let noteWrites = 0;
 let loseNextNoteResponse = false;
+let holdEditors = false;
+const editorReplies = [];
+const menuRows = target => [{ メニュー名: `試験用${target}`, 価格: '4000〜', '所要(分)': 50, 表示: '○' }];
 let base;
 const server = http.createServer((request, response) => {
   const pathname = new URL(request.url, base).pathname;
@@ -36,6 +39,15 @@ const server = http.createServer((request, response) => {
           result = { ok: false, authDenied: true, error: 'このGoogleアカウントには管理権限がありません。' };
         } else if (data.action === 'adminData' && ledgerUnavailable) {
           result = { ok: false, error: '試験用：予約台帳の見出しを確認できません。' };
+        } else if (data.action === 'adminData' && ['menus', 'coupons'].includes(data.payload.editorTarget)) {
+          result = { ok: true, editorTarget: data.payload.editorTarget, rows: menuRows(data.payload.editorTarget), stamp: '123456abcdef' };
+          if (holdEditors) {
+            editorReplies.push({ target: data.payload.editorTarget, complete(value = result) {
+              response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+              response.end(JSON.stringify(value));
+            } });
+            return;
+          }
         } else if (data.action === 'adminNote') {
           if (typeof data.payload.expectedNote !== 'string') {
             result = { ok: false, error: '元のメモを確認できません。' };
@@ -60,6 +72,13 @@ const server = http.createServer((request, response) => {
             request: '', status: '', note: savedNote }], menus: [], coupons: [], styles: [], reviews: [],
             closedDates: [], settings: {}, stamps: { menus: '0', coupons: '0', styles: '0',
               reviews: '0', closed: '0', settings: '0' } };
+          if (data.payload.startupOnly === true && data.payload.deferMenus === true) {
+            result.pendingEditors = ['menus', 'coupons', 'styles', 'reviews'];
+            for (const target of result.pendingEditors) {
+              delete result[target];
+              delete result.stamps[target];
+            }
+          }
         }
       }
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -91,6 +110,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
   let popupCalls = 0;
   await context.exposeBinding('recordTestPopup', () => { popupCalls++; });
+  await context.exposeBinding('editorReplyCount', () => editorReplies.length);
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (response.status() >= 400) failedAssets.push([response.status(), response.url()]); });
@@ -181,6 +201,71 @@ try {
   await page.waitForFunction(() => !document.querySelector('#admin-frame').contentDocument.querySelector('#refresh-reservations').disabled);
   assert.equal(requests.filter(item => item.type === 'googleAdmin' && item.action === 'adminData').length, 5,
     '次の再読込は必ずサーバーで認証し、最新台帳を取得する');
+  assert.equal(requests.filter(item => item.payload?.editorTarget).length, 0,
+    'ログインと日常の予定更新では閉じたメニューを取得しない');
+  assert.ok(requests.filter(item => item.payload?.startupOnly).every(item => item.payload.deferMenus === true),
+    'Google入口は初回にメニューを取得しないことを明示する');
+  assert.equal(await frame.locator('[data-save="menus"]').isDisabled(), true);
+  assert.equal(await frame.locator('[data-save="coupons"]').isDisabled(), true);
+  holdEditors = true;
+  await frame.locator('#add-booking').click();
+  await page.waitForFunction(() => document.querySelector('#admin-frame').contentDocument.querySelector('#ab-menu-preset').disabled);
+  const manualValues = { '#ab-name': '試験用電話入力', '#ab-tel': '00000000000',
+    '#ab-menu': '手入力する施術', '#ab-minutes': '80', '#ab-price': '12345' };
+  for (const [selector, value] of Object.entries(manualValues)) await frame.locator(selector).fill(value);
+  await page.waitForFunction(() => document.querySelector('#admin-frame').contentDocument.querySelector('#menu-rows').textContent.includes('内容を読み込んでいます'));
+  await page.waitForFunction(async () => await window.editorReplyCount() === 2);
+  assert.deepEqual(editorReplies.map(reply => reply.target).sort(), ['coupons', 'menus']);
+  await frame.locator('#ab-cancel').click();
+  await frame.locator('#add-booking').click();
+  assert.equal(editorReplies.length, 2, '取得待ちに開き直しても同じ要求を重ねない');
+  editorReplies.find(reply => reply.target === 'menus').complete();
+  editorReplies.find(reply => reply.target === 'coupons').complete({ ok: false, error: '試験用：おすすめメニューの読込失敗' });
+  await frame.locator('[data-retry-phone-presets]').waitFor();
+  assert.equal(await frame.locator('#ab-menu-preset').isDisabled(), true,
+    '片方の取得失敗を完全な登録メニュー一覧として見せない');
+  for (const [selector, value] of Object.entries(manualValues)) assert.equal(await frame.locator(selector).inputValue(), value);
+  const hint = await frame.locator('#ab-menu-hint').innerText();
+  await frame.locator('[data-retry-phone-presets]').click();
+  await page.waitForFunction(async () => await window.editorReplyCount() === 3);
+  assert.equal(editorReplies[2].target, 'coupons', '成功したメニューを取り直さない');
+  editorReplies[2].complete();
+  holdEditors = false;
+  await page.waitForFunction(() => !document.querySelector('#admin-frame').contentDocument.querySelector('#ab-menu-preset').disabled);
+  assert.equal(await frame.locator('#ab-presets-status').isVisible(), false);
+  assert.equal(await frame.locator('#ab-menu-preset option').count(), 3);
+  assert.equal(await frame.locator('#ab-menu-preset').inputValue(), '', '取得完了時に勝手にメニューを選ばない');
+  for (const [selector, value] of Object.entries(manualValues)) assert.equal(await frame.locator(selector).inputValue(), value);
+  assert.equal(await frame.locator('#ab-menu-hint').innerText(), hint);
+  const editorCount = requests.filter(item => item.payload?.editorTarget).length;
+  await frame.locator('#ab-cancel').click();
+  await frame.locator('#add-booking').click();
+  await page.waitForFunction(() => !document.querySelector('#admin-frame').contentDocument.querySelector('#ab-menu-preset').disabled);
+  assert.equal(requests.filter(item => item.payload?.editorTarget).length, editorCount,
+    'フォームの開き直しでは取得済みのメニューを再利用する');
+  const presetDialogs = [];
+  page.on('dialog', async dialog => { presetDialogs.push(dialog.message()); await dialog.accept(); });
+  await frame.locator('#ab-menu-preset').selectOption('0');
+  assert.ok(presetDialogs.some(message => /置き換えますか/.test(message)), '手入力を置き換える前に確認する');
+  assert.equal(await frame.locator('#ab-menu').inputValue(), '試験用coupons');
+  assert.equal(await frame.locator('#ab-minutes').inputValue(), '50');
+  assert.equal(await frame.locator('#ab-price').inputValue(), '', '下限料金を確定料金として扱わない');
+  assert.match(await frame.locator('#ab-menu-hint').innerText(), /今回の金額を入力/);
+  if (process.env.SCREENSHOT_DIR) {
+    mkdirSync(process.env.SCREENSHOT_DIR, { recursive: true });
+    await frame.locator('#add-booking-form').screenshot({ path: join(process.env.SCREENSHOT_DIR, 'phone-menu-deferred-390.png') });
+  }
+  await frame.locator('#ab-cancel').click();
+  await frame.locator('#site-edit-tabs summary').click();
+  await frame.locator('#admin-tabs [data-pane="menus"]').click();
+  await frame.locator('#menu-rows').getByText('試験用menus', { exact: true }).first().waitFor();
+  assert.equal(requests.filter(item => item.payload?.editorTarget).length, editorCount,
+    '電話フォームで取得した確定データを編集画面でも再利用する');
+  assert.equal(await frame.locator('[data-save="menus"]').isEnabled(), true);
+  assert.equal(await frame.locator('[data-save="coupons"]').isEnabled(), true);
+  await frame.locator('#admin-tabs [data-pane="reserve"]').click();
+  assert.equal(requests.filter(item => item.action === 'adminAdd' || item.type === 'reserve').length, 0,
+    '読取の検証で予約を送信しない');
   const otherPage = await context.newPage();
   const dialogs = [];
   otherPage.on('pageerror', error => errors.push(error.message));
@@ -289,7 +374,7 @@ try {
   assert.equal(await page.locator('#admin-frame').getAttribute('src'), null);
   assert.deepEqual(errors, [], '画面のJSエラーなし');
   assert.deepEqual(unexpected, [], '試験から実Firebase・実GASへ通信しない');
-  console.log('公開Google管理入口：台帳失敗からの選択不要の手動復旧・認証前拒否・台帳表示・施術メモの競合保護と再送・旧ログイン非使用・権限失効の試験に成功');
+  console.log('公開Google管理入口：台帳失敗の手動復旧・メニュー遅延取得と電話の入力保護・施術メモ競合と再送・権限失効の試験に成功');
 } finally {
   await browser.close();
   server.close();

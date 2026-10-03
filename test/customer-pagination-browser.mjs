@@ -62,7 +62,7 @@ async function fixture(design, run) {
     await page.locator('#admin-tabs [data-pane="customers"]').click();
     await run({ page, warnings, base });
     assert.deepEqual(await page.evaluate(() => window.fixtureRequests),
-      [{ type: 'adminData', startupOnly: true, briefPast: true }], '名簿のページ操作で通信・書込を増やさない');
+      [{ type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true }], '名簿のページ操作で通信・書込を増やさない');
     assert.deepEqual(errors, []);
     assert.deepEqual(unexpected, []);
   } finally {
