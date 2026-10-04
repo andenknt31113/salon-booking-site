@@ -9,6 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { BOOKING_CHECKS, verifyBooking } from '../tools/verify-booking.mjs';
 
+test('予約を塞がない認証順と前日通知の復旧を一括検査の対象から外さない', () => {
+  for (const path of ['test/request-lock.mjs', 'test/reminder-recovery.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(path), path);
+  }
+});
+
 const execute = promisify(execFile);
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
