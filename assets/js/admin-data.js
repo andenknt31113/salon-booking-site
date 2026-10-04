@@ -35,7 +35,7 @@ const AdminData = (() => {
     if (!targets.every(target => typeof result.stamps[target] === 'string'
         && result.stamps[target].trim())) return false;
     return result.capabilities === undefined || record(result.capabilities)
-      && ['phoneRequestIds', 'adminChange'].every(key => result.capabilities[key] === undefined
+      && ['phoneRequestIds', 'adminChange', 'phoneCatalog'].every(key => result.capabilities[key] === undefined
         || typeof result.capabilities[key] === 'boolean');
   }
 

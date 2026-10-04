@@ -339,7 +339,13 @@ test('指定なしの全量・briefPast・startup・編集・通知の既存契�
       { notificationsOnly: true }, { editorTarget: 'styles' }, { editorTarget: 'reviews' }]) {
       const app = fixture({ records, deliveryIndices });
       const baseline = fixture({ records, deliveryIndices, source: BASELINE_SOURCE });
-      assert.deepEqual(app.send(payload), baseline.send(payload));
+      const actual = app.send(payload);
+      const expected = baseline.send(payload);
+      if (expected.capabilities) {
+        assert.equal(actual.capabilities.phoneCatalog, true);
+        expected.capabilities.phoneCatalog = true;
+      }
+      assert.deepEqual(actual, expected);
       const unchangedRead = read => read.name !== '設定' && !(read.name === '予約一覧' && read.height === 1);
       assert.deepEqual(app.reads.filter(unchangedRead), baseline.reads.filter(unchangedRead));
       const full = !payload.reservationsOnly && !payload.notificationsOnly && !payload.editorTarget;

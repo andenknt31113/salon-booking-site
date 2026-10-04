@@ -11,6 +11,130 @@ assert.ok(password, 'MOCK_ADMIN_PASSWORD が必要です');
 const TEST_TIMEOUT_MS = 5000;
 
 for (const design of ['', '?design=a']) {
+  test(`電話メニューの一括取得・不完全応答・手動復旧で手入力を守る ${design || '従来版'}`, async () => {
+    let handler;
+    const server = http.createServer((request, response) => handler(request, response));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const port = server.address().port;
+    handler = createMockHandler({ port });
+    const base = `http://127.0.0.1:${port}`;
+    const calls = [];
+    const writes = [];
+    const errors = [];
+    let catalog;
+    let finishCatalog;
+    let beginCatalog;
+    const catalogStarted = new Promise(resolve => { beginCatalog = resolve; });
+    let attempts = 0;
+    let browser;
+    try {
+      browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
+        process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route('**/*', async route => {
+        const request = route.request();
+        const url = new URL(request.url());
+        if (!['127.0.0.1', 'localhost'].includes(url.hostname)) return route.abort();
+        if (url.pathname !== '/exec' || request.method() !== 'POST') return route.continue();
+        const payload = request.postDataJSON();
+        if (payload.type !== 'adminData') {
+          if (payload.type !== 'adminLogin') writes.push(payload.type);
+          return route.continue();
+        }
+        calls.push(payload);
+        if (payload.phoneCatalogOnly === true) {
+          attempts++;
+          const result = structuredClone(catalog);
+          if (attempts === 1) {
+            await new Promise(resolve => { finishCatalog = resolve; beginCatalog(); });
+            delete result.editors.coupons.stamp;
+          }
+          return route.fulfill({ json: result });
+        }
+        const response = await route.fetch();
+        const body = await response.json();
+        if (payload.startupOnly === true) {
+          catalog = { ok: true, phoneCatalog: true, editors: Object.fromEntries(['menus', 'coupons']
+            .map(target => [target, { ok: true, editorTarget: target, rows: body[target],
+              stamp: target === 'menus' ? '123456abcdef' : 'fedcba654321' }])) };
+          for (const target of ['menus', 'coupons', 'styles', 'reviews']) {
+            delete body[target];
+            delete body.stamps[target];
+          }
+          body.pendingEditors = ['menus', 'coupons', 'styles', 'reviews'];
+          body.capabilities.phoneCatalog = true;
+        }
+        return route.fulfill({ response, json: body });
+      });
+      await page.goto(base + '/admin.html' + design);
+      await page.locator('#passcode').fill(password);
+      await page.locator('#remember-me').uncheck();
+      await page.locator('#gate-btn').click();
+      await page.locator('#dashboard:not([hidden])').waitFor();
+      await page.locator('#add-booking').click();
+      let readTimer;
+      try {
+        await Promise.race([catalogStarted, new Promise((_resolve, reject) => {
+          readTimer = setTimeout(() => reject(new Error('電話メニューの一括取得が始まりませんでした。')), TEST_TIMEOUT_MS);
+        })]);
+      } finally { clearTimeout(readTimer); }
+      await page.locator('#site-edit-tabs summary').click();
+      await page.locator('#admin-tabs [data-pane="menus"]').click();
+      assert.equal(await page.locator('[data-save="menus"]').isDisabled(), true);
+      await page.locator('#admin-tabs [data-pane="reserve"]').click();
+      await page.locator('#ab-menu').fill('取得中の手入力');
+      await page.locator('#ab-minutes').fill('80');
+      await page.locator('#ab-price').fill('12345');
+      assert.equal(await page.locator('#ab-menu-preset').isDisabled(), true);
+      assert.equal(calls.filter(payload => payload.phoneCatalogOnly === true).length, 1);
+      assert.equal(calls.filter(payload => payload.editorTarget).length, 0);
+      finishCatalog();
+      await page.locator('[data-retry-phone-presets]').waitFor();
+      assert.deepEqual(await page.evaluate(() => ['menus', 'coupons'].map(target => ({
+        pending: pendingEditors.has(target), stamp: stamps[target], rows: edits[target].length
+      }))), [{ pending: true, stamp: undefined, rows: 0 }, { pending: true, stamp: undefined, rows: 0 }]);
+      assert.equal(await page.locator('[data-save="menus"]').isDisabled(), true);
+      assert.equal(await page.locator('[data-save="coupons"]').isDisabled(), true);
+      assert.equal(attempts, 1, '不完全応答を自動で再取得しない');
+      await page.locator('[data-retry-phone-presets]').click();
+      await page.waitForFunction(() => !document.querySelector('#ab-menu-preset').disabled);
+      assert.equal(await page.locator('#ab-presets-status').isHidden(), true);
+      assert.equal(await page.locator('#ab-menu').inputValue(), '取得中の手入力');
+      assert.equal(await page.locator('#ab-minutes').inputValue(), '80');
+      assert.equal(await page.locator('#ab-price').inputValue(), '12345');
+      const visibleRows = Object.values(catalog.editors).flatMap(editor => editor.rows)
+        .filter(row => String(row['メニュー名'] || '').trim()
+          && !/^(×|✕|false|off|0|非表示)$/i.test(String(row['表示'] ?? '').trim()));
+      assert.equal(await page.locator('#ab-menu-preset option').count(), 1 + visibleRows.length);
+      assert.equal(await page.locator('#ab-menu-preset option').first().innerText(), 'メニュー・時間・金額を手入力');
+      for (const row of visibleRows) assert.ok((await page.locator('#ab-menu-preset').innerText()).includes(row['メニュー名']));
+      assert.deepEqual(await page.evaluate(() => ['menus', 'coupons'].map(target => ({
+        rows: adminData[target].length, stamp: stamps[target], pending: pendingEditors.has(target)
+      }))), ['menus', 'coupons'].map(target => ({ rows: catalog.editors[target].rows.length,
+        stamp: catalog.editors[target].stamp, pending: false })));
+      await page.locator('#site-edit-tabs summary').click();
+      await page.locator('#admin-tabs [data-pane="menus"]').click();
+      assert.equal(await page.locator('[data-save="menus"]').isDisabled(), false);
+      assert.equal(calls.filter(payload => payload.editorTarget).length, 0);
+      assert.equal(calls.filter(payload => payload.phoneCatalogOnly === true).length, 2);
+      for (const width of [320, 390, 768, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      }
+      if (process.env.TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
+        `phone-catalog-${design ? 'a' : 'original'}.png`), fullPage: true });
+      assert.deepEqual(errors, []);
+      assert.deepEqual(writes, [], 'メニュー取得・手入力だけでは予約も台帳も書き換えない');
+    } finally {
+      finishCatalog?.();
+      if (browser) await browser.close();
+      server.closeAllConnections();
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+
   test(`写真・口コミは開くまで取得せず、障害後も編集と他タブの入力を守る ${design || '従来版'}`, async () => {
     let handler;
     const server = http.createServer((request, response) => handler(request, response));

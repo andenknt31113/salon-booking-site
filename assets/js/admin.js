@@ -418,6 +418,26 @@ function showEditorLoading(target, message = 'このタブを開くと内容を�
     + (retry ? `<button type="button" class="btn btn-outline" data-retry-editor="${target}">もう一度読み込む</button>` : '');
 }
 
+function validEditorRead(result, target) {
+  return result?.ok === true && result.editorTarget === target
+    && typeof result.stamp === 'string' && /^(0|[a-f0-9]{12})$/.test(result.stamp)
+    && Array.isArray(result.rows) && result.rows.every(row => row && typeof row === 'object'
+      && !Array.isArray(row) && Object.hasOwn(row, { menus: 'メニュー名', coupons: 'メニュー名', styles: 'タイトル', reviews: '投稿日' }[target])
+      && Object.values(row).every(value =>
+        ['string', 'boolean', 'number'].includes(typeof value) && (typeof value !== 'number' || Number.isFinite(value))));
+}
+
+function commitEditorRead(target, result) {
+  edits[target] = result.rows.map(row => ({ ...row }));
+  if (['menus', 'coupons'].includes(target)) adminData[target] = result.rows.map(row => ({ ...row }));
+  stamps[target] = result.stamp;
+  markSaved(target);
+  pendingEditors.delete(target);
+  const button = document.querySelector(`[data-save="${target}"]`);
+  if (button) button.disabled = false;
+  redraw(target);
+}
+
 function ensureEditorLoaded(target) {
   if (!pendingEditors.has(target)) return Promise.resolve(true);
   if (editorReads.has(target)) return editorReads.get(target);
@@ -427,22 +447,9 @@ function ensureEditorLoaded(target) {
     try {
       const result = await adminPost({ type: 'adminData', editorTarget: target });
       if (generation !== dashboardGeneration) return false;
-      const valid = result?.ok === true && result.editorTarget === target
-        && typeof result.stamp === 'string' && /^(0|[a-f0-9]{12})$/.test(result.stamp)
-        && Array.isArray(result.rows) && result.rows.every(row => row && typeof row === 'object'
-          && !Array.isArray(row) && Object.hasOwn(row, { menus: 'メニュー名', coupons: 'メニュー名', styles: 'タイトル', reviews: '投稿日' }[target])
-          && Object.values(row).every(value =>
-            ['string', 'boolean', 'number'].includes(typeof value) && (typeof value !== 'number' || Number.isFinite(value))));
-      if (!valid) throw new Error(result?.ok === false && typeof result.error === 'string'
+      if (!validEditorRead(result, target)) throw new Error(result?.ok === false && typeof result.error === 'string'
         ? result.error : '読込結果を確認できません。');
-      edits[target] = result.rows.map(row => ({ ...row }));
-      if (['menus', 'coupons'].includes(target)) adminData[target] = result.rows.map(row => ({ ...row }));
-      stamps[target] = result.stamp;
-      markSaved(target);
-      pendingEditors.delete(target);
-      const button = document.querySelector(`[data-save="${target}"]`);
-      if (button) button.disabled = false;
-      redraw(target);
+      commitEditorRead(target, result);
       return true;
     } catch (error) {
       if (generation === dashboardGeneration) showEditorLoading(target,
@@ -453,6 +460,39 @@ function ensureEditorLoaded(target) {
     }
   })();
   editorReads.set(target, operation);
+  return operation;
+}
+
+function ensurePhoneMenusLoaded() {
+  const targets = ['menus', 'coupons'];
+  if (adminData?.capabilities?.phoneCatalog !== true
+      || targets.some(target => !pendingEditors.has(target) || editorReads.has(target))) {
+    return Promise.all(targets.map(ensureEditorLoaded)).then(results => results.every(Boolean));
+  }
+  const generation = dashboardGeneration;
+  const operation = (async () => {
+    targets.forEach(target => showEditorLoading(target, '内容を読み込んでいます。まだ編集・保存はできません。'));
+    try {
+      const result = await adminPost({ type: 'adminData', phoneCatalogOnly: true });
+      if (generation !== dashboardGeneration) return false;
+      if (result?.ok !== true || result.phoneCatalog !== true || !result.editors
+          || typeof result.editors !== 'object' || Array.isArray(result.editors)
+          || Object.keys(result.editors).length !== targets.length
+          || !targets.every(target => validEditorRead(result.editors[target], target))) {
+        throw new Error(result?.ok === false && typeof result.error === 'string'
+          ? result.error : '読込結果を確認できません。');
+      }
+      targets.forEach(target => commitEditorRead(target, result.editors[target]));
+      return true;
+    } catch (error) {
+      if (generation === dashboardGeneration) targets.forEach(target => showEditorLoading(target,
+        `${error.message || '読込結果を確認できません。'} 編集・保存はまだできません。`, true));
+      return false;
+    } finally {
+      if (generation === dashboardGeneration) targets.forEach(target => editorReads.delete(target));
+    }
+  })();
+  targets.forEach(target => editorReads.set(target, operation));
   return operation;
 }
 
@@ -1410,10 +1450,10 @@ async function loadPhonePresets() {
   selector.disabled = true;
   status.hidden = false;
   status.textContent = '登録済みメニューを読み込んでいます。メニュー・時間・金額は手入力できます。';
-  const loaded = await Promise.all(['menus', 'coupons'].map(ensureEditorLoaded));
+  const loaded = await ensurePhoneMenusLoaded();
   if (generation !== phonePresetGeneration || dashboard !== dashboardGeneration
       || $('#add-booking-form').hidden) return false;
-  if (!loaded.every(Boolean)) {
+  if (!loaded) {
     status.innerHTML = '登録済みメニューを読み込めませんでした。手入力で受付できます。 '
       + '<button type="button" class="btn btn-outline" data-retry-phone-presets>メニューをもう一度読み込む</button>';
     return false;

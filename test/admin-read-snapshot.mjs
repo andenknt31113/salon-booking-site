@@ -597,3 +597,102 @@ for (const failure of ['予約一覧', '休業日', '設定']) {
     assert.deepEqual(app.writes, []);
   });
 }
+
+test('電話メニューは本人確認後に二シートを一回ずつ読み、同じsnapshotの更新印を返す', () => {
+  const app = fixture();
+  const expected = { menus: fixture().send({ editorTarget: 'menus' }), coupons: fixture().send({ editorTarget: 'coupons' }) };
+  for (const name of ['予約一覧', '休業日', '設定', 'スタイル', '口コミ']) app.sheets.delete(name);
+  const result = app.send({ phoneCatalogOnly: true });
+  assert.deepEqual(result, { ok: true, phoneCatalog: true, editors: expected });
+  assert.deepEqual(app.reads.map(read => read.name), ['メニュー', 'おすすめメニュー']);
+  assert.deepEqual(app.writes, []);
+  assert.equal(app.held(), false);
+});
+
+test('電話メニューの並び替えと読込直後の変更でも、返す値と更新印は同じsnapshotを使う', () => {
+  const app = fixture({ afterRead({ name, cells }) {
+    if (['メニュー', 'おすすめメニュー'].includes(name)) cells[1][cells[0].indexOf('メニュー名')] = '次回の値';
+  } });
+  const originals = {};
+  for (const [target, name] of [['menus', 'メニュー'], ['coupons', 'おすすめメニュー']]) {
+    app.sheets.get(name).cells.forEach(row => row.reverse());
+    originals[target] = structuredClone(app.sheets.get(name).cells);
+  }
+  const result = app.send({ phoneCatalogOnly: true });
+  assert.equal(result.ok, true);
+  for (const target of ['menus', 'coupons']) {
+    assert.equal(result.editors[target].stamp, digest(originals[target]));
+    assert.equal(result.editors[target].rows[0]['メニュー名'], target === 'menus' ? '試験カット' : '試験コース');
+  }
+  const next = app.send({ phoneCatalogOnly: true });
+  assert.equal(next.editors.menus.rows[0]['メニュー名'], '次回の値');
+  assert.notEqual(next.editors.menus.stamp, result.editors.menus.stamp);
+  assert.deepEqual(app.writes, []);
+});
+
+for (const name of ['メニュー', 'おすすめメニュー']) {
+  test(`電話一括取得の${name}が読めなければ片方の結果も返さず、書かずにロックを解放する`, () => {
+    const app = fixture({ failure: name });
+    const result = app.send({ phoneCatalogOnly: true });
+    assert.equal(result.ok, false);
+    assert.equal(result.editors, undefined);
+    assert.equal(result.phoneCatalog, undefined);
+    assert.deepEqual(app.writes, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('二種類のメニューが空・未作成でも一括で空とstamp 0を返し、台帳を初期化しない', () => {
+  for (const missing of [false, true]) {
+    const app = fixture();
+    for (const name of ['メニュー', 'おすすめメニュー']) {
+      if (missing) app.sheets.delete(name);
+      else app.sheets.get(name).cells.length = 0;
+    }
+    const result = app.send({ phoneCatalogOnly: true });
+    assert.equal(result.ok, true);
+    for (const target of ['menus', 'coupons']) {
+      assert.deepEqual(result.editors[target], { ok: true, editorTarget: target, rows: [], stamp: '0' });
+    }
+    assert.deepEqual(app.writes, []);
+  }
+});
+
+for (const phoneCatalogOnly of [false, 'true', 1, null]) {
+  test(`電話取得指定 ${JSON.stringify(phoneCatalogOnly)} を通常起動と誤認せず、シートへ触れない`, () => {
+    const app = fixture();
+    assert.equal(app.send({ phoneCatalogOnly }).ok, false);
+    assert.deepEqual(app.reads, []);
+    assert.deepEqual(app.writes, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+for (const [key, value] of [['notificationsOnly', true], ['reservationsOnly', true], ['reservationCodes', ['LM-SNAPSHOT']],
+  ['editorTarget', 'menus'], ['startupOnly', true], ['briefPast', true], ['deferMenus', true], ['editorTarget', null]]) {
+  test(`電話取得と${key}の混在を拒否し、別データや部分結果を返さない ${JSON.stringify(value)}`, () => {
+    const app = fixture();
+    const result = app.send({ phoneCatalogOnly: true, [key]: value });
+    assert.equal(result.ok, false);
+    assert.equal(result.editors, undefined);
+    assert.equal(result.reservations, undefined);
+    assert.deepEqual(app.reads, []);
+    assert.deepEqual(app.writes, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('電話一括取得も権限確認が先で、認証拒否時はメニューや台帳を読まない', () => {
+  const app = fixture({ denied: true });
+  const result = app.send({ phoneCatalogOnly: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.authDenied, true);
+  assert.equal(result.editors, undefined);
+  assert.deepEqual(app.reads, []);
+  assert.deepEqual(app.writes, []);
+  assert.equal(app.held(), false);
+});
+
+test('新しい受け口は電話一括取得能力を起動時に明示する', () => {
+  assert.equal(fixture().send({ startupOnly: true, briefPast: true, deferMenus: true }).capabilities.phoneCatalog, true);
+});

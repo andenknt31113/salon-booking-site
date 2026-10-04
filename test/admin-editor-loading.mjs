@@ -23,7 +23,9 @@ function fixture() {
     markSaved: target => saved.push(target), redraw: target => renders.push(target),
     showSaveError: (target, message) => saved.push({ target, message })
   });
-  for (const name of ['showEditorLoading', 'ensureEditorLoaded', 'save']) vm.runInContext(functionSource(name), context);
+  for (const name of ['showEditorLoading', 'validEditorRead', 'commitEditorRead', 'ensureEditorLoaded', 'save']) {
+    vm.runInContext(functionSource(name), context);
+  }
   return { context, hosts, buttons, calls, completions, saved, renders };
 }
 

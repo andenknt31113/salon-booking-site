@@ -2271,6 +2271,12 @@ function doAdminLogin_(d) {
 /** 管理者ページに必要な情報をまとめて返す */
 function doAdminData_(d) {
   requireAdmin_(d);
+  const hasPhoneCatalog = Object.prototype.hasOwnProperty.call(d, 'phoneCatalogOnly');
+  if (hasPhoneCatalog && (d.phoneCatalogOnly !== true
+      || ['notificationsOnly', 'reservationsOnly', 'reservationCodes', 'editorTarget', 'startupOnly', 'briefPast', 'deferMenus']
+        .some(key => Object.prototype.hasOwnProperty.call(d, key)))) {
+    return { ok: false, error: '電話予約のメニュー取得を確認できません。管理画面を読み込み直してください。' };
+  }
   const hasReservationCodes = Object.prototype.hasOwnProperty.call(d, 'reservationCodes');
   if (hasReservationCodes && (d.reservationsOnly !== true || d.briefPast === true || d.notificationsOnly === true
       || !Array.isArray(d.reservationCodes) || !d.reservationCodes.length
@@ -2279,14 +2285,25 @@ function doAdminData_(d) {
     return { ok: false, error: '取得する予約番号を確認できません。管理画面を読み込み直してください。' };
   }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const headersByTarget = { menus: MENU_HEADERS, coupons: COUPON_HEADERS, styles: STYLE_HEADERS,
+    reviews: REVIEW_HEADERS, closed: CLOSED_HEADERS, settings: ['項目', '内容'] };
+  if (hasPhoneCatalog) {
+    const editors = {};
+    for (const target of ['menus', 'coupons']) {
+      const headers = headersByTarget[target];
+      const name = SAVE_TARGETS[target];
+      const snapshot = readSheetSnapshot_(ss.getSheetByName(name), headers, true);
+      editors[target] = { ok: true, editorTarget: target,
+        rows: readSheetRows_(ss, name, headers, snapshot), stamp: snapshot.stamp };
+    }
+    return { ok: true, phoneCatalog: true, editors: editors };
+  }
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
   if (d.reservationsOnly === true) {
     const result = readAdminReservations_(ss, hasReservationCodes ? d.reservationCodes : undefined);
     if (d.briefPast === true && result.ok) result.reservations = briefPastReservations_(result.reservations);
     return result;
   }
-  const headersByTarget = { menus: MENU_HEADERS, coupons: COUPON_HEADERS, styles: STYLE_HEADERS,
-    reviews: REVIEW_HEADERS, closed: CLOSED_HEADERS, settings: ['項目', '内容'] };
   if (d.editorTarget !== undefined) {
     if (!['menus', 'coupons', 'styles', 'reviews'].includes(d.editorTarget)) return { ok: false, error: '編集対象を確認できません。' };
     const headers = headersByTarget[d.editorTarget];
@@ -2336,7 +2353,7 @@ function doAdminData_(d) {
 
   const result = {
     ok: true,
-    capabilities: { phoneRequestIds: true, adminChange: true },
+    capabilities: { phoneRequestIds: true, adminChange: true, phoneCatalog: true },
     reservations: applyBookingEmailSummary_(reservations, bookingEmailSummary_(sheet, reservationRows, reservationSnapshot.head)),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, snapshots.closed),
     settings: readSettings_(ss, snapshots.settings),
