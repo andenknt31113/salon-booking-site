@@ -715,6 +715,12 @@ async function saveNote(btn) {
     });
   }
 
+  if (!res || typeof res.ok !== 'boolean' || (res.ok && (res.code !== code
+      || typeof res.note !== 'string' || res.unknown || res.transportError || res.conflict
+      || res.note.replace(/\r\n?/g, '\n').trim()
+        !== note.trim().slice(0, NOTE_MAX).replace(/\r\n?/g, '\n').trim()))) {
+    res = { ok: false, unknown: true };
+  }
   if (!res.ok) {
     /* 保存できていないのに黙っていると、書いたつもりで閉じられます。
        次のご来店のときに何も出てこず、そのときには理由が分かりません。 */
@@ -730,7 +736,7 @@ async function saveNote(btn) {
 
   /* 受け口が切り詰めた・数式よけをした結果を正とします。
      手元の文字をそのまま出すと、台帳の中身と画面が食い違います。 */
-  const saved = String(res.note == null ? note : res.note);
+  const saved = res.note;
   const r = (adminData.reservations || []).find(x => x.code === code);
   if (r) r.note = saved;
   applyNoteToScreen(code, saved, box);

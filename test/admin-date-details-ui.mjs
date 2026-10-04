@@ -108,7 +108,7 @@ async function fixture(design, run, prepareRows = () => {}) {
         writes.push({ type: payload.type, code: payload.code, note: payload.note, expectedNote: payload.expectedNote });
         if (!row || row.note !== payload.expectedNote) return route.fulfill({ json: { ok: false, conflict: true } });
         row.note = payload.note;
-        return route.fulfill({ json: { ok: true, note: row.note } });
+        return route.fulfill({ json: { ok: true, code: row.code, note: row.note } });
       }
       if (payload.type === 'adminChange') {
         const row = rows.find(row => row.code === payload.code);

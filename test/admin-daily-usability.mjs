@@ -1,0 +1,134 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { once } from 'node:events';
+import { after, test } from 'node:test';
+import { createMockHandler } from './mock-gas.mjs';
+
+const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
+const password = process.env.MOCK_ADMIN_PASSWORD;
+assert.ok(password, 'MOCK_ADMIN_PASSWORD が必要です');
+const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+after(() => browser.close());
+
+async function withAdmin(design, run) {
+  let handler;
+  const server = http.createServer((request, response) => handler(request, response));
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const port = server.address().port;
+  handler = createMockHandler({ port });
+  const base = `http://127.0.0.1:${port}`;
+  const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) }).then(response => response.json());
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+  const errors = [];
+  const blocked = [];
+  await context.route('**/*', route => {
+    if (new URL(route.request().url()).origin === base) return route.continue();
+    blocked.push(route.request().method());
+    return route.abort();
+  });
+  const page = await context.newPage();
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('dialog', dialog => dialog.dismiss());
+  try {
+    const reservation = await post({ type: 'adminAdd', password, force: true, date: '2026-10-08',
+      time: '10:00', minutes: 60, name: '使い勝手の試験客', tel: '09000000000', price: 4000 });
+    assert.equal(reservation.ok, true);
+    await page.goto(base + '/admin.html' + design);
+    await page.locator('#passcode').fill(password);
+    await page.locator('#remember-me').uncheck();
+    await page.locator('#gate-btn').click();
+    await page.locator('#dashboard:not([hidden])').waitFor();
+    const writes = [];
+    page.on('request', request => {
+      if (request.url() !== base + '/exec' || request.method() !== 'POST') return;
+      const type = JSON.parse(request.postData()).type;
+      if (type !== 'adminData') writes.push(type);
+    });
+    await run(page, reservation.code);
+    assert.deepEqual(writes, [], '表示・入力だけでは台帳を更新しない');
+    assert.deepEqual(errors, [], 'JavaScriptエラーなし');
+    assert.deepEqual(blocked, [], '本番を含む外部サービスへ通信しない');
+  } finally {
+    await context.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
+for (const design of ['', '?design=a']) {
+  test(`日付移動・電話予約の日付・下書き保護 ${design || '従来版'}`, async () => {
+    await withAdmin(design, async (page, code) => {
+      assert.equal(await page.locator('.admin-workspace-header #add-booking').count(), 1, '電話受付は作業見出しの隣');
+      await page.locator('#filter-date').fill('2028-02-28');
+      await page.locator('#filter-next').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '2028-02-29', 'うるう日を飛ばさない');
+      await page.locator('#filter-next').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '2028-03-01', '月をまたげる');
+      await page.locator('#filter-previous').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '2028-02-29');
+      assert.match(await page.locator('#reservation-filter-summary').innerText(), /2028.*2.*29/);
+      await page.locator('#filter-date').fill('2026-10-08');
+      await page.locator('#add-booking').click();
+      assert.equal(await page.locator('#ab-date').inputValue(), '2026-10-08', '選んだ日から電話予約を始める');
+      await page.locator('#ab-name').fill('書きかけを残す');
+      await page.locator('#ab-cancel').click();
+      await page.locator('#filter-next').click();
+      await page.locator('#add-booking').click();
+      assert.equal(await page.locator('#ab-date').inputValue(), '2026-10-08', '再度開いても入力済みの日付を変えない');
+      assert.equal(await page.locator('#ab-name').inputValue(), '書きかけを残す');
+      await page.locator('#ab-cancel').click();
+      await page.locator('#filter-date').fill('2026-10-08');
+      const card = page.locator(`[data-code="${code}"]`);
+      await card.locator('[data-note-summary]').click();
+      await card.locator('[data-note-input]').fill('消してはいけないメモ');
+      await page.locator('#filter-next').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '2026-10-08');
+      assert.equal(await card.locator('[data-note-input]').inputValue(), '消してはいけないメモ');
+      await card.locator('[data-note-input]').fill('');
+      await card.locator('[data-admin-change]').click();
+      await page.locator('#filter-previous').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '2026-10-08', '日時変更の編集中も表示日を保護');
+      await card.locator('[data-change-close]').click();
+      await page.locator('#filter-status').selectOption('cancelled');
+      assert.match(await page.locator('#admin-rows').innerText(), /すべての日・状態に戻す/);
+      await page.locator('#filter-reset').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '');
+      assert.equal(await page.locator('#filter-status').inputValue(), 'all');
+      await page.locator('#reserve-view [data-view="calendar"]').click();
+      assert.match(await page.locator('#reservation-filter-summary').innerText(), /7日間/);
+    });
+  });
+
+  test(`名簿検索の解除・入力保護・画面幅 ${design || '従来版'}`, async () => {
+    await withAdmin(design, async page => {
+      await page.locator('#admin-tabs [data-pane="customers"]').click();
+      await page.locator('#customer-search').fill('見つからない名前');
+      assert.match(await page.locator('#customer-count').innerText(), /0件を表示/);
+      await page.locator('#clear-customer-search').click();
+      assert.equal(await page.locator('#customer-search').inputValue(), '');
+      assert.equal(await page.locator('.customer-record').count(), 1);
+      assert.equal(await page.locator('#customer-search').evaluate(element => element === document.activeElement), true);
+      await page.locator('#customer-search').fill('試験客');
+      await page.locator('[data-customer-history]').click();
+      await page.locator('#customer-rows [data-note-summary]').click();
+      await page.locator('#customer-rows [data-note-input]').fill('検索解除でも消さない');
+      await page.locator('#clear-customer-search').click();
+      assert.equal(await page.locator('#customer-search').inputValue(), '試験客');
+      assert.equal(await page.locator('#customer-rows [data-note-input]').inputValue(), '検索解除でも消さない');
+      await page.locator('#customer-rows [data-note-input]').fill('');
+      await page.locator('#admin-tabs [data-pane="reserve"]').click();
+      for (const width of [320, 390, 768, 1280]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}pxで横はみ出しなし`);
+        const action = await page.locator('#add-booking').boundingBox();
+        assert.ok(action.height >= 44, '主要操作は指で押せる大きさ');
+        if (design) {
+          const workspace = await page.locator('.admin-pane[data-pane="reserve"]').boundingBox();
+          const stats = await page.locator('#stats').boundingBox();
+          assert.ok(stats.y >= workspace.y + workspace.height, '集計より予約の操作を先に表示する');
+        }
+      }
+    });
+  });
+}

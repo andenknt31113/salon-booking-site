@@ -15,6 +15,12 @@ test('予約を塞がない認証順と前日通知の復旧を一括検査の�
   }
 });
 
+test('メモ保存の応答照合と別画面の競合を一括検査から外さない', () => {
+  for (const path of ['test/admin-note-conflict.mjs', 'test/admin-note-ack-ui.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(path), path);
+  }
+});
+
 const execute = promisify(execFile);
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';

@@ -456,6 +456,15 @@ return (req, res) => {
           if (!r) return reply(res, { ok:false, error:'該当する予約が見つかりません: ' + d.code });
           let note = String(d.note == null ? '' : d.note).trim().slice(0, 1000);
           if (/^[=+\-@]/.test(note)) note = "'" + note;
+          const compareText = value => String(value == null ? '' : value).replace(/\r\n?/g, '\n').trim();
+          const previous = compareText(String(r.note || '').replace(/^'(?=[=+\-@])/, ''));
+          const display = compareText(note.replace(/^'(?=[=+\-@])/, ''));
+          if (Object.prototype.hasOwnProperty.call(d, 'expectedNote')
+              && previous !== compareText(d.expectedNote)) {
+            if (previous === display) return reply(res, { ok:true, code:r.code, note:previous });
+            return reply(res, { ok:false, conflict:true,
+              error:'別の画面で施術メモが更新されました。入力をコピーしてからページを再読み込みし、最新のメモを確認してください。' });
+          }
           r.note = note;
           return reply(res, { ok:true, code:r.code, note: /^'[=+\-@]/.test(note) ? note.slice(1) : note });
         }
@@ -495,6 +504,9 @@ return (req, res) => {
         };
         const allStamps = () => Object.fromEntries(
           ['menus','coupons','styles','reviews','closed','settings'].map(t => [t, stampOf(t)]));
+        if (d.type === 'adminData' && d.notificationsOnly === true) return reply(res, { ok: true,
+          reservations: LEDGER.map(adminReservation).map(row => Object.fromEntries(
+            ['code', 'name', 'date', 'time', 'endTime', 'status'].map(key => [key, row[key]]))) });
         if (d.type === 'adminData') return reply(res, { ok:true, stamps: allStamps(), capabilities: { phoneRequestIds: true, adminChange: true },
           reservations: LEDGER.map(adminReservation),
           menus: SHEET_MENU, coupons: SHEET_COUPON, styles: SHEET_STYLE, reviews: SHEET_REVIEW,

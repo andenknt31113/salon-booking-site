@@ -11,8 +11,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const visitDate = new Date(Date.now() + 8 * DAY_MS).toISOString().slice(0, 10);
 
 for (const design of ['', '?design=a']) {
-  for (const saved of [false, true]) {
-    test(`${design || '従来版'}のメモ保存${saved ? '済み' : '未反映'}で返事が不明でも、下書きを消さず照会できる`, async () => {
+  for (const [saved, responseKind] of [false, true].flatMap(saved =>
+    ['unknown', 'missing-note', 'wrong-code', 'wrong-note'].map(responseKind => [saved, responseKind]))) {
+    test(`${design || '従来版'}のメモ保存${saved ? '済み' : '未反映'}・${responseKind}でも、下書きを消さず照会できる`, async () => {
       const server = http.createServer();
       server.listen(0, '127.0.0.1');
       await once(server, 'listening');
@@ -38,8 +39,13 @@ for (const design of ['', '?design=a']) {
             if (payload.type === 'adminNote') {
               writes.push(payload);
               if (saved) assert.equal((await post(payload)).ok, true);
-              return route.fulfill({ json: { ok: false, unknown: true,
-                error: '施術メモの保存結果を確認できません。入力をコピーしてから最新のメモを確認してください。' } });
+              const responses = {
+                unknown: { ok: false, unknown: true },
+                'missing-note': { ok: true, code: payload.code },
+                'wrong-code': { ok: true, code: 'LM-OTHER', note: payload.note },
+                'wrong-note': { ok: true, code: payload.code, note: '別のメモ' }
+              };
+              return route.fulfill({ json: responses[responseKind] });
             }
           }
           return route.continue();
