@@ -50,10 +50,10 @@ function verifyGoogleAdmin_(token) {
   const config = googleAdminConfig_();
   const props = PropertiesService.getScriptProperties();
   const allowed = String(props.getProperty('ADMIN_GOOGLE_UIDS') || '').split(',').map(function (uid) { return uid.trim(); }).filter(Boolean);
-  if (!config || !allowed.length) throw new Error('Google管理者の設定が未完了です。');
+  if (!config || !allowed.length) throw userFacingError_('Google管理者の設定が未完了です。');
   if (typeof token !== 'string' || token.length > 8192
       || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) {
-    throw new Error('Googleログインを確認できません。もう一度ログインしてください。');
+    throw userFacingError_('Googleログインを確認できません。もう一度ログインしてください。');
   }
   let account;
   let claims;
@@ -70,10 +70,10 @@ function verifyGoogleAdmin_(token) {
     claims = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(token.split('.')[1])).getDataAsString());
   } catch (error) {
     if (lookupStatus === undefined || lookupStatus === 429 || lookupStatus >= 500) {
-      throw Object.assign(new Error('Googleとの通信を確認できません。入力を残したまま、時間をおいて再確認してください。'),
+      throw Object.assign(userFacingError_('Googleとの通信を確認できません。入力を残したまま、時間をおいて再確認してください。'),
         { authUnavailable: true });
     }
-    throw new Error('Googleログインを確認できません。もう一度ログインしてください。');
+    throw userFacingError_('Googleログインを確認できません。もう一度ログインしてください。');
   }
   const now = Math.floor(Date.now() / 1000);
   const validSince = Number(account.validSince);
@@ -86,7 +86,7 @@ function verifyGoogleAdmin_(token) {
       || !Number.isSafeInteger(validSince) || claims.auth_time < validSince
       || account.emailVerified !== true || account.disabled === true
       || !allowed.includes(account.localId)) {
-    throw new Error('このGoogleアカウントには管理権限がありません。');
+    throw userFacingError_('このGoogleアカウントには管理権限がありません。');
   }
 }
 
@@ -98,8 +98,8 @@ function doGoogleAdmin_(data) {
   }
   try { verifyGoogleAdmin_(data.idToken); }
   catch (error) {
-    if (error.authUnavailable) return { ok: false, transportError: true, error: error.message };
-    return { ok: false, authDenied: true, error: error.message };
+    if (error && error.authUnavailable) return { ok: false, transportError: true, error: publicErrorMessage_(error) };
+    return { ok: false, authDenied: true, error: publicErrorMessage_(error) };
   }
   const request = Object.assign({}, payload, { type: action, googleAdminContext: GOOGLE_ADMIN_CONTEXT });
   if (action === 'adminUpload') return doAdminUpload_(request);
@@ -157,21 +157,21 @@ function clearAdminFails_() {
 function requireAdmin_(d) {
   if (d && d.googleAdminContext === GOOGLE_ADMIN_CONTEXT) return;
   if (PropertiesService.getScriptProperties().getProperty('ADMIN_GOOGLE_ONLY') === 'true') {
-    throw new Error('旧ログインは終了しました。Googleでログインしてください。');
+    throw userFacingError_('旧ログインは終了しました。Googleでログインしてください。');
   }
   const pw = adminPassword_();
-  if (!pw) throw new Error('管理パスワードが未設定です。スクリプトプロパティに ADMIN_PASSWORD を登録してください。');
+  if (!pw) throw userFacingError_('管理パスワードが未設定です。スクリプトプロパティに ADMIN_PASSWORD を登録してください。');
   // 記憶させた端末は、止めているあいだも通します
   if (d.token && validToken_(String(d.token))) return;
 
   const left = adminLockedMinutes_();
   if (left) {
-    throw new Error(`パスワードのまちがいが続いたため、${left}分ほどお待ちください。`);
+    throw userFacingError_(`パスワードのまちがいが続いたため、${left}分ほどお待ちください。`);
   }
   if (String(d.password || '') === pw) { clearAdminFails_(); return; }
   // 合言葉を入れたうえでまちがえたときだけ数えます
   if (String(d.password || '')) noteAdminFail_();
-  throw new Error('パスワードが違います。');
+  throw userFacingError_('パスワードが違います。');
 }
 
 /** 管理者として通っているか（例外は投げない）。
@@ -382,6 +382,20 @@ const POST_REQUEST_TYPES = ['adminAuthConfig', 'googleAdmin', 'menu', 'adminLogi
 const LEGACY_ADMIN_REQUEST_TYPES = ['adminLogin', 'adminData', 'adminSave', 'adminUpload',
   'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange'];
 
+const UNKNOWN_REQUEST_ERROR = '処理の結果を確認できません。予約や保存を繰り返さず、現在の結果を確認するか、店舗または制作担当者へ連絡してください。';
+const USER_FACING_ERRORS = new WeakMap();
+
+function userFacingError_(message) {
+  const error = new Error(message);
+  USER_FACING_ERRORS.set(error, String(message));
+  return error;
+}
+
+function publicErrorMessage_(error) {
+  return (error && (typeof error === 'object' || typeof error === 'function')
+    ? USER_FACING_ERRORS.get(error) : '') || UNKNOWN_REQUEST_ERROR;
+}
+
 function withLedgerLock_(operation, timing, authorize) {
   const lock = LockService.getScriptLock();
   const started = Date.now();
@@ -440,10 +454,10 @@ function doPost(e) {
     return json_(result);
 
   } catch (err) {
-    console.error(err);
+    console.error(publicErrorMessage_(err));
     /* 画面にそのまま出る文字です。「Error: 」が頭に付いたままだと、
        店の人には何のことか分かりません。 */
-    return json_({ ok: false, error: String(err && err.message ? err.message : err).replace(/^Error:\s*/, ''),
+    return json_({ ok: false, error: publicErrorMessage_(err),
       ...(err && err.restored ? { restored: true } : {}),
       ...(err && err.invalid === true && !err.unknown && !err.restored ? { invalid: true } : {}),
       ...(err && err.unknown ? { unknown: true } : {}) });
@@ -574,11 +588,11 @@ function doAdminAddStatus_(sheet, data) {
 function findPhoneRequest_(sheet, col, requestId) {
   const rows = readRows_(sheet);
   const matches = rows.filter(record => String(record[col('電話受付ID')] || '') === requestId);
-  if (matches.length > 1) throw new Error('電話受付IDが重複しています。制作担当者へ連絡して台帳を確認してください。');
+  if (matches.length > 1) throw userFacingError_('電話受付IDが重複しています。制作担当者へ連絡して台帳を確認してください。');
   if (matches.length) {
     const code = codeKey_(matches[0][col('予約番号')]);
     if (!code || rows.filter(record => codeKey_(record[col('予約番号')]) === code).length !== 1) {
-      throw new Error('電話受付の予約番号を一意に確認できません。新しく登録せず、制作担当者へ連絡してください。');
+      throw userFacingError_('電話受付の予約番号を一意に確認できません。新しく登録せず、制作担当者へ連絡してください。');
     }
   }
   return matches[0] || null;
@@ -627,7 +641,7 @@ function doAdminNote_(sheet, d) {
     SpreadsheetApp.flush();
     if (compareText(noteText_(noteRange.getValues()[0][0])) !== compareText(noteText_(note))) throw new Error();
   } catch (error) {
-    throw Object.assign(new Error('施術メモの保存結果を確認できません。入力をコピーしてから最新のメモを確認してください。'),
+    throw Object.assign(userFacingError_('施術メモの保存結果を確認できません。入力をコピーしてから最新のメモを確認してください。'),
       { unknown: true });
   }
   // 切り詰めた・頭に ' が付いたときのために、保存した中身をそのまま返します
@@ -709,7 +723,7 @@ function timeToMin_(v) {
     送られた予約が、受付を締めたあとの時間に入ります。 */
 function readBookingSettings_(sheet) {
   try { return readSettings_(sheet.getParent()) || {}; }
-  catch (error) { throw new Error('営業時間・定休日の設定を確認できません。時間をおいてお試しいただくか、店舗へお電話ください。'); }
+  catch (error) { throw userFacingError_('営業時間・定休日の設定を確認できません。時間をおいてお試しいただくか、店舗へお電話ください。'); }
 }
 
 function openHours_(sheet, settings) {
@@ -877,7 +891,7 @@ function doGet(event) {
     result = withLedgerLock_(() => {
       if (params.type === 'menu') return doMenu_({ booking: true, initialAvailability: true });
       const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-      if (!sheet) throw new Error('予約台帳を確認できません。');
+      if (!sheet) throw userFacingError_('予約台帳を確認できません。');
       return doAvailability_(sheet);
     });
   } catch (error) {
@@ -1142,7 +1156,7 @@ function addToCalendar_(d, c, menuText, settings) {
     return event.getId();
   } catch (err) {
     // カレンダーの失敗で予約の記録まで止めない
-    console.warn('カレンダー登録に失敗しました', err);
+    console.warn('カレンダー登録に失敗しました');
     return '';
   }
 }
@@ -1158,7 +1172,7 @@ function removeFromCalendar_(eventId) {
     if (event) event.deleteEvent();
     return true;
   } catch (err) {
-    console.warn('カレンダーの削除に失敗しました', err);
+    console.warn('カレンダーの削除に失敗しました');
     return false;
   }
 }
@@ -1170,9 +1184,9 @@ function removeFromCalendar_(eventId) {
    ============================================================ */
 function doAvailability_(sheet) {
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-  if (!sheet) throw new Error('予約台帳を確認できません。');
+  if (!sheet) throw userFacingError_('予約台帳を確認できません。');
   const snapshot = readSheetSnapshot_(sheet, HEADERS);
-  if (!validBookingHeaders_(snapshot.head)) throw new Error(BOOKING_HEADERS_ERROR);
+  if (!validBookingHeaders_(snapshot.head)) throw userFacingError_(BOOKING_HEADERS_ERROR);
   const rows = snapshot.rows;
   const col = name => {
     const index = snapshot.head.indexOf(name);
@@ -1291,7 +1305,7 @@ function doMenu_(request, timing) {
   result.settings = publicSettings_(readSettings_(ss));
   if (request && request.booking === true && request.initialAvailability === true) {
     const sheet = ss.getSheetByName(SHEET_NAME);
-    if (!sheet) throw new Error('予約台帳を確認できませんでした。');
+    if (!sheet) throw userFacingError_('予約台帳を確認できませんでした。');
     result.booked = doAvailability_(sheet).booked;
   }
   if (timing) timing.catalogMs = Date.now() - started;
@@ -1331,10 +1345,10 @@ function hitsClosed_(sheet, dateKey, time, minutes) {
   let closed;
   try {
     const ss = sheet.getParent();
-    if (!ss) throw new Error('休業日を読み取るためのシートがありません。');
+    if (!ss) throw userFacingError_('休業日を読み取るためのシートがありません。');
     closed = readClosedSheet_(ss);
   } catch (error) {
-    throw new Error('休業日の設定を確認できません。時間をおいてお試しいただくか、店舗へお電話ください。');
+    throw userFacingError_('休業日の設定を確認できません。時間をおいてお試しいただくか、店舗へお電話ください。');
   }
   const start = toMin_(time);
   const end = start + (Number(minutes) || 30);
@@ -1596,11 +1610,11 @@ function isShown_(v) {
 function doLookup_(sheet, d) {
   if (!codeKey_(d.code) || !digits_(d.tel)) return { ok: false, error: 'ご予約が見つかりませんでした。' };
   sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-  if (!sheet) throw new Error('予約台帳を確認できません。');
+  if (!sheet) throw userFacingError_('予約台帳を確認できません。');
   if (!sheet.getLastRow()) return { ok: false, error: 'ご予約が見つかりませんでした。' };
   const headers = sheetHeader_(sheet, []);
   if (!validBookingHeaders_(headers, { requireCode: true }) || !headers.includes('電話番号')) {
-    throw new Error(BOOKING_HEADERS_ERROR);
+    throw userFacingError_(BOOKING_HEADERS_ERROR);
   }
   const row = findRowByCode_(sheet, d.code, null, headers);
   if (row === -1) return { ok: false, error: 'ご予約が見つかりませんでした。' };
@@ -1608,7 +1622,7 @@ function doLookup_(sheet, d) {
   const r = readRow_(sheet, row, headers);
   const currentHeaders = sheetHeader_(sheet, []);
   if (headers.length !== currentHeaders.length || headers.some((header, index) => header !== currentHeaders[index])) {
-    throw new Error('予約台帳が更新されました。時間をおいて、もう一度ご予約を確認してください。');
+    throw userFacingError_('予約台帳が更新されました。時間をおいて、もう一度ご予約を確認してください。');
   }
   const col = name => headers.indexOf(name);
 
@@ -1932,7 +1946,7 @@ function bookingWindowUpdates_(sheet, row, values) {
   const groups = [];
   BOOKING_WINDOW_HEADERS.map((name, index) => {
     if (head.indexOf(name) < 0 || head.indexOf(name) !== head.lastIndexOf(name)) {
-      throw new Error('予約日時の列を確認できません。');
+      throw userFacingError_('予約日時の列を確認できません。');
     }
     return { column: head.indexOf(name) + 1, value: values[index] };
   }).sort((left, right) => left.column - right.column).forEach(entry => {
@@ -1989,7 +2003,7 @@ function recoverBookingChange_(sheet) {
     props.deleteProperty(BOOKING_CHANGE_JOURNAL);
     if (props.getProperty(BOOKING_CHANGE_JOURNAL)) throw new Error();
   } catch (error) {
-    throw Object.assign(new Error(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
+    throw Object.assign(userFacingError_(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
   }
 }
 
@@ -2005,7 +2019,7 @@ function writeBookingWindow_(sheet, row, code, values) {
   const journal = JSON.stringify({ code: code, previous: previous });
   props.setProperty(BOOKING_CHANGE_JOURNAL, journal);
   if (props.getProperty(BOOKING_CHANGE_JOURNAL) !== journal) {
-    throw new Error('変更前の日時を記録できません。元の日時は変更していません。');
+    throw userFacingError_('変更前の日時を記録できません。元の日時は変更していません。');
   }
   try {
     updates.forEach(update => update.range.setValues(update.values));
@@ -2018,9 +2032,9 @@ function writeBookingWindow_(sheet, row, code, values) {
     try {
       if (!verifyBookingWindow_(sheet, row, previous)) throw new Error();
     } catch (verificationError) {
-      throw Object.assign(new Error(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
+      throw Object.assign(userFacingError_(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
     }
-    throw Object.assign(new Error('日時変更に失敗したため、元の日時に戻しました。入力内容を残して、時間をおいてお試しください。'),
+    throw Object.assign(userFacingError_('日時変更に失敗したため、元の日時に戻しました。入力内容を残して、時間をおいてお試しください。'),
       { restored: true });
   }
 }
@@ -2060,7 +2074,7 @@ function occupiedDate_(row, col) {
   const date = value instanceof Date && isNaN(value.getTime()) ? '' : normalizeDate_(value);
   if (validDateKey_(date)) return date;
   if (!date && row.every(cell => cell == null || String(cell).trim() === '')) return '';
-  throw Object.assign(new Error(BOOKING_DATE_ERROR), { invalid: true });
+  throw Object.assign(userFacingError_(BOOKING_DATE_ERROR), { invalid: true });
 }
 
 function occupiedWindow_(row, col) {
@@ -2078,7 +2092,7 @@ function occupiedWindow_(row, col) {
 function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode, reservationSnapshot) {
   const snapshot = reservationSnapshot || readSheetSnapshot_(sheet, HEADERS);
   if (!validBookingHeaders_(snapshot.head, { requireCode: !!codeKey_(ownCode) })) {
-    throw new Error(BOOKING_HEADERS_ERROR);
+    throw userFacingError_(BOOKING_HEADERS_ERROR);
   }
   const col = name => {
     const index = snapshot.head.indexOf(name);
@@ -2180,7 +2194,7 @@ function doCancel_(sheet, d) {
     SpreadsheetApp.flush();
     if (!isCancelled_(statusRange.getValues()[0][0])) throw new Error();
   } catch (error) {
-    throw Object.assign(new Error('取消の保存結果を確認できません。予約確認ページで現在の状態を確認するか、店舗へお電話ください。'),
+    throw Object.assign(userFacingError_('取消の保存結果を確認できません。予約確認ページで現在の状態を確認するか、店舗へお電話ください。'),
       { unknown: true });
   }
   if (queued) return { ok: true, notificationsQueued: true, calendarWarning: !!calendarEventId };
@@ -2298,9 +2312,9 @@ function doAdminData_(d) {
   if (!reservationSnapshot || HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) {
     sheet = getSheet_();
     reservationSnapshot = readSheetSnapshot_(sheet, []);
-    if (HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) throw new Error(BOOKING_HEADERS_ERROR);
+    if (HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) throw userFacingError_(BOOKING_HEADERS_ERROR);
   }
-  if (!validBookingHeaders_(reservationSnapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  if (!validBookingHeaders_(reservationSnapshot.head, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
   const col = header => {
     const index = reservationSnapshot.head.indexOf(header);
     return index >= 0 ? index : HEADERS.indexOf(header);
@@ -2681,7 +2695,7 @@ function readSheetRows_(ss, name, headers, snapshot) {
     列の位置も、順番ではなく見出しの名前で探します。 */
 function writeSheetRows_(ss, name, headers, rows) {
   if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
-    throw new Error('保存する一覧の形式を確認できません。元の内容は変更していません。');
+    throw userFacingError_('保存する一覧の形式を確認できません。元の内容は変更していません。');
   }
   const body = rows.map(row => headers.map(header => {
     const value = row[header];
@@ -2689,7 +2703,7 @@ function writeSheetRows_(ss, name, headers, rows) {
     if (typeof value === 'string' || typeof value === 'boolean'
         || (typeof value === 'number' && Number.isFinite(value))
         || (value instanceof Date && Number.isFinite(value.getTime()))) return value;
-    throw new Error('保存する項目の形式を確認できません。元の内容は変更していません。');
+    throw userFacingError_('保存する項目の形式を確認できません。元の内容は変更していません。');
   })).filter(cells => String(cells[0]).trim() !== '');
   const sheet = ss.getSheetByName(name) || ss.insertSheet(name);
   if (sheet.getLastRow() === 0) {
@@ -2732,7 +2746,7 @@ function writeSheetRows_(ss, name, headers, rows) {
       try { update.range.setValues(update.previous); } catch (restoreError) { restored = false; }
     });
     try { SpreadsheetApp.flush(); } catch (restoreError) { restored = false; }
-    throw new Error(restored
+    throw userFacingError_(restored
       ? '保存に失敗したため、元の内容に戻しました。入力内容を残して、時間をおいてお試しください。'
       : '保存と元の内容への復旧を確認できません。保存し直さず、制作担当者へ連絡して台帳とバックアップを確認してください。');
   }
@@ -2839,7 +2853,7 @@ function readSettings_(ss, snapshot) {
 
 function writeSettings_(ss, obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-    throw new Error('保存する設定の形式を確認できません。元の内容は変更していません。');
+    throw userFacingError_('保存する設定の形式を確認できません。元の内容は変更していません。');
   }
   const rows = Object.keys(obj).map(k => ({ '項目': k, '内容': obj[k] }));
   writeSheetRows_(ss, SETTING_SHEET, ['項目', '内容'], rows);
@@ -2932,7 +2946,7 @@ function rowFor_(sheet, values, headers) {
 }
 
 function appendVerifiedBooking_(sheet, values, headers, errorMessage) {
-  if (!validBookingHeaders_(headers, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  if (!validBookingHeaders_(headers, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
   try {
     sheet.appendRow(values);
     SpreadsheetApp.flush();
@@ -2948,7 +2962,7 @@ function appendVerifiedBooking_(sheet, values, headers, errorMessage) {
     })) throw new Error();
     return row;
   } catch (error) {
-    throw Object.assign(new Error(errorMessage
+    throw Object.assign(userFacingError_(errorMessage
       || '予約の保存結果を確認できません。同じ番号で予約確認ページを開くか、店舗へお電話ください。予約を取り直さないでください。'),
       { unknown: true });
   }
@@ -2987,7 +3001,7 @@ function issueCode_(sheet, snapshot) {
     }
     if (findRowByCode_(sheet, code, snapshot) === -1) return code;
   }
-  throw new Error('予約番号を発行できませんでした。時間をおいて同じ受付を再試行してください。');
+  throw userFacingError_('予約番号を発行できませんでした。時間をおいて同じ受付を再試行してください。');
 }
 
 /* 予約番号の「見た目のゆれ」を吸収します。
@@ -3007,7 +3021,7 @@ function codeKey_(v) {
 function findRowByCode_(sheet, code, snapshot, headers) {
   const key = codeKey_(code);
   if (!key) return -1;              // 空欄が空行に当たらないようにします
-  if (snapshot && !validBookingHeaders_(snapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  if (snapshot && !validBookingHeaders_(snapshot.head, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
   const last = snapshot ? snapshot.rows.length + 1 : sheet.getLastRow();
   if (last < 2) return -1;
   const codeColumn = colIndex_(sheet, snapshot ? snapshot.head : headers)('予約番号') + 1;
@@ -3016,7 +3030,7 @@ function findRowByCode_(sheet, code, snapshot, headers) {
   let matchedRow = -1;
   codes.forEach((record, index) => {
     if (codeKey_(record[0]) !== key) return;
-    if (matchedRow !== -1) throw new Error('予約台帳の予約番号が重複しています。店舗または制作担当者に確認を依頼してください。');
+    if (matchedRow !== -1) throw userFacingError_('予約台帳の予約番号が重複しています。店舗または制作担当者に確認を依頼してください。');
     matchedRow = index + 2;
   });
   return matchedRow;
@@ -3077,7 +3091,7 @@ let BOOKING_EMAIL_CAPTURE = null;
 function bookingEmailSignature_(values, headers) {
   return JSON.stringify(BOOKING_EMAIL_FIELDS.map(function (header) {
     const index = headers.indexOf(header);
-    if (index < 0 || index !== headers.lastIndexOf(header)) throw new Error(BOOKING_EMAIL_ERROR);
+    if (index < 0 || index !== headers.lastIndexOf(header)) throw userFacingError_(BOOKING_EMAIL_ERROR);
     const value = values[index];
     if (header === '予約番号') return codeKey_(value);
     if (header === '来店日') return normalizeDate_(value);
@@ -3085,7 +3099,7 @@ function bookingEmailSignature_(values, headers) {
     if (header === '電話番号') return digits_(value);
     if (header === '状態') return isCancelled_(value) ? 'キャンセル' : String(value || '');
     if (['所要(分)', '指名料', '合計金額'].indexOf(header) >= 0) {
-      if (!Number.isFinite(Number(value))) throw new Error(BOOKING_EMAIL_ERROR);
+      if (!Number.isFinite(Number(value))) throw userFacingError_(BOOKING_EMAIL_ERROR);
       return Number(value);
     }
     return String(value == null ? '' : value).replace(/^'/, '');
@@ -3096,7 +3110,7 @@ function bookingEmailSheet_(ss) {
   const queue = ss.getSheetByName(BOOKING_EMAIL_SHEET);
   if (!queue || queue.getLastRow() < 1 || queue.getLastColumn() !== BOOKING_EMAIL_HEADERS.length
       || JSON.stringify(sheetHeader_(queue, BOOKING_EMAIL_HEADERS)) !== JSON.stringify(BOOKING_EMAIL_HEADERS)) {
-    throw new Error(BOOKING_EMAIL_ERROR);
+    throw userFacingError_(BOOKING_EMAIL_ERROR);
   }
   return queue;
 }
@@ -3113,7 +3127,7 @@ function stageBookingEmails_(sheet, values, headers, action, buildMessages) {
   const heartbeat = Number(props.getProperty(BOOKING_EMAIL_HEARTBEAT));
   if (!heartbeat || heartbeat > Date.now() || Date.now() - heartbeat > BOOKING_EMAIL_LEASE_MS
       || CALENDAR_ID || LINE_TOKEN || LINE_TO) {
-    throw new Error('メール配送処理の稼働を確認できません。受付を繰り返さず、制作担当者へ連絡してください。');
+    throw userFacingError_('メール配送処理の稼働を確認できません。受付を繰り返さず、制作担当者へ連絡してください。');
   }
   const queue = bookingEmailSheet_(sheet.getParent());
   const signature = bookingEmailSignature_(values, headers);
@@ -3128,7 +3142,7 @@ function stageBookingEmails_(sheet, values, headers, action, buildMessages) {
   const job = { version: 1, code: codeKey_(values[headers.indexOf('予約番号')]), action: action,
     created: Date.now(), messages: messages };
   const raw = JSON.stringify(job);
-  if (raw.length > BOOKING_EMAIL_MAX_CELL_LENGTH) throw new Error(BOOKING_EMAIL_ERROR);
+  if (raw.length > BOOKING_EMAIL_MAX_CELL_LENGTH) throw userFacingError_(BOOKING_EMAIL_ERROR);
   const record = [Utilities.getUuid(), signature, raw];
   try {
     props.setProperty(BOOKING_EMAIL_DIRTY, 'true');
@@ -3137,7 +3151,7 @@ function stageBookingEmails_(sheet, values, headers, action, buildMessages) {
     queue.appendRow(record);
     SpreadsheetApp.flush();
     if (JSON.stringify(queue.getRange(row, 1, 1, record.length).getValues()[0]) !== JSON.stringify(record)) throw new Error();
-  } catch (error) { throw new Error(BOOKING_EMAIL_ERROR); }
+  } catch (error) { throw userFacingError_(BOOKING_EMAIL_ERROR); }
   return true;
 }
 
@@ -3164,7 +3178,7 @@ function readBookingEmailJobs_(queue) {
       });
       ids.add(id);
       return { id: id, signature: String(values[1]), job: job, row: index + 2 };
-    } catch (error) { throw new Error(BOOKING_EMAIL_ERROR); }
+    } catch (error) { throw userFacingError_(BOOKING_EMAIL_ERROR); }
   });
 }
 
@@ -3182,7 +3196,7 @@ function currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHead
   const latest = Object.create(null);
   readBookingEmailJobs_(queue).forEach(function (record) {
     const booking = current[record.job.code];
-    if (booking && booking.duplicate) throw new Error(BOOKING_EMAIL_ERROR);
+    if (booking && booking.duplicate) throw userFacingError_(BOOKING_EMAIL_ERROR);
     if (booking && booking.signature === record.signature) latest[record.job.code] = record;
   });
   return latest;
@@ -3195,7 +3209,7 @@ function saveBookingEmailJob_(queue, record) {
     range.setValue(raw);
     SpreadsheetApp.flush();
     if (range.getValues()[0][0] !== raw) throw new Error();
-  } catch (error) { throw new Error(BOOKING_EMAIL_ERROR); }
+  } catch (error) { throw userFacingError_(BOOKING_EMAIL_ERROR); }
 }
 
 function claimBookingEmail_(code, id, channel) {
@@ -3225,9 +3239,9 @@ function finishBookingEmail_(delivery, status) {
   withLedgerLock_(function () {
     const queue = bookingEmailSheet_(SpreadsheetApp.getActiveSpreadsheet());
     const record = readBookingEmailJobs_(queue).find(function (candidate) { return candidate.id === delivery.id; });
-    if (!record) throw new Error(BOOKING_EMAIL_ERROR);
+    if (!record) throw userFacingError_(BOOKING_EMAIL_ERROR);
     const message = record.job.messages[delivery.channel];
-    if (message.claim !== delivery.claim || message.status !== '配送処理中') throw new Error(BOOKING_EMAIL_ERROR);
+    if (message.claim !== delivery.claim || message.status !== '配送処理中') throw userFacingError_(BOOKING_EMAIL_ERROR);
     message.status = status;
     message.updated = Date.now();
     saveBookingEmailJob_(queue, record);
@@ -3245,7 +3259,7 @@ function deliverBookingEmails() {
       && audited <= started && started - audited < BOOKING_EMAIL_AUDIT_MS) {
     const heartbeat = String(started);
     properties.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
-    if (properties.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw new Error(BOOKING_EMAIL_ERROR);
+    if (properties.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw userFacingError_(BOOKING_EMAIL_ERROR);
     return { processed: 0, idle: true };
   }
   const candidates = withLedgerLock_(function () {
@@ -3255,7 +3269,7 @@ function deliverBookingEmails() {
     const props = PropertiesService.getScriptProperties();
     const heartbeat = String(Date.now());
     props.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
-    if (props.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw new Error(BOOKING_EMAIL_ERROR);
+    if (props.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw userFacingError_(BOOKING_EMAIL_ERROR);
     props.setProperty(BOOKING_EMAIL_AUDIT, heartbeat);
     const pending = Object.keys(latest).filter(function (code) {
       return ['shop', 'customer'].some(function (channel) {
@@ -3283,7 +3297,7 @@ function deliverBookingEmails() {
 }
 
 function enableBookingEmailQueue() {
-  if (CALENDAR_ID || LINE_TOKEN || LINE_TO) throw new Error('予定・LINE連携を使う構成では、通知分離の追加確認が必要です。');
+  if (CALENDAR_ID || LINE_TOKEN || LINE_TO) throw userFacingError_('予定・LINE連携を使う構成では、通知分離の追加確認が必要です。');
   withLedgerLock_(function () {
     const props = PropertiesService.getScriptProperties();
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -3295,21 +3309,21 @@ function enableBookingEmailQueue() {
     }
     bookingEmailSheet_(ss);
     if (props.getProperty(BOOKING_EMAIL_ENABLED) !== 'true' && queue.getLastRow() > 1) {
-      throw new Error('既存の配送記録があります。二重配送を防ぐため、内容を確認してから切り替えてください。');
+      throw userFacingError_('既存の配送記録があります。二重配送を防ぐため、内容を確認してから切り替えてください。');
     }
     readBookingEmailJobs_(queue);
     const triggers = ScriptApp.getProjectTriggers().filter(function (trigger) { return trigger.getHandlerFunction() === 'deliverBookingEmails'; });
-    if (triggers.length > 1) throw new Error('配送トリガーが重複しています。削除せず制作担当者へ確認してください。');
+    if (triggers.length > 1) throw userFacingError_('配送トリガーが重複しています。削除せず制作担当者へ確認してください。');
     if (!triggers.length) ScriptApp.newTrigger('deliverBookingEmails').timeBased().everyMinutes(1).create();
     const installed = ScriptApp.getProjectTriggers().filter(function (trigger) { return trigger.getHandlerFunction() === 'deliverBookingEmails'; });
-    if (installed.length !== 1) throw new Error('メール配送のトリガーを確認できません。受付設定は切り替えていません。');
+    if (installed.length !== 1) throw userFacingError_('メール配送のトリガーを確認できません。受付設定は切り替えていません。');
     const heartbeat = String(Date.now());
     props.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
-    if (props.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw new Error(BOOKING_EMAIL_ERROR);
+    if (props.getProperty(BOOKING_EMAIL_HEARTBEAT) !== heartbeat) throw userFacingError_(BOOKING_EMAIL_ERROR);
     props.setProperty(BOOKING_EMAIL_DIRTY, 'true');
-    if (props.getProperty(BOOKING_EMAIL_DIRTY) !== 'true') throw new Error(BOOKING_EMAIL_ERROR);
+    if (props.getProperty(BOOKING_EMAIL_DIRTY) !== 'true') throw userFacingError_(BOOKING_EMAIL_ERROR);
     props.setProperty(BOOKING_EMAIL_ENABLED, 'true');
-    if (props.getProperty(BOOKING_EMAIL_ENABLED) !== 'true') throw new Error(BOOKING_EMAIL_ERROR);
+    if (props.getProperty(BOOKING_EMAIL_ENABLED) !== 'true') throw userFacingError_(BOOKING_EMAIL_ERROR);
   });
   return { ok: true };
 }
@@ -3345,7 +3359,7 @@ function notify_(subject, body, settings) {
     MailApp.sendEmail(to.join(','), `${SALON_NAME} ${subject}`, body);
     return '送信処理受付';
   } catch (err) {
-    console.warn('メール送信に失敗しました', err);
+    console.warn('メール送信に失敗しました');
     return '送信失敗';
   }
 }
@@ -3367,7 +3381,7 @@ function notifyLine_(text) {
     });
   } catch (err) {
     // 通知の失敗で予約の記録まで止めない
-    console.warn('LINE通知に失敗しました', err);
+    console.warn('LINE通知に失敗しました');
   }
 }
 
@@ -3380,7 +3394,7 @@ function mailCustomer_(email, subject, body) {
     MailApp.sendEmail(address, `【${SALON_NAME}】${subject}`, body);
     return '送信処理受付';
   } catch (err) {
-    console.warn('お客様へのメール送信に失敗しました', err);
+    console.warn('お客様へのメール送信に失敗しました');
     return '送信失敗';
   }
 }
@@ -3392,7 +3406,7 @@ function recordMailStatus_(sheet, row, action, shop, customer) {
     sheet.getRange(targetRow, col('店舗メール状態') + 1).setValue(action + '：' + shop);
     sheet.getRange(targetRow, col('お客様メール状態') + 1).setValue(action + '：' + customer);
   } catch (err) {
-    console.warn('予約は記録済みですが、メールの送信状態を記録できませんでした', err);
+    console.warn('予約は記録済みですが、メールの送信状態を記録できませんでした');
   }
 }
 
@@ -4049,7 +4063,7 @@ function ensureHeaders_(ss, name, headers) {
   const head = width ? sheet.getRange(1, 1, 1, width).getValues()[0]
     .map(function (v) { return String(v == null ? '' : v).trim(); }) : [];
   if (name === SHEET_NAME && !validBookingHeaders_(head, { requireCode: true, allowMissing: last < 2 })) {
-    throw new Error(BOOKING_HEADERS_ERROR);
+    throw userFacingError_(BOOKING_HEADERS_ERROR);
   }
   if (!width) return;
   const missing = headers.filter(function (h) { return head.indexOf(h) < 0; });
@@ -4081,14 +4095,14 @@ function reminderProgress_(props, target) {
     if (progress.date === target) return progress;
     return props.getProperty('REMINDED_DATE') === target ? null : { date: target, sent: [], pending: [] };
   } catch (error) {
-    throw new Error(REMINDER_PROGRESS_ERROR);
+    throw userFacingError_(REMINDER_PROGRESS_ERROR);
   }
 }
 
 function saveReminderProgress_(props, progress) {
   const raw = JSON.stringify(progress);
   props.setProperty(REMINDER_PROGRESS_KEY, raw);
-  if (props.getProperty(REMINDER_PROGRESS_KEY) !== raw) throw new Error(REMINDER_PROGRESS_ERROR);
+  if (props.getProperty(REMINDER_PROGRESS_KEY) !== raw) throw userFacingError_(REMINDER_PROGRESS_ERROR);
 }
 
 function reminderRows_(sheet, target) {
@@ -4098,7 +4112,7 @@ function reminderRows_(sheet, target) {
     && normalizeDate_(values[col('来店日')]) === target).map(values => {
     const code = halfWidth_(values[col('予約番号')]).replace(/^'/, '').trim().toUpperCase();
     const key = codeKey_(code);
-    if (!/^[A-Z0-9-]{1,20}$/.test(code) || found.has(key)) throw new Error(REMINDER_PROGRESS_ERROR);
+    if (!/^[A-Z0-9-]{1,20}$/.test(code) || found.has(key)) throw userFacingError_(REMINDER_PROGRESS_ERROR);
     found.add(key);
     return { code: code, values: values, col: col };
   });
@@ -4185,7 +4199,7 @@ const BACKUP_RECORD_ERROR = '新しいバックアップの記録を確認でき
 
 function dailyBackup() {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(0)) throw new Error('処理中のためバックアップを作成できませんでした。再実行してください。');
+  if (!lock.tryLock(0)) throw userFacingError_('処理中のためバックアップを作成できませんでした。再実行してください。');
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet();
     const day = ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
@@ -4195,10 +4209,10 @@ function dailyBackup() {
     const copy = DriveApp.getFileById(sheet.getId()).makeCopy(sheet.getName() + ' バックアップ（' + day + '）');
     const copyId = copy.getId();
     if (typeof copyId !== 'string' || !copyId.trim() || copyId !== copyId.trim() || copyId === sheet.getId()) {
-      throw new Error(BACKUP_RECORD_ERROR);
+      throw userFacingError_(BACKUP_RECORD_ERROR);
     }
     properties.setProperty(key, copyId);
-    if (properties.getProperty(key) !== copyId) throw new Error(BACKUP_RECORD_ERROR);
+    if (properties.getProperty(key) !== copyId) throw userFacingError_(BACKUP_RECORD_ERROR);
     if (oldId && oldId !== sheet.getId() && oldId !== copyId) {
       DriveApp.getFileById(oldId).setTrashed(true);
     }

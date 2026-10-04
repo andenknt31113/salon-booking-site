@@ -31,6 +31,10 @@ test('バックアップの保存確認と古い控えの保護を一括検査�
   assert.ok(BOOKING_CHECKS.includes('test/booking-backup-safety.mjs'));
 });
 
+test('公開応答とログで内部の値を漏らさない検査を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/booking-public-errors.mjs'));
+});
+
 const execute = promisify(execFile);
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';

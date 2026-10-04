@@ -483,7 +483,9 @@ for (const sheet of SHEET_NAMES) {
     const app = fixture({ failure: { sheet, operation: 'getValues' } });
     const result = app.send();
     assertReadFailure(result);
-    assert.match(result.error, /試験用の読取失敗/);
+    assert.match(result.error, /処理の結果.*確認できません/);
+    assert.match(result.error, /繰り返さず/);
+    assert.doesNotMatch(result.error, /試験用の読取失敗/);
     assert.ok(app.valuesReads.some(read => read.sheet === sheet), '対象の読取まで実際に到達する');
   });
 }
@@ -496,7 +498,9 @@ for (const [label, failure] of [
   test(`${label}の例外でも空席の成功を返さない`, () => {
     const result = fixture({ failure }).send();
     assertReadFailure(result);
-    assert.match(result.error, /試験用の読取失敗/);
+    assert.match(result.error, /処理の結果.*確認できません/);
+    assert.match(result.error, /繰り返さず/);
+    assert.doesNotMatch(result.error, /試験用の読取失敗/);
   });
 }
 

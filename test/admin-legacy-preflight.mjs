@@ -147,7 +147,7 @@ for (const action of LEGACY_ACTIONS) {
   }
   test(`Google専用：${action}の拒否はrequireAdmin_を迂回しない`, () => {
     const app = backend({ busy: true });
-    app.context.requireAdmin_ = () => { app.counters.auth += 1; throw new Error(SHARED_ERROR); };
+    app.context.requireAdmin_ = () => { app.counters.auth += 1; throw app.context.userFacingError_(SHARED_ERROR); };
     assert.equal(app.send({ type: action }).error, SHARED_ERROR);
     untouched(app, { auth: 1 });
   });
@@ -175,10 +175,13 @@ for (const [label, mode] of [['未設定', undefined], ['false', 'false'], ['空
       assert.equal(app.counters.propertyWrites, 0);
       assert.equal(app.counters.auth, 1);
     });
-    test(`旧方式${label}：${action}の混雑時は既存のロックエラーと認証順を維持する`, () => {
+    test(`旧方式${label}：${action}の混雑時は認証順を維持し、内部のロック例外を公開しない`, () => {
       const app = backend({ mode, busy: true });
       if (mode === undefined) app.properties.delete('ADMIN_GOOGLE_ONLY');
-      assert.equal(app.send({ type: action }).error, LOCK_ERROR);
+      const response = app.send({ type: action });
+      assert.equal(response.ok, false);
+      assert.equal(response.error, app.constant('UNKNOWN_REQUEST_ERROR'));
+      assert.equal(response.error.includes(LOCK_ERROR), false);
       assert.deepEqual(app.events, ['lock']);
       assert.equal(app.counters.auth, 0);
       assert.equal(app.counters.passwordReads, 0);

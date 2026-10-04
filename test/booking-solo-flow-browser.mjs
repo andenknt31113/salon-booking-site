@@ -249,8 +249,9 @@ test('台帳の日付不明による書込前の拒否を完了・結果不明�
   }, { allowReserve: true, reservationError });
 });
 
-test('台帳エラーだけの応答を予約完了にせず、未確認の番号と内容を保持して自動で再送しない', () => {
-  const reservationError = '予約台帳を確認できません。';
+for (const reservationError of ['予約台帳を確認できません。',
+  '処理の結果を確認できません。予約や保存を繰り返さず、現在の結果を確認するか、店舗または制作担当者へ連絡してください。'])
+test(`エラーだけの応答を予約完了にせず、番号と内容を保持して自動で再送しない：${reservationError}`, () => {
   return withBooking(async ({ page, writes }) => {
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('#step-cta button').click();
@@ -269,7 +270,7 @@ test('台帳エラーだけの応答を予約完了にせず、未確認の番�
     assert.equal(writes.length, 1);
     assert.equal(await page.locator('#h-done').innerText(), 'ご予約の受付結果を確認できません');
     assert.equal(await page.locator('#done-warning').isVisible(), true);
-    assert.match(await page.locator('#done-warning').innerText(), /予約台帳を確認できません/);
+    assert.ok((await page.locator('#done-warning').innerText()).includes(reservationError));
     assert.equal(await page.locator('#add-to-calendar').isDisabled(), true);
     assert.deepEqual(await page.evaluate(() => ({ date: state.date, time: state.time, customer: state.customer })), before);
     const receipt = await page.evaluate(() => Store.all());

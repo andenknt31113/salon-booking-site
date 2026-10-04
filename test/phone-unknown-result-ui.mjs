@@ -11,7 +11,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const futureDate = () => new Date(Date.now() + 8 * DAY_MS).toISOString().slice(0, 10);
 
 for (const design of ['', '?design=a']) {
-  test(`${design || '従来版'}で台帳エラーを電話受付の成功と表示せず、入力と同じ受付IDを保持する`, async () => {
+  for (const requestError of ['予約台帳を確認できません。',
+    '処理の結果を確認できません。予約や保存を繰り返さず、現在の結果を確認するか、店舗または制作担当者へ連絡してください。'])
+  test(`${design || '従来版'}でエラーを電話受付の成功と表示せず、入力と同じ受付IDを保持する：${requestError}`, async () => {
     const server = http.createServer();
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -30,7 +32,7 @@ for (const design of ['', '?design=a']) {
         if (request.method() === 'POST' && request.url() === base + '/exec'
             && request.postDataJSON().type === 'adminAdd') {
           additions.push(request.postDataJSON());
-          return route.fulfill({ json: { ok: false, error: '予約台帳を確認できません。' } });
+          return route.fulfill({ json: { ok: false, error: requestError } });
         }
         return route.continue();
       });
@@ -51,8 +53,8 @@ for (const design of ['', '?design=a']) {
       const before = await page.evaluate(() => ({ reservations: structuredClone(adminData.reservations),
         fields: ['date', 'time', 'name', 'tel', 'minutes', 'price', 'memo'].map(key => document.querySelector('#ab-' + key).value) }));
       await page.locator('#ab-save').click();
-      await page.waitForFunction(() => !phoneSubmitting
-        && document.querySelector('#ab-error').textContent.includes('予約台帳を確認できません'));
+      await page.waitForFunction(message => !phoneSubmitting
+        && document.querySelector('#ab-error').textContent.includes(message), requestError);
       assert.equal(additions.length, 1);
       assert.equal(await page.locator('#add-result').isVisible(), false);
       assert.equal(await page.locator('#add-booking-form').isVisible(), true);
