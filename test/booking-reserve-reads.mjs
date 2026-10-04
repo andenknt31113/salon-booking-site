@@ -192,3 +192,26 @@ test('列が少ない旧台帳は追加列を維持して一括読込し、正�
   assert.equal(app.ledger.cells[2][headers.indexOf('来店日')], REQUEST.date);
   assert.equal(app.held(), false);
 });
+
+for (const date of ['', '未定', '2030-02-30', '2030-13-01', '2000-02-30']) {
+  test(`来店日不明の既存予約があると新規予約・通知を実行しない：${date || '空欄'}`, () => {
+    const app = fixture({ records: [{ ...PREVIOUS, 来店日: date }] });
+    const before = structuredClone(app.ledger.cells);
+    const response = app.send();
+    assert.equal(response.ok, false);
+    assert.match(response.error, /予約台帳.*来店日/);
+    assert.equal(response.invalid, true);
+    assert.equal(response.taken, undefined);
+    assert.equal(response.unknown, undefined);
+    assert.deepEqual(app.ledger.cells, before);
+    assert.deepEqual(app.effects, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('全て空の行と日付不明の取消済み予約は新規予約を妨げない', () => {
+  const app = fixture({ records: [{}, { ...PREVIOUS, 来店日: '', 状態: 'キャンセル' }] });
+  assert.equal(app.send().ok, true);
+  assert.equal(app.effects.filter(effect => effect === 'booking').length, 1);
+  assert.equal(app.held(), false);
+});

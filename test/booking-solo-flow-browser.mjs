@@ -23,10 +23,12 @@ after(async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
-async function withBooking(run, { width = 390, staff = null, pending = false, allowReserve = false } = {}) {
+async function withBooking(run, { width = 390, staff = null, pending = false, allowReserve = false,
+  reservationError = null, catalogError = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 844 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   const writes = [];
   const errors = [];
+  const dialogs = [];
   const control = { priceDelta: 0 };
   let release;
   let requested;
@@ -42,11 +44,15 @@ async function withBooking(run, { width = 390, staff = null, pending = false, al
     const request = route.request().postDataJSON();
     if (!['menu', 'availability'].includes(request.type)) {
       writes.push(request);
+      if (request.type === 'reserve' && reservationError) {
+        return route.fulfill({ json: { ok: false, invalid: true, error: reservationError } });
+      }
       return allowReserve && request.type === 'reserve' ? route.continue() : route.abort();
     }
     if (request.type !== 'menu') return route.continue();
     requested();
     if (pending) await gate;
+    if (catalogError) return route.fulfill({ json: { ok: false, invalid: true, error: catalogError } });
     const response = await route.fetch();
     const catalog = await response.json();
     catalog.settings['準備中の帯'] = '出さない';
@@ -55,12 +61,13 @@ async function withBooking(run, { width = 390, staff = null, pending = false, al
   });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
-  page.on('dialog', dialog => dialog.accept());
+  page.on('dialog', dialog => { dialogs.push(dialog.message()); dialog.accept(); });
   try {
     await page.goto(`${base}/reserve.html`);
     if (pending) await menuRequested;
+    else if (catalogError) await page.locator('#catalog-status [data-catalog-retry]').waitFor();
     else await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
-    await run({ page, release, writes, control });
+    await run({ page, release, writes, control, dialogs });
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
     if (!allowReserve) assert.deepEqual(writes, [], '選択・復元・確認だけでは予約を書き込まない');
   } finally { release(); await context.close(); }
@@ -210,3 +217,49 @@ test('四手順でも必須入力・同意・最終確認を保ち、架空台�
   assert.equal(writes[0].totalMinutes, expected.minutes);
   assert.match(await page.locator('#done-code').innerText(), /^LM-[A-Z0-9]{5}$/);
 }, { allowReserve: true }));
+
+test('台帳の日付不明による書込前の拒否を完了・結果不明にせず、入力と確認画面を保つ', () => {
+  const reservationError = '予約台帳に来店日を確認できない予約があります。店舗での確認が必要です。';
+  return withBooking(async ({ page, writes, dialogs }) => {
+    await page.locator('#coupon-choices .selectable').first().click();
+    await page.locator('#step-cta button').click();
+    await page.locator('#cal-body .slot:not(:disabled)').last().click();
+    await page.locator('#step-cta button').click();
+    await page.locator('#f-name').fill('拒否 試験');
+    await page.locator('#f-kana').fill('キョヒシケン');
+    await page.locator('#f-tel').fill('00000000000');
+    await page.locator('#f-email').fill('rejected@example.test');
+    await page.locator('[name="visit"][value="初めて"]').check();
+    await page.locator('#f-agree').check();
+    await page.locator('#step-cta button').click();
+    const before = await page.evaluate(() => ({ date: state.date, time: state.time, customer: state.customer }));
+    await page.locator('#submit-reservation').click();
+    await page.waitForFunction(() => submitting === false);
+    assert.equal(writes.length, 1);
+    assert.deepEqual(dialogs, [reservationError]);
+    assert.equal(await page.evaluate(() => state.step), 5);
+    assert.equal(await page.locator('#done-code').isVisible(), false);
+    assert.equal(await page.locator('#sending-note').isVisible(), false);
+    assert.equal(await page.locator('#submit-reservation').isDisabled(), false);
+    assert.deepEqual(await page.evaluate(() => Store.all()), []);
+    assert.deepEqual(await page.evaluate(() => ({ date: state.date, time: state.time, customer: state.customer })), before);
+    await page.locator('[data-panel="5"] [data-prev="4"]').click();
+    assert.equal(await page.locator('#f-name').inputValue(), before.customer.name);
+    assert.equal(await page.locator('#f-email').inputValue(), before.customer.email);
+  }, { allowReserve: true, reservationError });
+});
+
+test('初回の空席確認が台帳の不備で拒否されたら静的メニューだけで日時へ進まない', () =>
+  withBooking(async ({ page, release }) => {
+    await page.locator('#coupon-choices .selectable').first().click();
+    release();
+    await page.locator('#catalog-status [data-catalog-retry]').waitFor();
+    assert.match(await page.locator('#catalog-status').innerText(), /最新のメニューと受付条件を確認できません/);
+    assert.equal(await page.locator('#catalog-status [data-catalog-retry]').isVisible(), true);
+    assert.equal(await page.locator('#to-staff').isDisabled(), true);
+    assert.equal(await page.locator('#step-cta button').isDisabled(), true);
+    await page.evaluate(() => goTo(3));
+    assert.equal(await page.evaluate(() => state.step), 1);
+    assert.equal(await page.locator('[data-panel="3"]').isVisible(), false);
+    assert.deepEqual(await page.evaluate(() => Store.all()), []);
+  }, { pending: true, catalogError: '予約台帳に来店日を確認できない予約があります。店舗での確認が必要です。' }));

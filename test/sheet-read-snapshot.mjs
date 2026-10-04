@@ -383,12 +383,12 @@ test('設定の時刻セルと準備中を保持し通知先と非公開設定�
   assert.equal(rejected.draft, true, '表示だけでなく実際の公開予約を止める');
 });
 
-test('未来予約だけを返し取消表記と日付欠落行を除外して個人情報を公開しない', () => {
+test('未来予約だけを返し取消表記と空行を除外して個人情報を公開しない', () => {
   const definitions = defaultSheets();
   const cancellations = ['キャンセル', 'キャンセル済', 'キャンセル済み', '取消', '取り消し', '取消済', '中止'];
   definitions.予約一覧 = recordsSheet(LEDGER_HEADERS, [
     bookingRecord(), bookingRecord({ 来店日: NEXT_DATE, 開始: '13:00', 終了: '14:00', 担当ID: '' }),
-    bookingRecord({ 来店日: '2000-01-01' }), bookingRecord({ 来店日: '' }),
+    bookingRecord({ 来店日: '2000-01-01' }), {},
     ...cancellations.map(状態 => bookingRecord({ 状態, 開始: '', 終了: '', '所要(分)': '' })),
     bookingRecord({ 状態: ' 取 消 済 ', 開始: '', 終了: '', '所要(分)': '' })
   ]);
@@ -396,6 +396,21 @@ test('未来予約だけを返し取消表記と日付欠落行を除外して�
   assert.equal(result.ok, true);
   assert.deepEqual(result.booked, [...BASE_BOOKED, { date: NEXT_DATE, time: '13:00', minutes: 60, staffId: null }]);
   for (const booked of result.booked) assert.deepEqual(Object.keys(booked).sort(), ['date', 'minutes', 'staffId', 'time']);
+});
+
+test('日付欠落の実在する予約を除外せず初回読込を止め、個人情報を公開しない', () => {
+  const definitions = defaultSheets();
+  const unknown = bookingRecord({ 来店日: '' });
+  definitions.予約一覧 = recordsSheet(LEDGER_HEADERS, [bookingRecord(), unknown]);
+  const app = fixture({ definitions });
+  const response = app.send();
+  assert.equal(response.ok, false);
+  assert.match(response.error, /予約台帳.*来店日/);
+  assert.equal(Object.hasOwn(response, 'booked'), false);
+  for (const key of ['予約番号', 'お名前', '電話番号', 'メール', '施術メモ']) {
+    assert.equal(JSON.stringify(response).includes(unknown[key]), false);
+  }
+  assert.deepEqual(app.writes, []);
 });
 
 for (const [label, start, end, storedMinutes, time, minutes] of [

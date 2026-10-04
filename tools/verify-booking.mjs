@@ -6,7 +6,7 @@ import { verifyLocalChecks } from './verify-local.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const BOOKING_CHECKS = Object.freeze([
   'final-backend-boundaries', 'booking-change-recovery', 'booking-ledger-schema',
-  'booking-overlap-reads', 'booking-reserve-reads', 'booking-reserve-ack',
+  'booking-overlap-reads', 'booking-availability-dates', 'booking-reserve-reads', 'booking-reserve-ack',
   'booking-cancel-ack', 'booking-cancel-conflict', 'admin-auth-boundary',
   'admin-legacy-preflight', 'phone-request-identity', 'phone-booking-ack',
   'booking-write-settings', 'booking-operation-settings', 'admin-note-ack',

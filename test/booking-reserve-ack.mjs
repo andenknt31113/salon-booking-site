@@ -68,7 +68,11 @@ function fixture({ fault = '', changed = null, coerce = false, previous = false 
   });
   vm.runInContext(SOURCE, context);
   headers = Array.from(vm.runInContext('HEADERS', context));
-  if (previous) rows.push(headers.map(header => header === '予約番号' ? 'LM-PREV' : ''));
+  if (previous) {
+    const previousRecord = { 予約番号: 'LM-PREV', 来店日: '2030-01-06', 開始: '10:00', 終了: '11:00',
+      '所要(分)': 60, 状態: '予約確定' };
+    rows.push(headers.map(header => previousRecord[header] ?? ''));
+  }
   context.getSheet_ = () => sheet;
   context.draftMode_ = () => false;
   context.readBookingSettings_ = () => ({});

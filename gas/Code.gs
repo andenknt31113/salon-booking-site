@@ -235,6 +235,7 @@ const CANCEL_DEADLINE_DAYS_BEFORE = 1;
 const CANCEL_DEADLINE_HOUR = 18;
 const CANCEL_DEADLINE_KEYS = ['変更・キャンセル期限（何日前）', '変更・キャンセル期限（何時）'];
 const UNKNOWN_VISIT_DATE_ERROR = 'ご予約の来店日を確認できません。お手数ですが店舗までご連絡ください。';
+const BOOKING_DATE_ERROR = '予約台帳に来店日を確認できない予約があります。店舗での確認が必要なため、ネットの空席確認・予約は一時的にご利用いただけません。';
 
 /** いまの受付期限。設定シートを見て、読めなければ上の控えを使う */
 function cancelDeadline_(settings) {
@@ -444,6 +445,7 @@ function doPost(e) {
        店の人には何のことか分かりません。 */
     return json_({ ok: false, error: String(err && err.message ? err.message : err).replace(/^Error:\s*/, ''),
       ...(err && err.restored ? { restored: true } : {}),
+      ...(err && err.invalid === true && !err.unknown && !err.restored ? { invalid: true } : {}),
       ...(err && err.unknown ? { unknown: true } : {}) });
   }
 }
@@ -1178,18 +1180,19 @@ function doAvailability_(sheet) {
   };
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
-  const booked = rows
-    .filter(r => !isCancelled_(r[col('状態')]))
-    .map(r => {
-      const occupied = occupiedWindow_(r, col);
-      return {
-        date: normalizeDate_(r[col('来店日')]),
-        time: occupied.time,
-        minutes: occupied.end - occupied.start,
-        staffId: String(r[col('担当ID')] || '') || null
-      };
-    })
-    .filter(b => b.date && b.time && b.date >= today);
+  const booked = [];
+  rows.forEach(row => {
+    if (isCancelled_(row[col('状態')])) return;
+    const date = occupiedDate_(row, col);
+    if (!date || date < today) return;
+    const occupied = occupiedWindow_(row, col);
+    booked.push({
+      date: date,
+      time: occupied.time,
+      minutes: occupied.end - occupied.start,
+      staffId: String(row[col('担当ID')] || '') || null
+    });
+  });
 
   return { ok: true, booked: booked };
 }
@@ -2040,6 +2043,14 @@ function deadlineMessage_(settings) {
     + (tel ? '（TEL ' + tel + '）' : '');
 }
 
+function occupiedDate_(row, col) {
+  const value = row[col('来店日')];
+  const date = value instanceof Date && isNaN(value.getTime()) ? '' : normalizeDate_(value);
+  if (validDateKey_(date)) return date;
+  if (!date && row.every(cell => cell == null || String(cell).trim() === '')) return '';
+  throw Object.assign(new Error(BOOKING_DATE_ERROR), { invalid: true });
+}
+
 function occupiedWindow_(row, col) {
   const time = normalizeTime_(row[col('開始')]);
   const start = timeToMin_(time);
@@ -2070,7 +2081,7 @@ function isTaken_(sheet, dateKey, time, minutes, staffId, ownCode, reservationSn
   return rows.some(r => {
     if (ownKey && codeKey_(r[col('予約番号')]) === ownKey) return false;
     if (isCancelled_(r[col('状態')])) return false;
-    if (normalizeDate_(r[col('来店日')]) !== dateKey) return false;
+    if (occupiedDate_(r, col) !== dateKey) return false;
     /* 席の数で見ます。
 
        以前は「担当が違えば別の予約」として素通りさせていました。
