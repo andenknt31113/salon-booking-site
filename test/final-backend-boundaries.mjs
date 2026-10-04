@@ -157,6 +157,111 @@ function fixture({ queue = true } = {}) {
   };
 }
 
+function deliveryTargetFixture(phase, mutation) {
+  const app = fixture();
+  assert.equal(app.reserve().ok, true);
+  assert.equal(app.reserve({ code: 'LM-OTHER', time: '12:00', customer: {
+    ...BOOKING_REQUEST.customer, name: '別の架空配送客', email: 'other-customer@example.test'
+  } }).ok, true);
+  const ledger = structuredClone(app.ledger.cells);
+  const readJobs = app.context.readBookingEmailJobs_;
+  let reads = 0;
+  let afterMutation;
+  app.context.readBookingEmailJobs_ = queue => {
+    const jobs = readJobs(queue);
+    if (++reads === (phase === 'claim' ? 2 : 3)) {
+      const cells = app.delivery.cells;
+      if (mutation === 'rows') [cells[1], cells[2]] = [cells[2], cells[1]];
+      else if (mutation === 'remove') cells.splice(1, 1);
+      else if (mutation === 'headers') cells.forEach(row => { [row[0], row[2]] = [row[2], row[0]]; });
+      else if (mutation === 'id') cells[1][0] = randomUUID();
+      else if (mutation === 'signature') cells[1][1] = cells[2][1];
+      else if (mutation === 'raw') {
+        const job = JSON.parse(cells[1][2]);
+        job.messages.customer.status = '停止中';
+        cells[1][2] = JSON.stringify(job);
+      } else throw new Error('不明な架空配送変更');
+      afterMutation = structuredClone(cells);
+    }
+    return jobs;
+  };
+  return { ...app, ledgerBefore: ledger, mutatedQueue: () => afterMutation };
+}
+
+for (const phase of ['claim', 'finish']) {
+  for (const mutation of ['rows', 'remove', 'headers', 'id', 'signature', 'raw']) {
+    test(`配送${phase}の読込後に${mutation}が変わっても、別の依頼や新しい配送状態へ書かない`, () => {
+      const app = deliveryTargetFixture(phase, mutation);
+      assert.throws(() => app.context.deliverBookingEmails(), /メール配送の記録/);
+      assert.ok(app.mutatedQueue(), '実際の記録読込後に架空の変更を挟む');
+      assert.deepEqual(app.delivery.cells, app.mutatedQueue(), '古い行番号・本文・状態で上書きしない');
+      assert.deepEqual(app.ledger.cells, app.ledgerBefore, '予約を取り消したり書き戻したりしない');
+      assert.equal(app.sent.length, phase === 'claim' ? 0 : 1,
+        '配送開始確認の失敗では送信せず、結果保存の失敗では既に受け付けた一通を隠さない');
+      assert.ok(app.sent.every(message => message.to === 'audit-shop@example.test'
+        && message.body.includes(BOOKING_REQUEST.code)));
+    });
+  }
+}
+
+for (const mutation of ['rows', 'raw']) {
+  test(`配送結果保存中の${mutation}変更後も、受付済みメールを再送せず依頼を探し直す`, () => {
+    const app = deliveryTargetFixture('finish', mutation);
+    assert.throws(() => app.context.deliverBookingEmails(), /メール配送の記録/);
+    assert.equal(app.sent.length, 1);
+    app.advance(LEASE_EXPIRY_MS);
+    app.context.deliverBookingEmails();
+    assert.equal(app.sent.filter(message => message.to === 'audit-shop@example.test'
+      && message.body.includes(BOOKING_REQUEST.code)).length, 1);
+    assert.equal(app.sent.filter(message => message.to === BOOKING_REQUEST.customer.email).length,
+      mutation === 'rows' ? 1 : 0);
+    assert.equal(app.sent.length, mutation === 'rows' ? 4 : 3);
+    const target = app.jobs().find(job => job.code === app.context.codeKey_(BOOKING_REQUEST.code));
+    assert.equal(target.messages.shop.status, '送信結果不明');
+    assert.equal(target.messages.customer.status, mutation === 'rows' ? '送信処理受付' : '停止中');
+    const other = app.jobs().find(job => job.code === 'LMOTHER');
+    assert.equal(other.messages.shop.status, '送信処理受付');
+    assert.equal(other.messages.customer.status, '送信処理受付');
+    assert.deepEqual(app.ledger.cells, app.ledgerBefore);
+  });
+}
+
+for (const discard of [false, true]) {
+  test(`配送開始の保存${discard ? '未反映' : '反映済み'}と行入替が重なっても、別依頼の同じ本文を保存確認にしない`, () => {
+    const app = fixture();
+    assert.equal(app.reserve().ok, true);
+    assert.equal(app.reserve({ code: 'LM-OTHER', time: '12:00', customer: {
+      ...BOOKING_REQUEST.customer, email: 'other-customer@example.test'
+    } }).ok, true);
+    const beforeLedger = structuredClone(app.ledger.cells);
+    const targetId = app.delivery.cells[1][0];
+    const getRange = app.delivery.getRange;
+    let afterMutation;
+    app.delivery.getRange = (row, column, ...size) => {
+      const range = getRange(row, column, ...size);
+      if (row !== 2 || column !== 3 || afterMutation) return range;
+      return { ...range, setValue(value) {
+        if (!discard) range.setValue(value);
+        app.delivery.cells[2][2] = value;
+        [app.delivery.cells[1], app.delivery.cells[2]] = [app.delivery.cells[2], app.delivery.cells[1]];
+        afterMutation = structuredClone(app.delivery.cells);
+        return range;
+      } };
+    };
+    assert.throws(() => app.context.deliverBookingEmails(), /メール配送の記録/);
+    assert.ok(afterMutation);
+    assert.equal(app.sent.length, 0, '対象のID・照合・本文の保存確認までは外部送信しない');
+    assert.deepEqual(app.delivery.cells, afterMutation);
+    assert.deepEqual(app.ledger.cells, beforeLedger);
+    const target = JSON.parse(app.delivery.cells.slice(1).find(row => row[0] === targetId)[2]);
+    assert.equal(target.messages.shop.status, discard ? '配送待ち' : '配送処理中');
+    assert.equal(target.messages.customer.status, '配送待ち');
+    assert.throws(() => app.context.deliverBookingEmails(), /メール配送の記録/);
+    assert.equal(app.sent.length, 0, '壊れた依頼を推測で修復して自動配送しない');
+    assert.deepEqual(app.delivery.cells, afterMutation);
+  });
+}
+
 test('日時変更の復旧記録を削除した直後の例外を、元の日時への復旧と誤認しない', () => {
   const app = fixture();
   assert.equal(app.reserve().ok, true);

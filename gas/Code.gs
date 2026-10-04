@@ -3258,7 +3258,7 @@ function readBookingEmailJobs_(queue) {
             || (message.status === '配送処理中' && typeof message.claim !== 'string')) throw new Error();
       });
       ids.add(id);
-      return { id: id, signature: String(values[1]), job: job, row: index + 2 };
+      return { id: id, signature: String(values[1]), job: job, raw: String(values[2]), row: index + 2 };
     } catch (error) { throw userFacingError_(BOOKING_EMAIL_ERROR); }
   });
 }
@@ -3292,10 +3292,24 @@ function currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHead
 function saveBookingEmailJob_(queue, record) {
   const raw = JSON.stringify(record.job);
   try {
+    const readCurrent = function () {
+      const values = queue.getRange(record.row, 1, 1, BOOKING_EMAIL_HEADERS.length).getValues()[0];
+      const headers = sheetHeader_(queue, BOOKING_EMAIL_HEADERS);
+      if (queue.getLastColumn() !== BOOKING_EMAIL_HEADERS.length
+          || JSON.stringify(headers) !== JSON.stringify(BOOKING_EMAIL_HEADERS)) throw new Error();
+      return values;
+    };
+    const matches = function (values, content) {
+      return Array.isArray(values) && values.length === BOOKING_EMAIL_HEADERS.length
+        && String(values[0]) === record.id && String(values[1]) === record.signature
+        && String(values[2]) === content;
+    };
+    if (!matches(readCurrent(), record.raw)) throw new Error();
     const range = queue.getRange(record.row, 3);
     range.setValue(raw);
     SpreadsheetApp.flush();
-    if (range.getValues()[0][0] !== raw) throw new Error();
+    if (!matches(readCurrent(), raw)) throw new Error();
+    record.raw = raw;
   } catch (error) { throw userFacingError_(BOOKING_EMAIL_ERROR); }
 }
 
