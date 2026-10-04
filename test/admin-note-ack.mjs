@@ -20,11 +20,13 @@ function fixture({ fault = '', authorized = true } = {}) {
       const range = {
         getValues() {
           assert.equal(held, true);
-          if (attempted && row === 2 && column === headers.indexOf('施術メモ') + 1 && numColumns === 1) {
+          if (attempted && row === 2 && (column === headers.indexOf('施術メモ') + 1 && numColumns === 1
+              || column === 1 && numColumns === headers.length)) {
             effects.push('read-note');
             if (fault === 'read-failure') throw new Error('試験用の読込失敗');
             if (fault === 'empty-read') return [];
-            if (fault === 'wrong-read') return [['別のメモ']];
+            if (fault === 'wrong-read') return [headers.map(header => header === '施術メモ' ? '別のメモ' : record[header] ?? '')
+              .slice(column - 1, column - 1 + numColumns)];
           }
           const values = [headers, headers.map(header => record[header] ?? '')];
           return values.slice(row - 1, row - 1 + numRows).map(cells => cells.slice(column - 1, column - 1 + numColumns));
@@ -107,7 +109,7 @@ test('保存後の応答障害の同一内容再送は書込を増やさず現�
   const confirmed = app.send();
   assert.equal(confirmed.ok, true);
   assert.equal(confirmed.note, '今回の施術メモ');
-  assert.deepEqual(app.effects, ['write', 'read-note']);
+  assert.deepEqual(app.effects, ['write', 'read-note', 'read-note']);
 });
 
 test('古い元データと管理権限なしは書込や反映を行わない', () => {

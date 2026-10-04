@@ -20,7 +20,7 @@ class FixtureDate extends Date {
   static now() { return NOW; }
 }
 
-function fixture({ phase = '', mutation = 'rows', discard = false, reordered = false, other = {} } = {}) {
+function fixture({ phase = '', mutation = 'rows', discard = false, reordered = false, missingNote = false, other = {} } = {}) {
   let held = false;
   let mutated = false;
   let cells;
@@ -32,7 +32,7 @@ function fixture({ phase = '', mutation = 'rows', discard = false, reordered = f
   const snapshot = code => {
     const index = cells[0].indexOf('予約番号');
     const values = cells.slice(1).find(row => row[index] === code);
-    return values ? Object.fromEntries(cells[0].map((header, offset) => [header, values[offset]])) : null;
+    return values ? Object.fromEntries(cells[0].map((header, offset) => [header, values[offset] ?? ''])) : null;
   };
   const mutate = () => {
     if (mutated) return;
@@ -49,6 +49,8 @@ function fixture({ phase = '', mutation = 'rows', discard = false, reordered = f
       cells = cells.map(row => indices.map(index => row[index]));
     } else if (mutation === 'phone') cells[1][cells[0].indexOf('電話番号')] = '00000000001';
     else if (mutation === 'state') cells[1][cells[0].indexOf('状態')] = 'キャンセル';
+    else if (mutation === 'note') cells[1][cells[0].indexOf('施術メモ')] = '別画面からの新しいメモ';
+    else if (mutation === 'remove') cells.splice(1, 1);
     else throw new Error('不明な試験用の変更');
   };
   const spreadsheet = { getSheetByName: name => name === '予約一覧' ? sheet : null };
@@ -64,7 +66,8 @@ function fixture({ phase = '', mutation = 'rows', discard = false, reordered = f
             Array.from({ length: width }, (_value, columnIndex) => cells[row - 1 + rowIndex]?.[column - 1 + columnIndex] ?? ''));
           if (phase === 'after-code' && row === 2 && height === 2 && width === 1
               && column === cells[0].indexOf('予約番号') + 1) mutate();
-          if (row === 2 && height === 1 && width === cells[0].length && ++targetReads === 1
+          if (row === 2 && height === 1 && (width === cells[0].length
+              || width === 1 && column === cells[0].indexOf('施術メモ') + 1) && ++targetReads === 1
               && phase === 'after-initial-read') mutate();
           return values;
         },
@@ -80,7 +83,9 @@ function fixture({ phase = '', mutation = 'rows', discard = false, reordered = f
         },
         setValue(value) { return range.setValues([[value]]); },
         setFontLine() { effects.push('format'); return range; },
-        setFontColor() { effects.push('format'); return range; }
+        setFontColor() { effects.push('format'); return range; },
+        setFontWeight() { return range; },
+        setBackground() { return range; }
       };
       return range;
     }
@@ -100,7 +105,8 @@ function fixture({ phase = '', mutation = 'rows', discard = false, reordered = f
     } }
   });
   vm.runInContext(SOURCE, context);
-  const canonical = [...Array.from(vm.runInContext('HEADERS', context)), '独自列'];
+  const canonical = [...Array.from(vm.runInContext('HEADERS', context)), '独自列']
+    .filter(header => !missingNote || header !== '施術メモ');
   const headers = reordered ? canonical.slice().reverse() : canonical;
   cells = [headers, ...[ORIGINAL, expectedOther].map(record => headers.map(header => record[header] ?? ''))];
   const before = snapshot(ORIGINAL.予約番号);
@@ -108,18 +114,158 @@ function fixture({ phase = '', mutation = 'rows', discard = false, reordered = f
   context.verifyGoogleAdmin_ = () => { assert.equal(held, false); };
   context.stageBookingEmails_ = () => { assert.equal(held, true); if (phase === 'after-stage') mutate(); return false; };
   context.recordMailStatus_ = () => {};
+  const ensureHeaders = context.ensureHeaders_;
+  context.ensureHeaders_ = (...args) => {
+    const result = ensureHeaders(...args);
+    if (phase === 'after-ensure') mutate();
+    return result;
+  };
   for (const name of ['notify_', 'mailCustomer_', 'notifyLine_', 'addToCalendar_', 'removeFromCalendar_']) {
     context[name] = () => { effects.push(name); return '送信処理受付'; };
   }
   return { before, writes, effects, properties, mutated: () => mutated, held: () => held,
     target: () => snapshot(ORIGINAL.予約番号), other: () => snapshot(OTHER.予約番号), expectedOther: () => expectedOther,
     send({ type, google = false }, changes = {}) {
+      if (type === 'adminNote' && !google) {
+        properties.delete('ADMIN_GOOGLE_ONLY');
+        context.requireAdmin_ = () => { assert.equal(held, true); };
+      }
       const payload = { code: ORIGINAL.予約番号, tel: ORIGINAL.電話番号,
         fromDate: ORIGINAL.来店日, fromTime: ORIGINAL.開始, date: CHANGED.来店日, time: CHANGED.開始, ...changes };
       return JSON.parse(context.doPost({ postData: { contents: JSON.stringify(google
         ? { type: 'googleAdmin', action: type, payload } : { type, ...payload }) } }));
     }
   };
+}
+
+const NOTE_ACTIONS = [{ type: 'adminNote' }, { type: 'adminNote', google: true }];
+const NEW_NOTE = '今回の対象予約のメモ';
+
+for (const action of NOTE_ACTIONS) {
+  const label = `${action.google ? 'Google管理' : '既存管理'}の施術メモ`;
+  const changes = { expectedNote: ORIGINAL.施術メモ, note: NEW_NOTE };
+  for (const phase of ['after-code', 'after-ensure', 'after-initial-read']) {
+    for (const mutation of phase === 'after-initial-read' ? ['rows', 'headers', 'remove'] : ['rows', 'remove']) {
+      test(`${label}の${phase}で${mutation}が変わっても、別予約・別列に保存しない`, () => {
+        const app = fixture({ phase, mutation, other: { 施術メモ: ORIGINAL.施術メモ } });
+        const result = app.send(action, changes);
+        assert.equal(app.mutated(), true);
+        assert.equal(result.ok, false);
+        assert.equal(result.invalid, true);
+        assert.equal(result.note, undefined);
+        assert.deepEqual(app.writes, []);
+        assert.deepEqual(app.effects, []);
+        if (mutation !== 'remove') assert.deepEqual(app.target(), app.before);
+        for (const [header, value] of Object.entries(app.expectedOther())) assert.equal(app.other()[header], value, header);
+        assert.equal(app.held(), false);
+      });
+    }
+  }
+  for (const phase of ['after-code', 'after-ensure']) {
+    test(`${label}は保存先を確定する前の正常な列並べ替えに追従する：${phase}`, () => {
+      const app = fixture({ phase, mutation: 'headers' });
+      const result = app.send(action, changes);
+      assert.equal(app.mutated(), true);
+      assert.equal(result.ok, true);
+      assert.equal(result.code, ORIGINAL.予約番号);
+      assert.equal(result.note, NEW_NOTE);
+      assert.deepEqual(app.target(), { ...app.before, 施術メモ: NEW_NOTE });
+      for (const [header, value] of Object.entries(app.expectedOther())) assert.equal(app.other()[header], value, header);
+      assert.equal(app.writes.length, 1);
+      assert.equal(app.held(), false);
+    });
+  }
+  test(`${label}は保存直前に更新されたメモを上書きしない`, () => {
+    const app = fixture({ phase: 'after-initial-read', mutation: 'note' });
+    const result = app.send(action, changes);
+    assert.equal(result.ok, false);
+    assert.equal(result.invalid, true);
+    assert.equal(app.target().施術メモ, '別画面からの新しいメモ');
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.effects, []);
+  });
+  test(`${label}の同一内容再確認でも別の予約のメモを成功結果にしない`, () => {
+    const app = fixture({ phase: 'after-code', other: { 施術メモ: NEW_NOTE } });
+    const result = app.send(action, changes);
+    assert.equal(result.ok, false);
+    assert.equal(result.invalid, true);
+    assert.equal(result.note, undefined);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.target(), app.before);
+  });
+  for (const mutation of ['rows', 'headers', 'remove']) {
+    test(`${label}の反映漏れと${mutation}の変更が重なっても保存成功を推測しない`, () => {
+      const app = fixture({ phase: 'after-save', mutation, discard: true, other: { 施術メモ: NEW_NOTE } });
+      const result = app.send(action, changes);
+      assert.equal(app.mutated(), true);
+      assert.equal(result.ok, false);
+      assert.equal(result.unknown, true);
+      assert.equal(result.note, undefined);
+      assert.equal(app.writes.length, 1);
+      assert.equal(app.writes[0].code, ORIGINAL.予約番号);
+      if (mutation !== 'remove') assert.deepEqual(app.target(), app.before);
+      for (const [header, value] of Object.entries(app.expectedOther())) assert.equal(app.other()[header], value, header);
+      assert.deepEqual(app.effects, []);
+      assert.equal(app.held(), false);
+    });
+    test(`${label}が反映済みでも${mutation}で対象を確認できなければ成功とせず再保存しない`, () => {
+      const app = fixture({ phase: 'after-save', mutation });
+      const result = app.send(action, changes);
+      assert.equal(app.mutated(), true);
+      assert.equal(result.ok, false);
+      assert.equal(result.unknown, true);
+      assert.equal(result.note, undefined);
+      assert.equal(app.writes.length, 1);
+      assert.equal(app.writes[0].code, ORIGINAL.予約番号);
+      if (mutation !== 'remove') assert.deepEqual(app.target(), { ...app.before, 施術メモ: NEW_NOTE });
+      for (const [header, value] of Object.entries(app.expectedOther())) assert.equal(app.other()[header], value, header);
+      assert.deepEqual(app.effects, []);
+      assert.equal(app.held(), false);
+    });
+  }
+  test(`${label}は元メモを送らない既存呼出しの認証別の契約を保持する`, () => {
+    const app = fixture();
+    const result = app.send(action, { note: NEW_NOTE });
+    assert.equal(result.ok, !action.google);
+    if (action.google) {
+      assert.match(result.error, /元の内容.*確認できません/);
+      assert.deepEqual(app.writes, []);
+      assert.deepEqual(app.target(), app.before);
+    } else {
+      assert.equal(result.code, ORIGINAL.予約番号);
+      assert.equal(result.note, NEW_NOTE);
+      assert.deepEqual(app.target(), { ...app.before, 施術メモ: NEW_NOTE });
+    }
+    assert.equal(app.held(), false);
+  });
+  for (const reordered of [false, true]) {
+    test(`${label}の正常保存は${reordered ? '逆順' : '通常'}の列と他の予約を保持する`, () => {
+      const app = fixture({ reordered });
+      const result = app.send(action, changes);
+      assert.equal(result.ok, true);
+      assert.equal(result.code, ORIGINAL.予約番号);
+      assert.equal(result.note, NEW_NOTE);
+      assert.deepEqual(app.target(), { ...app.before, 施術メモ: NEW_NOTE });
+      for (const [header, value] of Object.entries(app.expectedOther())) assert.equal(app.other()[header], value, header);
+      assert.equal(app.writes.length, 1);
+      assert.equal(app.writes[0].width, 1);
+      assert.deepEqual(app.effects, []);
+      assert.equal(app.held(), false);
+    });
+  }
+  test(`${label}は旧台帳のメモ列だけを補って独自列と予約内容を保持する`, () => {
+    const app = fixture({ missingNote: true });
+    const result = app.send(action, { ...changes, expectedNote: '' });
+    assert.equal(result.ok, true);
+    assert.equal(result.note, NEW_NOTE);
+    assert.deepEqual(app.target(), { ...app.before, 施術メモ: NEW_NOTE });
+    for (const [header, value] of Object.entries(app.expectedOther())) {
+      if (header !== '施術メモ') assert.equal(app.other()[header], value, header);
+    }
+    assert.equal(app.other().施術メモ, '');
+    assert.deepEqual(app.writes.map(write => write.row), [1, 2]);
+    assert.equal(app.held(), false);
+  });
 }
 
 function assertSafeTarget(app, result, action) {

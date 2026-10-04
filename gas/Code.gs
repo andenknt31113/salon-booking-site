@@ -620,18 +620,21 @@ function doAdminNote_(sheet, d) {
      無いまま書くと、colIndex_ が代用した番号に書くことになります。 */
   ensureHeaders_(SpreadsheetApp.getActiveSpreadsheet(), SHEET_NAME, HEADERS);
 
-  const at = headerRow_(sheet).indexOf(NOTE_HEADER);
+  const headers = headerRow_(sheet);
+  const at = headers.indexOf(NOTE_HEADER);
   /* 列が作れなかったときは、書かずに断ります。
      どこかの列を潰すくらいなら、保存できないほうがましです。 */
   if (at < 0) return { ok: false, error: '台帳に「' + NOTE_HEADER + '」の列が作れませんでした。' };
 
   const note = cell_(d.note, LIMITS.note);
   const compareText = value => String(value == null ? '' : value).replace(/\r\n?/g, '\n').trim();
-  const saved = compareText(noteText_(sheet.getRange(row, at + 1).getValues()[0][0]));
+  const current = readBookingTargetRow_(sheet, row, d.code, headers);
+  const saved = compareText(noteText_(current[at]));
   const expected = Object.prototype.hasOwnProperty.call(d, 'expectedNote');
   if (d.googleAdminContext === GOOGLE_ADMIN_CONTEXT && !expected) {
     return { ok: false, error: 'メモの元の内容を確認できません。画面を読み込み直してください。' };
   }
+  readBookingTargetRow_(sheet, row, d.code, headers, current);
   if (expected && saved !== compareText(d.expectedNote)) {
     if (saved === compareText(noteText_(note))) return { ok: true, code: String(d.code), note: saved };
     return { ok: false, conflict: true,
@@ -641,7 +644,8 @@ function doAdminNote_(sheet, d) {
     const noteRange = sheet.getRange(row, at + 1);
     noteRange.setValue(note);
     SpreadsheetApp.flush();
-    if (compareText(noteText_(noteRange.getValues()[0][0])) !== compareText(noteText_(note))) throw new Error();
+    const confirmed = readBookingTargetRow_(sheet, row, d.code, headers);
+    if (compareText(noteText_(confirmed[at])) !== compareText(noteText_(note))) throw new Error();
   } catch (error) {
     throw Object.assign(userFacingError_('施術メモの保存結果を確認できません。入力をコピーしてから最新のメモを確認してください。'),
       { unknown: true });
