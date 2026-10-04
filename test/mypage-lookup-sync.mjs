@@ -274,6 +274,32 @@ test('照会中の連打は一件だけ送り、失敗時に前の予約を復�
   } finally { release?.(); await page.context().close(); }
 });
 
+for (const error of ['予約台帳を確認できません。',
+  '予約台帳の見出しを確認できません。保存し直さず、制作担当者へ連絡して元の台帳を確認してください。']) {
+  test(`台帳の障害を予約なしや成立と表示せず、控えと照会入力を保つ：${error}`, async () => {
+    const page = await openLookup([localRecord]);
+    let requests = 0;
+    const before = await page.evaluate(() => localStorage.getItem('salon.reservations.v1'));
+    try {
+      await interceptLookup(page, async route => {
+        requests++;
+        await route.fulfill({ json: { ok: false, error } });
+      });
+      await page.locator('#lookup-btn').click();
+      await page.locator('#lookup-error').waitFor({ state: 'visible' });
+      const message = await page.locator('#lookup-error').innerText();
+      assert.ok(message.includes(error));
+      assert.equal(message.includes('ご予約が見つかりませんでした。'), false);
+      assert.equal(await page.locator('#lookup-code').inputValue(), localRecord.code);
+      assert.equal(await page.locator('#lookup-tel').inputValue(), localRecord.customer.tel);
+      assert.equal(await page.locator('#lookup-btn').isDisabled(), false);
+      assert.equal(await page.locator('#lookup-result .booking-card').count(), 0);
+      assert.equal(await page.evaluate(() => localStorage.getItem('salon.reservations.v1')), before);
+      assert.equal(requests, 1);
+    } finally { await page.context().close(); }
+  });
+}
+
 test('予約を含まない成功応答でも画面を壊さず、再照会できる', async () => {
   const page = await openLookup([localRecord]);
   const errors = [];

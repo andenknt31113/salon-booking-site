@@ -430,7 +430,7 @@ function doPost(e) {
       if (data.type === 'adminNote')    return doAdminNote_(getSheet_(), data);
       if (data.type === 'adminChange')  return doAdminChange_(getSheet_(), data);
       if (data.type === 'availability') return doAvailability_();
-      if (data.type === 'lookup')       return doLookup_(getSheet_(), data);
+      if (data.type === 'lookup')       return doLookup_(null, data);
       if (data.type === 'cancel')       return doCancel_(getSheet_(), data);
       if (data.type === 'change')       return doChange_(getSheet_(), data);
       if (data.type === 'review')       return doReview_(getSheet_(), data);
@@ -1595,17 +1595,22 @@ function isShown_(v) {
    ============================================================ */
 function doLookup_(sheet, d) {
   if (!codeKey_(d.code) || !digits_(d.tel)) return { ok: false, error: 'ご予約が見つかりませんでした。' };
-  const headers = headerRow_(sheet);
-  if (!validBookingHeaders_(headers, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  sheet = sheet || SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('予約台帳を確認できません。');
+  if (!sheet.getLastRow()) return { ok: false, error: 'ご予約が見つかりませんでした。' };
+  const headers = sheetHeader_(sheet, []);
+  if (!validBookingHeaders_(headers, { requireCode: true }) || !headers.includes('電話番号')) {
+    throw new Error(BOOKING_HEADERS_ERROR);
+  }
   const row = findRowByCode_(sheet, d.code, null, headers);
   if (row === -1) return { ok: false, error: 'ご予約が見つかりませんでした。' };
 
   const r = readRow_(sheet, row, headers);
-  const currentHeaders = headerRow_(sheet);
+  const currentHeaders = sheetHeader_(sheet, []);
   if (headers.length !== currentHeaders.length || headers.some((header, index) => header !== currentHeaders[index])) {
     throw new Error('予約台帳が更新されました。時間をおいて、もう一度ご予約を確認してください。');
   }
-  const col = colIndex_(sheet, headers);
+  const col = name => headers.indexOf(name);
 
   if (codeKey_(r[col('予約番号')]) !== codeKey_(d.code) || digits_(r[col('電話番号')]) !== digits_(d.tel)) {
     return { ok: false, error: 'ご予約が見つかりませんでした。' };

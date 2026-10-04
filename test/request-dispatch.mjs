@@ -23,6 +23,7 @@ function fixture({ occupied = false } = {}) {
   let held = false;
   const context = vm.createContext({
     console: { error: error => logs.push(String(error)), warn() {}, log() {} },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ setMimeType: () => body }) },
     LockService: { getScriptLock() {
       events.push('lock');
@@ -46,7 +47,7 @@ function fixture({ occupied = false } = {}) {
   for (const handler of Object.values(ROUTES)) {
     context[handler] = (...args) => {
       assert.equal(held, true);
-      const request = args[0] === ledger ? args[1] : args[0];
+      const request = args[0] === ledger || handler === 'doLookup_' ? args[1] : args[0];
       calls.push({ handler, request, args });
       return { ok: true, handler };
     };
@@ -96,6 +97,10 @@ test('既存の公開・管理操作はそれぞれの入口へ送り、予約�
     assert.equal(app.calls.length, 1, type);
     if (type === 'availability') assert.equal(app.calls[0].request, undefined);
     else assert.deepEqual(JSON.parse(JSON.stringify(app.calls[0].request)), request, type);
+    if (type === 'lookup') {
+      assert.equal(app.calls[0].args[0], null);
+      assert.equal(app.events.includes('ledger'), false, '予約確認で台帳の書込準備へ進まない');
+    }
     assert.equal(app.held(), false, type);
     assert.equal(app.events[0], 'lock', type);
     assert.equal(app.events.at(-1), 'release', type);

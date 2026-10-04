@@ -63,7 +63,7 @@ function fixture({ editHeaders = headers => headers, legacy = false, blank = fal
   context.allStamps_ = () => ({});
   context.ensureSettingRows_ = () => {};
   context.requireAdmin_ = () => { if (!authorized) throw new Error('試験用の認証拒否'); };
-  for (const name of ['doReserve_', 'doLookup_', 'doChange_', 'doCancel_']) {
+  for (const name of ['doReserve_', 'doChange_', 'doCancel_']) {
     context[name] = () => { operations.push(name); return { ok: true }; };
   }
   return { cells: () => cells, before, reads, writes, operations, canonical, held: () => held,
@@ -71,7 +71,8 @@ function fixture({ editHeaders = headers => headers, legacy = false, blank = fal
 }
 
 for (const request of [INITIAL_REQUEST, { type: 'availability' }, { type: 'reserve' },
-  { type: 'lookup' }, { type: 'change' }, { type: 'cancel' }, { type: 'adminData' }]) {
+  { type: 'lookup', code: RECORD.予約番号, tel: RECORD.電話番号 },
+  { type: 'change' }, { type: 'cancel' }, { type: 'adminData' }]) {
   test(`${request.type}で来店日の見出しが欠けた台帳を空席・正常な保存へすり替えない`, () => {
     const app = fixture({ editHeaders: headers => headers.map(header => header === '来店日' ? '日付' : header) });
     const response = app.send(request);

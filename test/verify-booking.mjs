@@ -22,7 +22,7 @@ test('メモ保存の応答照合と別画面の競合を一括検査から外�
 });
 
 test('予約確認の本人照合と狭い読込を一括検査から外さない', () => {
-  for (const path of ['test/booking-lookup-reads.mjs', 'test/reservation-lookup.mjs']) {
+  for (const path of ['test/booking-lookup-reads.mjs', 'test/reservation-lookup.mjs', 'test/request-dispatch.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path));
   }
 });

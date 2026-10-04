@@ -50,7 +50,10 @@ function fixture({ fault = '', admin = true } = {}) {
   };
   const context = vm.createContext({ Date, console: { error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
-    SpreadsheetApp: { flush() {
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName(name) {
+      assert.equal(held, true);
+      return name === '予約一覧' ? sheet : null;
+    } }), flush() {
       assert.equal(held, true);
       effects.push('flush');
       if (fault === 'flush-failure') throw new Error('試験用の反映失敗');

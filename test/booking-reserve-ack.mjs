@@ -16,7 +16,7 @@ function fixture({ fault = '', changed = null, coerce = false, previous = false 
   let held = false;
   let attempted = false;
   let pending = null;
-  const spreadsheet = { getSheetByName: () => null };
+  const spreadsheet = { getSheetByName: name => name === '予約一覧' ? sheet : null };
   const sheet = {
     getParent: () => spreadsheet,
     getLastRow: () => rows.length + 1, getLastColumn: () => headers.length,
@@ -44,7 +44,7 @@ function fixture({ fault = '', changed = null, coerce = false, previous = false 
   };
   const context = vm.createContext({ Date, console: { error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
-    SpreadsheetApp: { flush() {
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {
       assert.equal(held, true);
       effects.push('flush');
       if (fault === 'flush-failure') throw new Error('試験用の反映失敗');
