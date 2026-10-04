@@ -39,6 +39,10 @@ test('本人照合の失敗から予約の存在・状態を明かさない検�
   assert.ok(BOOKING_CHECKS.includes('test/booking-identity-privacy.mjs'));
 });
 
+test('並べ替え中の別予約の保存・成功確認を防ぐ検査を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/booking-target-consistency.mjs'));
+});
+
 const execute = promisify(execFile);
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';

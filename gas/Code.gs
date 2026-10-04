@@ -384,6 +384,7 @@ const LEGACY_ADMIN_REQUEST_TYPES = ['adminLogin', 'adminData', 'adminSave', 'adm
 
 const UNKNOWN_REQUEST_ERROR = '処理の結果を確認できません。予約や保存を繰り返さず、現在の結果を確認するか、店舗または制作担当者へ連絡してください。';
 const BOOKING_IDENTITY_ERROR = 'ご予約が確認できませんでした。予約番号と電話番号をご確認ください。';
+const BOOKING_TARGET_CHANGED_ERROR = '予約台帳が更新されたため、処理を中止しました。最新の予約内容を確認してからお試しください。';
 const USER_FACING_ERRORS = new WeakMap();
 
 function userFacingError_(message) {
@@ -1710,10 +1711,11 @@ function digits_(v) {
    ============================================================ */
 function doAdminChange_(sheet, d) {
   requireAdmin_(d);
-  const row = findRowByCode_(sheet, d.code);
+  const head = headerRow_(sheet);
+  const row = findRowByCode_(sheet, d.code, null, head);
   if (row === -1) return { ok: false, error: '該当する予約が見つかりません。最新の予定を読み込んでください。' };
-  const col = colIndex_(sheet);
-  const before = readRow_(sheet, row);
+  const col = colIndex_(sheet, head);
+  const before = readBookingTargetRow_(sheet, row, d.code, head);
   const oldDate = normalizeDate_(before[col('来店日')]);
   const oldTime = normalizeTime_(before[col('開始')]);
   if (!d.fromDate || !d.fromTime) {
@@ -1734,17 +1736,26 @@ function doAdminChange_(sheet, d) {
   }
   const changed = doChange_(sheet, d);
   if (!changed.ok) return changed;
-  const reservation = applyBookingEmailSummary_([adminReservation_(readRow_(sheet, row), col)], bookingEmailSummary_(sheet))[0];
+  let reservation;
+  try {
+    const savedHead = headerRow_(sheet);
+    const savedRow = findRowByCode_(sheet, d.code, null, savedHead);
+    const saved = readBookingTargetRow_(sheet, savedRow, d.code, savedHead);
+    reservation = applyBookingEmailSummary_([adminReservation_(saved, colIndex_(sheet, savedHead))], bookingEmailSummary_(sheet))[0];
+  } catch (error) {
+    throw Object.assign(userFacingError_('日時変更後の予約内容を確認できません。変更を繰り返さず、最新の予定を確認してください。'), { unknown: true });
+  }
   return { ok: true, reservation: reservation, notificationsQueued: changed.notificationsQueued === true,
     calendarWarning: changed.calendarWarning };
 }
 
 function doChange_(sheet, d) {
-  const row = findRowByCode_(sheet, d.code);
+  const head = headerRow_(sheet);
+  const row = findRowByCode_(sheet, d.code, null, head);
   if (row === -1) return { ok: false, invalid: true, error: BOOKING_IDENTITY_ERROR };
 
-  const col = colIndex_(sheet);
-  const before = readRow_(sheet, row);
+  const col = colIndex_(sheet, head);
+  const before = readBookingTargetRow_(sheet, row, d.code, head);
   const admin = isAdmin_(d);
 
   /* キャンセルと同じで、日時の変更も本人確認を省略できません。
@@ -1832,10 +1843,11 @@ function doChange_(sheet, d) {
   next[col('来店日')] = newDate;
   next[col('開始')] = newTime;
   next[col('終了')] = addMinutes_(newTime, minutes);
-  const queued = stageBookingEmails_(sheet, next, headerRow_(sheet), '日時変更', function () {
+  readBookingTargetRow_(sheet, row, d.code, head, before);
+  const queued = stageBookingEmails_(sheet, next, head, '日時変更', function () {
     return sendChangeEmails_(d.code, name, email, menuText, oldDate, oldTime, newDate, newTime, !!previousEventId, settings);
   });
-  writeBookingWindow_(sheet, row, d.code, [newDate, newTime, addMinutes_(newTime, minutes)]);
+  writeBookingWindow_(sheet, row, d.code, [newDate, newTime, addMinutes_(newTime, minutes)], head, before);
   if (queued) return { ok: true, notificationsQueued: true, calendarWarning: !!previousEventId };
 
   /* カレンダーの予定も入れ直す。
@@ -1942,8 +1954,8 @@ function bookingWindowValue_(value, formula) {
   return value instanceof Date ? { dateMs: value.getTime() } : { value: value };
 }
 
-function bookingWindowUpdates_(sheet, row, values) {
-  const head = headerRow_(sheet);
+function bookingWindowUpdates_(sheet, row, values, headers) {
+  const head = headers || headerRow_(sheet);
   const groups = [];
   BOOKING_WINDOW_HEADERS.map((name, index) => {
     if (head.indexOf(name) < 0 || head.indexOf(name) !== head.lastIndexOf(name)) {
@@ -1960,11 +1972,13 @@ function bookingWindowUpdates_(sheet, row, values) {
   }));
 }
 
-function verifyBookingWindow_(sheet, row, expected) {
+function verifyBookingWindow_(sheet, row, expected, code) {
   const head = headerRow_(sheet);
   const range = sheet.getRange(row, 1, 1, head.length);
   const values = range.getValues()[0];
   const formulas = range.getFormulas()[0];
+  if (code && (!validBookingHeaders_(head, { requireCode: true })
+      || codeKey_(values[head.indexOf('予約番号')]) !== codeKey_(code))) return false;
   return BOOKING_WINDOW_HEADERS.every((name, index) => {
     const current = bookingWindowValue_(values[head.indexOf(name)], formulas[head.indexOf(name)]);
     if (expected[index].formula || current.formula) return expected[index].formula === current.formula;
@@ -1998,9 +2012,14 @@ function recoverBookingChange_(sheet) {
       if (!value || !Object.prototype.hasOwnProperty.call(value, 'value')) throw new Error();
       return typeof value.value === 'string' && value.value.startsWith('=') ? "'" + value.value : value.value;
     });
-    bookingWindowUpdates_(sheet, row, values).forEach(update => update.range.setValues(update.values));
+    const head = headerRow_(sheet);
+    readBookingTargetRow_(sheet, row, record.code, head);
+    bookingWindowUpdates_(sheet, row, values, head).forEach(update => {
+      readBookingTargetRow_(sheet, row, record.code, head);
+      update.range.setValues(update.values);
+    });
     SpreadsheetApp.flush();
-    if (!verifyBookingWindow_(sheet, row, record.previous)) throw new Error();
+    if (!verifyBookingWindow_(sheet, row, record.previous, record.code)) throw new Error();
     props.deleteProperty(BOOKING_CHANGE_JOURNAL);
     if (props.getProperty(BOOKING_CHANGE_JOURNAL)) throw new Error();
   } catch (error) {
@@ -2008,14 +2027,15 @@ function recoverBookingChange_(sheet) {
   }
 }
 
-function writeBookingWindow_(sheet, row, code, values) {
-  const head = headerRow_(sheet);
+function writeBookingWindow_(sheet, row, code, values, headers, expected) {
+  const head = headers || headerRow_(sheet);
   const range = sheet.getRange(row, 1, 1, head.length);
-  const before = range.getValues()[0];
+  const before = readBookingTargetRow_(sheet, row, code, head, expected);
   const formulas = range.getFormulas()[0];
+  readBookingTargetRow_(sheet, row, code, head, before);
   const previous = BOOKING_WINDOW_HEADERS.map(name =>
     bookingWindowValue_(before[head.indexOf(name)], formulas[head.indexOf(name)]));
-  const updates = bookingWindowUpdates_(sheet, row, values);
+  const updates = bookingWindowUpdates_(sheet, row, values, head);
   const props = PropertiesService.getScriptProperties();
   const journal = JSON.stringify({ code: code, previous: previous });
   props.setProperty(BOOKING_CHANGE_JOURNAL, journal);
@@ -2023,15 +2043,20 @@ function writeBookingWindow_(sheet, row, code, values) {
     throw userFacingError_('変更前の日時を記録できません。元の日時は変更していません。');
   }
   try {
-    updates.forEach(update => update.range.setValues(update.values));
+    readBookingTargetRow_(sheet, row, code, head, before);
+    updates.forEach(update => {
+      readBookingTargetRow_(sheet, row, code, head);
+      update.range.setValues(update.values);
+    });
     SpreadsheetApp.flush();
-    if (!verifyBookingWindow_(sheet, row, values.map(value => bookingWindowValue_(value, '')))) throw new Error();
+    if (!verifyBookingWindow_(sheet, row, values.map(value => bookingWindowValue_(value, '')), code)) throw new Error();
     props.deleteProperty(BOOKING_CHANGE_JOURNAL);
     if (props.getProperty(BOOKING_CHANGE_JOURNAL)) throw new Error();
   } catch (error) {
     recoverBookingChange_(sheet);
     try {
-      if (!verifyBookingWindow_(sheet, row, previous)) throw new Error();
+      const restoredRow = findRowByCode_(sheet, code);
+      if (restoredRow < 2 || !verifyBookingWindow_(sheet, restoredRow, previous, code)) throw new Error();
     } catch (verificationError) {
       throw Object.assign(userFacingError_(BOOKING_CHANGE_RECOVERY_ERROR), { unknown: true });
     }
@@ -2129,11 +2154,12 @@ function toMin_(hhmm) {
 }
 
 function doCancel_(sheet, d) {
-  const row = findRowByCode_(sheet, d.code);
+  const head = headerRow_(sheet);
+  const row = findRowByCode_(sheet, d.code, null, head);
   if (row === -1) return { ok: false, invalid: true, error: BOOKING_IDENTITY_ERROR };
 
-  const before = readRow_(sheet, row);
-  const col = colIndex_(sheet);
+  const before = readBookingTargetRow_(sheet, row, d.code, head);
+  const col = colIndex_(sheet, head);
   const calendarEventId = String(before[col('カレンダーID')] || '');
   const admin = isAdmin_(d);
 
@@ -2185,15 +2211,18 @@ function doCancel_(sheet, d) {
 
   const next = before.slice();
   next[col('状態')] = 'キャンセル';
-  const queued = stageBookingEmails_(sheet, next, headerRow_(sheet), 'キャンセル', function () {
+  readBookingTargetRow_(sheet, row, d.code, head, before);
+  const queued = stageBookingEmails_(sheet, next, head, 'キャンセル', function () {
     return sendCancelEmails_(d.code, name, email, date, time, !!calendarEventId, settings);
   });
 
+  readBookingTargetRow_(sheet, row, d.code, head, before);
   try {
     const statusRange = sheet.getRange(row, col('状態') + 1);
     statusRange.setValue('キャンセル');
     SpreadsheetApp.flush();
     if (!isCancelled_(statusRange.getValues()[0][0])) throw new Error();
+    readBookingTargetRow_(sheet, row, d.code, head, next);
   } catch (error) {
     throw Object.assign(userFacingError_('取消の保存結果を確認できません。予約確認ページで現在の状態を確認するか、店舗へお電話ください。'),
       { unknown: true });
@@ -2947,6 +2976,25 @@ function colIndex_(sheet, headers) {
 /** 台帳の1行を、いまの列の並びのまま読みます */
 function readRow_(sheet, row, headers) {
   return sheet.getRange(row, 1, 1, (headers || headerRow_(sheet)).length).getValues()[0];
+}
+
+function readBookingTargetRow_(sheet, row, code, headers, expected) {
+  if (row < 2 || !validBookingHeaders_(headers, { requireCode: true })) {
+    throw Object.assign(userFacingError_(BOOKING_TARGET_CHANGED_ERROR), { invalid: true });
+  }
+  const values = readRow_(sheet, row, headers);
+  const currentHeaders = headerRow_(sheet);
+  const sameHeaders = headers.length === currentHeaders.length
+    && headers.every((header, index) => header === currentHeaders[index]);
+  const sameValues = !expected || HEADERS.every(header => {
+    const index = headers.indexOf(header);
+    return index < 0 || JSON.stringify(values && values[index]) === JSON.stringify(expected[index]);
+  });
+  if (!sameHeaders || !Array.isArray(values) || values.length !== headers.length
+      || codeKey_(values[headers.indexOf('予約番号')]) !== codeKey_(code) || !sameValues) {
+    throw Object.assign(userFacingError_(BOOKING_TARGET_CHANGED_ERROR), { invalid: true });
+  }
+  return values;
 }
 
 /** 台帳の2行目以降を、いまの列の並びのまま読みます */

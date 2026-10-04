@@ -122,10 +122,11 @@ test('壊れた送信データを応答やログに写さず、外部サービ�
 });
 
 test('変更・取消の本人確認は、未認証の自己申告で省略できない', () => {
-  const headers = ['予約番号', '電話番号', '状態'];
-  const values = [headers, ['LM-TESTA', '00000000001', '予約確定']];
   for (const action of ['doCancel_', 'doChange_']) {
     const instance = backend();
+    const headers = Array.from(instance.constant('HEADERS'));
+    const booking = { 予約番号: 'LM-TESTA', 電話番号: '00000000001', 状態: '予約確定' };
+    const values = [headers, headers.map(header => booking[header] ?? '')];
     let writes = 0;
     const sheet = {
       getLastRow: () => values.length,

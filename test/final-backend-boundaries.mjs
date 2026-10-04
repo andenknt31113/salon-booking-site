@@ -298,6 +298,64 @@ test('通知を保存してから台帳の列を並べ替えても、同じ予�
   assert.equal(app.field('独自列'), '配送へ含めない独自値');
 });
 
+for (const action of [{ type: 'change' }, { type: 'cancel' },
+  { type: 'adminChange', google: true }, { type: 'cancel', google: true }]) {
+  for (const mutation of ['rows', 'headers', 'phone']) {
+    test(`${action.google ? 'Google管理' : 'お客様'}の${action.type}の通知後送保存中に${mutation}が変わったら、別予約の保存・配送へ進まない`, () => {
+      const app = fixture();
+      assert.equal(app.reserve().ok, true);
+      app.context.deliverBookingEmails();
+      assert.equal(app.sent.length, 2);
+      const other = app.ledger.cells[1].slice();
+      const headers = app.ledger.cells[0].slice();
+      other[headers.indexOf('予約番号')] = 'LM-OTHER';
+      other[headers.indexOf('お名前')] = '別の架空客';
+      other[headers.indexOf('メール')] = 'other@example.test';
+      app.ledger.cells.push(other);
+      const before = structuredClone(app.ledger.cells);
+      const count = app.effects.length;
+      let mutated = false;
+      app.setFault(event => {
+        if (event.name !== '予約メール配送' || event.operation !== 'append' || event.phase !== 'after') return;
+        mutated = true;
+        app.setFault(null);
+        if (mutation === 'rows') [app.ledger.cells[1], app.ledger.cells[2]] = [app.ledger.cells[2], app.ledger.cells[1]];
+        else if (mutation === 'headers') app.reorder();
+        else app.ledger.cells[1][headers.indexOf('電話番号')] = '00000000001';
+      });
+      if (action.google) {
+        app.properties.set('ADMIN_GOOGLE_ONLY', 'true');
+        app.context.verifyGoogleAdmin_ = () => {};
+      }
+      const payload = { code: BOOKING_REQUEST.code, tel: BOOKING_REQUEST.customer.tel,
+        fromDate: VISIT_DATE, fromTime: BOOKING_REQUEST.time, date: '2030-01-06', time: '14:00' };
+      const result = app.send(action.google
+        ? { type: 'googleAdmin', action: action.type, payload } : { type: action.type, ...payload });
+      assert.equal(mutated, true, '模擬の通知ではなく、実配送記録の保存を通す');
+      assert.equal(result.ok, false);
+      assert.equal(result.invalid, true);
+      assert.equal(result.reservation, undefined);
+      assert.equal(result.notificationsQueued, undefined);
+      assert.ok(!app.effects.slice(count).some(event => event.name === '予約一覧' && event.operation === 'write'));
+      for (const record of before.slice(1)) {
+        const current = app.ledger.cells.slice(1).find(row =>
+          row[app.ledger.cells[0].indexOf('予約番号')] === record[headers.indexOf('予約番号')]);
+        for (const [index, header] of headers.entries()) {
+          const expected = mutation === 'phone' && header === '電話番号'
+            && record[headers.indexOf('予約番号')] === BOOKING_REQUEST.code ? '00000000001' : record[index];
+          assert.equal(current[app.ledger.cells[0].indexOf(header)], expected, header);
+        }
+      }
+      assert.equal(app.jobs().length, 2, '保存前に追加済みの配送記録は、なかったことにしない');
+      assert.equal(app.jobs().at(-1).code, 'LMFINAL');
+      app.context.deliverBookingEmails();
+      app.context.deliverBookingEmails();
+      assert.equal(app.sent.length, 2, '台帳へ反映されなかった変更・取消は、再実行でも配送しない');
+      assert.ok(app.sent.every(message => message.to !== 'other@example.test'));
+    });
+  }
+}
+
 for (const operation of ['claim', 'finish']) {
   test(`配送${operation === 'claim' ? '権' : '結果'}の保存後に応答を失っても、再送を推測で始めない`, () => {
     const app = fixture();
