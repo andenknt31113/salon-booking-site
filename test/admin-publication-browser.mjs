@@ -12,7 +12,8 @@ const CATALOG = { categories: [{ id: 'cat0', name: '試験カット', items: [
 ] }], coupons: [] };
 const SEED = { ok: true, reservations: [], closedDates: [], styles: [], reviews: [],
   menus: [{ 区分: '試験カット', メニュー名: '掲載の試験', 価格: 4000, '所要(分)': 60, 説明: '', 画像: '', 表示: '○' }],
-  coupons: [], settings: { '準備中の帯': '出さない' }, stamps: { menus: 'fixture-menu', coupons: 'fixture-coupon' } };
+  coupons: [], settings: { '準備中の帯': '出さない' }, stamps: { menus: 'fixture-menu', coupons: 'fixture-coupon',
+    closed: 'fixture-closed', settings: 'fixture-settings', styles: 'fixture-styles', reviews: 'fixture-reviews' } };
 
 async function fixture(run) {
   let handler;
@@ -54,15 +55,15 @@ async function fixture(run) {
     page.setDefaultTimeout(7000);
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(base + '/admin.html?design=a');
-    await page.evaluate(async seed => {
+    assert.equal(await page.evaluate(async seed => {
       window.fixtureWrites = [];
       adminPost = async payload => {
         if (payload.type === 'adminData') return structuredClone(seed);
         window.fixtureWrites.push(payload);
         return { ok: true, stamps: { menus: 'fixture-saved' } };
       };
-      await openDashboard();
-    }, SEED);
+      return await openDashboard();
+    }, SEED), true, '初回応答が正常な模擬データで管理画面を開ける');
     await page.locator('#site-edit-tabs > summary').click();
     await page.locator('#admin-tabs [data-pane="menus"]').click();
     assert.equal(await page.locator('[data-publication-check]').count(), 2, '単品・おすすめに掲載確認を用意する');

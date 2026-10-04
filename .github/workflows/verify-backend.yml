@@ -6,7 +6,11 @@ on:
     paths:
       - 'gas/**'
       - 'tools/verify-booking.mjs'
+      - 'tools/verify-local.mjs'
+      - 'tools/verify-ui.mjs'
       - 'test/verify-booking.mjs'
+      - 'test/verify-ui.mjs'
+      - 'test/mock-gas.mjs'
       - 'test/booking-*.mjs'
       - 'test/phone-*.mjs'
       - 'test/final-backend-boundaries.mjs'
@@ -53,7 +57,11 @@ on:
     paths:
       - 'gas/**'
       - 'tools/verify-booking.mjs'
+      - 'tools/verify-local.mjs'
+      - 'tools/verify-ui.mjs'
       - 'test/verify-booking.mjs'
+      - 'test/verify-ui.mjs'
+      - 'test/mock-gas.mjs'
       - 'test/booking-*.mjs'
       - 'test/phone-*.mjs'
       - 'test/final-backend-boundaries.mjs'
@@ -112,7 +120,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
-      - run: node --test test/verify-booking.mjs
+      - run: node --test test/verify-booking.mjs test/verify-ui.mjs
       - run: node tools/verify-booking.mjs
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/gas-native-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs test/admin-menu-deferred.mjs test/admin-editor-loading.mjs

@@ -90,6 +90,7 @@ const reply = (res, obj) => {
 };
 const ADMIN_PW = 'test1234';
 const TOKENS = new Set();
+const adminPassword = process.env.MOCK_ADMIN_PASSWORD || ADMIN_PW;
 const FAIL = { on: false };
 const HTML = { on: false };
 /* 本物と同じ受付期限（前日18時） */
@@ -396,7 +397,7 @@ return (req, res) => {
 
       // ---- 管理ページ ----
       if (d.type && d.type.startsWith('admin')) {
-        const authed = DEMO_MODE || d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        const authed = DEMO_MODE || d.password === adminPassword || (d.token && TOKENS.has(d.token));
         if (!authed) return reply(res, { ok:false, error:'パスワードが違います。' });
         if (d.type === 'adminLogin') {
           if (!d.remember) return reply(res, { ok:true });
@@ -591,7 +592,7 @@ return (req, res) => {
       if (d.type === 'change') {
         const r = LEDGER.find(x => sameCode(x.code, d.code));
         if (!r) return reply(res, { ok:false, error:'該当する予約が見つかりません' });
-        const asAdmin = d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        const asAdmin = d.password === adminPassword || (d.token && TOKENS.has(d.token));
         if (!asAdmin && (!digits(d.tel) || digits(r.customer?.tel) !== digits(d.tel))) {
           return reply(res, { ok:false, error:'ご予約が確認できませんでした。' });
         }
@@ -638,7 +639,7 @@ return (req, res) => {
         if (!t) return reply(res, { ok: false, error: 'not found' });
         /* 電話番号は必ず確認する（本物と同じ。省略できると他人がキャンセルできる）。
            ただし店（管理ページ）からは、パスワードで通す。 */
-        const asAdmin = DEMO_MODE || d.password === ADMIN_PW || (d.token && TOKENS.has(d.token));
+        const asAdmin = DEMO_MODE || d.password === adminPassword || (d.token && TOKENS.has(d.token));
         if (!asAdmin && (!digits(d.tel) || digits(t.customer?.tel) !== digits(d.tel))) {
           return reply(res, { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' });
         }
