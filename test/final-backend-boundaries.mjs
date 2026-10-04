@@ -10,6 +10,7 @@ if (!ADMIN_PASSWORD) throw new Error('MOCK_ADMIN_PASSWORD を設定してくだ�
 const VISIT_DATE = '2030-01-05';
 const CLOCK_START = Date.parse('2030-01-01T09:00:00+09:00');
 const LEASE_EXPIRY_MS = 11 * 60 * 1000;
+const CHANGE_HISTORY_SIZE = 2000;
 const BOOKING_REQUEST = { type: 'reserve', code: 'LM-FINAL', date: VISIT_DATE, time: '10:00',
   totalMinutes: 60, totalPrice: 4000,
   menus: [{ id: 'sm0', name: '試験カット', price: 4000, minutes: 60 }],
@@ -296,6 +297,109 @@ test('通知を保存してから台帳の列を並べ替えても、同じ予�
     ['audit-customer@example.test', 'audit-shop@example.test']);
   assert.ok(app.sent.every(message => !message.body.includes('配送へ含めない独自値')));
   assert.equal(app.field('独自列'), '配送へ含めない独自値');
+});
+
+for (const reordered of [false, true]) {
+  test(`Google管理の日時変更結果は二千件の履歴を再読込せず、確認済みの予約と配送を返す（列順変更${reordered}）`, () => {
+    const app = fixture();
+    assert.equal(app.reserve().ok, true);
+    const headers = app.ledger.cells[0];
+    const original = app.ledger.cells[1].slice();
+    for (let index = 0; index < CHANGE_HISTORY_SIZE; index++) {
+      const record = original.slice();
+      record[headers.indexOf('予約番号')] = `LM-HISTORY-${index}`;
+      record[headers.indexOf('来店日')] = '2029-01-05';
+      record[headers.indexOf('お名前')] = `過去の架空客${index}`;
+      record[headers.indexOf('施術メモ')] = `返さない過去のメモ${index}`;
+      app.ledger.cells.push(record);
+    }
+    if (reordered) app.reorder();
+    const before = structuredClone(app.ledger.cells.slice(2));
+    app.properties.set('ADMIN_GOOGLE_ONLY', 'true');
+    app.context.verifyGoogleAdmin_ = () => {};
+    const count = app.effects.length;
+    const result = app.send({ type: 'googleAdmin', action: 'adminChange', payload: {
+      code: BOOKING_REQUEST.code, fromDate: VISIT_DATE, fromTime: BOOKING_REQUEST.time,
+      date: '2030-01-06', time: '14:00' } });
+    assert.equal(result.ok, true);
+    assert.equal(result.notificationsQueued, true);
+    assert.equal(result.reservation.code, BOOKING_REQUEST.code);
+    assert.equal(result.reservation.name, BOOKING_REQUEST.customer.name);
+    assert.equal(result.reservation.date, '2030-01-06');
+    assert.equal(result.reservation.time, '14:00');
+    assert.equal(result.reservation.shopMailStatus, '日時変更：配送待ち');
+    assert.equal(result.reservation.customerMailStatus, '日時変更：配送待ち');
+    const scans = app.effects.slice(count).filter(event => event.name === '予約一覧' && event.operation === 'read'
+      && event.row === 1 && event.height === app.ledger.cells.length && event.width === app.ledger.cells[0].length);
+    assert.equal(scans.length, 1, '全履歴の一括読込は最終の枠照合だけ。成功結果のためにもう一度読まない');
+    assert.deepEqual(app.ledger.cells.slice(2), before, '履歴を削除・間引き・書換して取得量を減らさない');
+    assert.equal(app.sent.length, 0);
+  });
+
+  test(`Google管理の日時変更結果と配送状態は同じ行snapshotに照合する（列順変更${reordered}）`, () => {
+    const app = fixture();
+    assert.equal(app.reserve().ok, true);
+    if (reordered) app.reorder();
+    app.properties.set('ADMIN_GOOGLE_ONLY', 'true');
+    app.context.verifyGoogleAdmin_ = () => {};
+    let saved = false;
+    let mutated = false;
+    app.setFault(event => {
+      if (event.name === 'properties' && event.operation === 'delete'
+          && event.key === 'BOOKING_CHANGE_RECOVERY' && event.phase === 'after') saved = true;
+      if (!saved || event.name !== '予約メール配送' || event.operation !== 'read' || event.row !== 1) return;
+      app.setFault(null);
+      mutated = true;
+      const row = app.ledger.cells[1];
+      row[app.ledger.cells[0].indexOf('開始')] = '16:00';
+      row[app.ledger.cells[0].indexOf('終了')] = '17:00';
+      const job = JSON.parse(app.delivery.cells.at(-1)[2]);
+      job.messages.shop.status = '送信結果不明';
+      job.messages.customer.status = '送信結果不明';
+      app.delivery.cells.push([randomUUID(), app.context.bookingEmailSignature_(row, app.ledger.cells[0]), JSON.stringify(job)]);
+    });
+    const result = app.send({ type: 'googleAdmin', action: 'adminChange', payload: {
+      code: BOOKING_REQUEST.code, fromDate: VISIT_DATE, fromTime: BOOKING_REQUEST.time,
+      date: '2030-01-06', time: '14:00' } });
+    assert.equal(mutated, true, '成功確認の後、配送情報を読む境界に別の変更を差し込む');
+    assert.equal(result.ok, true);
+    assert.equal(result.reservation.time, '14:00');
+    assert.equal(result.reservation.shopMailStatus, '日時変更：配送待ち', '別の日時の配送状態を混ぜない');
+    assert.equal(result.reservation.customerMailStatus, '日時変更：配送待ち');
+    assert.equal(app.field('開始'), '16:00', '別の変更を戻したり書き換えて成功させない');
+    assert.equal(app.jobs().at(-1).messages.customer.status, '送信結果不明');
+    assert.equal(app.sent.length, 0);
+  });
+}
+
+test('管理変更後の配送照合が失敗しても、行snapshotの再利用で成功確認を省略しない', () => {
+  const app = fixture();
+  assert.equal(app.reserve().ok, true);
+  app.properties.set('ADMIN_GOOGLE_ONLY', 'true');
+  app.context.verifyGoogleAdmin_ = () => {};
+  let saved = false;
+  app.setFault(event => {
+    if (event.name === 'properties' && event.operation === 'delete'
+        && event.key === 'BOOKING_CHANGE_RECOVERY' && event.phase === 'after') saved = true;
+    if (saved && event.name === '予約メール配送' && event.operation === 'read') {
+      app.setFault(null);
+      throw new Error('架空の配送照合障害');
+    }
+  });
+  const result = app.send({ type: 'googleAdmin', action: 'adminChange', payload: {
+    code: BOOKING_REQUEST.code, fromDate: VISIT_DATE, fromTime: BOOKING_REQUEST.time,
+    date: '2030-01-06', time: '14:00' } });
+  assert.equal(result.ok, false);
+  assert.equal(result.unknown, true);
+  assert.equal(result.reservation, undefined);
+  assert.equal(result.notificationsQueued, undefined);
+  assert.equal(app.field('来店日'), '2030-01-06');
+  assert.equal(app.field('開始'), '14:00');
+  assert.equal(app.sent.length, 0);
+  app.context.deliverBookingEmails();
+  assert.equal(app.sent.length, 2);
+  assert.ok(app.sent.every(message => /日時(?:を)?変更/.test(message.subject)
+    && /変更後\s*：2030-01-06 14:00/.test(message.body)));
 });
 
 for (const action of [{ type: 'change' }, { type: 'cancel' },

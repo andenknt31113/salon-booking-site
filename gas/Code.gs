@@ -1741,7 +1741,8 @@ function doAdminChange_(sheet, d) {
     const savedHead = headerRow_(sheet);
     const savedRow = findRowByCode_(sheet, d.code, null, savedHead);
     const saved = readBookingTargetRow_(sheet, savedRow, d.code, savedHead);
-    reservation = applyBookingEmailSummary_([adminReservation_(saved, colIndex_(sheet, savedHead))], bookingEmailSummary_(sheet))[0];
+    reservation = applyBookingEmailSummary_([adminReservation_(saved, colIndex_(sheet, savedHead))],
+      bookingEmailSummary_(sheet, [saved], savedHead))[0];
   } catch (error) {
     throw Object.assign(userFacingError_('日時変更後の予約内容を確認できません。変更を繰り返さず、最新の予定を確認してください。'), { unknown: true });
   }
