@@ -27,6 +27,10 @@ test('予約確認の本人照合と狭い読込を一括検査から外さな�
   }
 });
 
+test('バックアップの保存確認と古い控えの保護を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/booking-backup-safety.mjs'));
+});
+
 const execute = promisify(execFile);
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';

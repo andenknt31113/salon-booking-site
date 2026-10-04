@@ -4181,6 +4181,8 @@ function testReserve() {
    台帳は顧客名簿そのものなので、誤って消しても
    最大7日前までの姿に戻せるようにしておきます。
    ============================================================ */
+const BACKUP_RECORD_ERROR = '新しいバックアップの記録を確認できません。古い控えは削除していません。';
+
 function dailyBackup() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(0)) throw new Error('処理中のためバックアップを作成できませんでした。再実行してください。');
@@ -4191,8 +4193,13 @@ function dailyBackup() {
     const key = 'BACKUP_' + sheet.getId() + '_' + day;
     const oldId = properties.getProperty(key);
     const copy = DriveApp.getFileById(sheet.getId()).makeCopy(sheet.getName() + ' バックアップ（' + day + '）');
-    properties.setProperty(key, copy.getId());
-    if (oldId && oldId !== sheet.getId() && oldId !== copy.getId()) {
+    const copyId = copy.getId();
+    if (typeof copyId !== 'string' || !copyId.trim() || copyId !== copyId.trim() || copyId === sheet.getId()) {
+      throw new Error(BACKUP_RECORD_ERROR);
+    }
+    properties.setProperty(key, copyId);
+    if (properties.getProperty(key) !== copyId) throw new Error(BACKUP_RECORD_ERROR);
+    if (oldId && oldId !== sheet.getId() && oldId !== copyId) {
       DriveApp.getFileById(oldId).setTrashed(true);
     }
   } finally {

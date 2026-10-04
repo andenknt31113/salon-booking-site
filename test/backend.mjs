@@ -1860,7 +1860,9 @@ console.log('\n【守り】台帳の毎日バックアップ');
     let attempted = false;
     b.ctx.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
     b.ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getName: () => '予約台帳', getId: () => 'ssid' }) };
-    b.ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'old-copy', setProperty: () => acts.push('記録') }) };
+    let backupId = 'old-copy';
+    b.ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => backupId,
+      setProperty: (_key, value) => { backupId = value; acts.push('記録'); } }) };
     b.ctx.DriveApp = {
       getFilesByName: () => { throw new Error('同名の別ファイルを検索してはいけません'); },
       getFileById: id => id === 'ssid' ? { makeCopy: () => {
