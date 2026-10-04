@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const SOURCE = readFileSync(process.env.GAS_SOURCE || new URL('../gas/Code.gs', import.meta.url), 'utf8');
-const NOW = Date.parse('2030-01-01T00:00:00+09:00');
+const NOW = Date.parse('2030-01-01T12:00:00+09:00');
 const BOOKING = { 予約番号: 'LM-PRIVATE', 来店日: '2030-01-05', 開始: '10:00', 終了: '11:00',
   '所要(分)': 60, 状態: '予約確定', お名前: '本人照合の試験客', 電話番号: '00000000000',
   メール: 'identity@example.test', 施術メモ: '店だけが見る試験メモ', ご要望: '非公開の試験要望' };
