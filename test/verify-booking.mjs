@@ -35,6 +35,10 @@ test('公開応答とログで内部の値を漏らさない検査を一括検�
   assert.ok(BOOKING_CHECKS.includes('test/booking-public-errors.mjs'));
 });
 
+test('本人照合の失敗から予約の存在・状態を明かさない検査を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/booking-identity-privacy.mjs'));
+});
+
 const execute = promisify(execFile);
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';

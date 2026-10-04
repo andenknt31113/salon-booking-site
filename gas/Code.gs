@@ -383,6 +383,7 @@ const LEGACY_ADMIN_REQUEST_TYPES = ['adminLogin', 'adminData', 'adminSave', 'adm
   'adminAdd', 'adminAddStatus', 'adminNote', 'adminChange'];
 
 const UNKNOWN_REQUEST_ERROR = '処理の結果を確認できません。予約や保存を繰り返さず、現在の結果を確認するか、店舗または制作担当者へ連絡してください。';
+const BOOKING_IDENTITY_ERROR = 'ご予約が確認できませんでした。予約番号と電話番号をご確認ください。';
 const USER_FACING_ERRORS = new WeakMap();
 
 function userFacingError_(message) {
@@ -1740,7 +1741,7 @@ function doAdminChange_(sheet, d) {
 
 function doChange_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
-  if (row === -1) return { ok: false, invalid: true, error: '該当する予約が見つかりません: ' + d.code };
+  if (row === -1) return { ok: false, invalid: true, error: BOOKING_IDENTITY_ERROR };
 
   const col = colIndex_(sheet);
   const before = readRow_(sheet, row);
@@ -1752,7 +1753,7 @@ function doChange_(sheet, d) {
      店（管理ページ）からの変更はパスワードで通します。 */
   if (!admin
       && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
-    return { ok: false, invalid: true, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
+    return { ok: false, invalid: true, error: BOOKING_IDENTITY_ERROR };
   }
   if (isCancelled_(before[col('状態')])) {
     return { ok: false, cancelled: true, error: 'キャンセル済みのご予約は変更できません。' };
@@ -2129,7 +2130,7 @@ function toMin_(hhmm) {
 
 function doCancel_(sheet, d) {
   const row = findRowByCode_(sheet, d.code);
-  if (row === -1) return { ok: false, error: '該当する予約が見つかりません: ' + d.code };
+  if (row === -1) return { ok: false, invalid: true, error: BOOKING_IDENTITY_ERROR };
 
   const before = readRow_(sheet, row);
   const col = colIndex_(sheet);
@@ -2146,7 +2147,7 @@ function doCancel_(sheet, d) {
      お客様の番号を打ち直させる必要はありません。 */
   if (!admin
       && (!digits_(d.tel) || digits_(before[col('電話番号')]) !== digits_(d.tel))) {
-    return { ok: false, error: 'ご予約が確認できませんでした。電話番号をご確認ください。' };
+    return { ok: false, invalid: true, error: BOOKING_IDENTITY_ERROR };
   }
   if (isCancelled_(before[col('状態')])) {
     // すでにキャンセル済み。二重に通知やメールを送らない。

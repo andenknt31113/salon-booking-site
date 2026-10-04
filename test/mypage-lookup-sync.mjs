@@ -46,6 +46,47 @@ async function interceptLookup(page, respond) {
 }
 const answer = (route, reservation) => route.fulfill({ json: { ok: true, reservation } });
 
+for (const saved of [false, true]) {
+  test(`${saved ? '端末に控えあり' : '照会だけ'}の本人照合失敗を、取消完了や結果不明と表示しない`, async () => {
+    const page = await openLookup(saved ? [localRecord] : []);
+    const errors = [];
+    let cancellations = 0;
+    try {
+      page.on('pageerror', error => errors.push(error.message));
+      await interceptLookup(page, route => answer(route, latest));
+      await page.route('**/exec', async route => {
+        if (route.request().postDataJSON()?.type !== 'cancel') return route.fallback();
+        cancellations++;
+        await route.fulfill({ json: { ok: false, invalid: true,
+          error: 'ご予約が確認できませんでした。予約番号と電話番号をご確認ください。' } });
+      });
+      if (!saved) {
+        await page.locator('#lookup-btn').click();
+        await page.locator('[data-lookup-cancel]').click();
+      } else await page.locator('[data-cancel]').click();
+      await page.getByRole('button', { name: 'キャンセルを確定する', exact: true }).click();
+      await page.locator('#flash').waitFor({ state: 'visible' });
+      const message = await page.locator('#flash').innerText();
+      assert.match(message, /キャンセルは行われていません/);
+      assert.match(message, /予約番号と電話番号/);
+      assert.doesNotMatch(message, /取り消されている可能性|キャンセルを承りました/);
+      assert.equal(cancellations, 1);
+      assert.equal(await page.locator('.booking-card.is-cancelled').count(), 0);
+      const records = await page.evaluate(() => Store.all());
+      assert.equal(records.length, saved ? 1 : 0);
+      if (saved) {
+        assert.equal(records[0].status, 'reserved');
+        assert.equal(records[0].date, localRecord.date);
+        assert.equal(records[0].time, localRecord.time);
+        assert.equal(records[0].deliveryState, 'unknown');
+      }
+      await page.reload();
+      assert.equal(cancellations, 1);
+      assert.deepEqual(errors, []);
+    } finally { await page.context().close(); }
+  });
+}
+
 test('取消確認は対象を文字で示し、戻る・Escapeでは送信せずフォーカスを戻す', async () => {
   const unusualMenu = '<img src=x onerror=alert(1)>確認用カット';
   const page = await openLookup([{ ...localRecord, menus: [{ ...localRecord.menus[0], name: unusualMenu }] }]);

@@ -128,6 +128,7 @@ test('電話番号の不一致では書込・反映・通知をせず、結果�
   const app = fixture({ admin: false });
   const result = app.send({ tel: '00000000001' });
   assert.equal(result.ok, false);
+  assert.equal(result.invalid, true);
   assert.equal(result.unknown, undefined);
   assert.deepEqual(app.effects, []);
   assert.equal(app.record.状態, '予約確定');
