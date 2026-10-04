@@ -24,7 +24,7 @@ after(async () => {
 });
 
 async function withBooking(run, { width = 390, staff = null, pending = false, allowReserve = false,
-  reservationError = null, catalogError = null } = {}) {
+  reservationError = null, reservationInvalid = true, catalogError = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 844 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   const writes = [];
   const errors = [];
@@ -45,7 +45,7 @@ async function withBooking(run, { width = 390, staff = null, pending = false, al
     if (!['menu', 'availability'].includes(request.type)) {
       writes.push(request);
       if (request.type === 'reserve' && reservationError) {
-        return route.fulfill({ json: { ok: false, invalid: true, error: reservationError } });
+        return route.fulfill({ json: { ok: false, ...(reservationInvalid ? { invalid: true } : {}), error: reservationError } });
       }
       return allowReserve && request.type === 'reserve' ? route.continue() : route.abort();
     }
@@ -247,6 +247,44 @@ test('台帳の日付不明による書込前の拒否を完了・結果不明�
     assert.equal(await page.locator('#f-name').inputValue(), before.customer.name);
     assert.equal(await page.locator('#f-email').inputValue(), before.customer.email);
   }, { allowReserve: true, reservationError });
+});
+
+test('台帳エラーだけの応答を予約完了にせず、未確認の番号と内容を保持して自動で再送しない', () => {
+  const reservationError = '予約台帳を確認できません。';
+  return withBooking(async ({ page, writes }) => {
+    await page.locator('#coupon-choices .selectable').first().click();
+    await page.locator('#step-cta button').click();
+    await page.locator('#cal-body .slot:not(:disabled)').last().click();
+    await page.locator('#step-cta button').click();
+    await page.locator('#f-name').fill('台帳障害 試験');
+    await page.locator('#f-kana').fill('ダイチョウショウガイシケン');
+    await page.locator('#f-tel').fill('00000000000');
+    await page.locator('#f-email').fill('ledger-error@example.test');
+    await page.locator('[name="visit"][value="初めて"]').check();
+    await page.locator('#f-agree').check();
+    await page.locator('#step-cta button').click();
+    const before = await page.evaluate(() => ({ date: state.date, time: state.time, customer: state.customer }));
+    await page.locator('#submit-reservation').click();
+    await page.waitForFunction(() => !submitting && state.step === 6);
+    assert.equal(writes.length, 1);
+    assert.equal(await page.locator('#h-done').innerText(), 'ご予約の受付結果を確認できません');
+    assert.equal(await page.locator('#done-warning').isVisible(), true);
+    assert.match(await page.locator('#done-warning').innerText(), /予約台帳を確認できません/);
+    assert.equal(await page.locator('#add-to-calendar').isDisabled(), true);
+    assert.deepEqual(await page.evaluate(() => ({ date: state.date, time: state.time, customer: state.customer })), before);
+    const receipt = await page.evaluate(() => Store.all());
+    assert.equal(receipt.length, 1);
+    assert.equal(receipt[0].code, writes[0].code);
+    assert.equal(receipt[0].delivered, false);
+    assert.equal(receipt[0].deliveryState, 'unknown');
+    assert.equal(receipt[0].deliveryError, reservationError);
+    assert.deepEqual(receipt[0].customer, before.customer);
+    assert.deepEqual([receipt[0].date, receipt[0].time], [before.date, before.time]);
+    await page.reload();
+    await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
+    assert.equal(writes.length, 1, '再読込でも前の予約を自動で送らない');
+    assert.deepEqual(await page.evaluate(() => Store.all()), receipt);
+  }, { allowReserve: true, reservationError, reservationInvalid: false });
 });
 
 test('初回の空席確認が台帳の不備で拒否されたら静的メニューだけで日時へ進まない', () =>

@@ -43,6 +43,15 @@ for (const design of ['', '?design=a']) {
         window.fixtureReads = 0;
         adminPost = async () => { window.fixtureReads++; return structuredClone(window.fixtureResponse); };
       });
+      const ledgerError = { ok: false, error: '予約台帳を確認できません。' };
+      assert.equal(await page.evaluate(async response => {
+        window.fixtureResponse = response;
+        return openDashboard();
+      }, ledgerError), false);
+      assert.equal(await page.locator('#dashboard').isVisible(), false);
+      assert.equal(await page.locator('#gate').isVisible(), true);
+      assert.match(await page.locator('#gate-error').innerText(), /予約台帳を確認できません/);
+      assert.equal(await page.evaluate(() => adminData), null);
       const invalid = seed();
       delete invalid.reservations;
       assert.equal(await page.evaluate(async response => {
@@ -76,7 +85,15 @@ for (const design of ['', '?design=a']) {
       assert.deepEqual(await page.evaluate(() => ({ adminData, edits, stamps, generation: dashboardGeneration,
         freshness: document.querySelector('#reservation-freshness').textContent })), before);
       assert.match(await page.locator('#customer-rows').innerText(), /架空 初回試験/);
-      assert.equal(await page.evaluate(() => window.fixtureReads), 3);
+      page.once('dialog', dialog => { message = dialog.message(); return dialog.dismiss(); });
+      assert.equal(await page.evaluate(async response => {
+        window.fixtureResponse = response;
+        return openDashboard();
+      }, ledgerError), false);
+      assert.match(message, /予約台帳を確認できません/);
+      assert.deepEqual(await page.evaluate(() => ({ adminData, edits, stamps, generation: dashboardGeneration,
+        freshness: document.querySelector('#reservation-freshness').textContent })), before);
+      assert.equal(await page.evaluate(() => window.fixtureReads), 5);
       assert.deepEqual(errors, []);
       assert.deepEqual(unexpected, []);
     } finally {
