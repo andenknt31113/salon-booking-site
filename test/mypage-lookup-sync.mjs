@@ -30,6 +30,7 @@ const latest = {
 };
 async function openLookup(records = []) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+  await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort());
   await context.addInitScript(records => localStorage.setItem('salon.reservations.v1', JSON.stringify(records)), records);
   const page = await context.newPage();
   await page.goto(base + '/mypage.html');

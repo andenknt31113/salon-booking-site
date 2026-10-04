@@ -1594,13 +1594,20 @@ function isShown_(v) {
    ログイン機能の代わりです。両方が一致した場合だけ返します。
    ============================================================ */
 function doLookup_(sheet, d) {
-  const row = findRowByCode_(sheet, d.code);
+  if (!codeKey_(d.code) || !digits_(d.tel)) return { ok: false, error: 'ご予約が見つかりませんでした。' };
+  const headers = headerRow_(sheet);
+  if (!validBookingHeaders_(headers, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
+  const row = findRowByCode_(sheet, d.code, null, headers);
   if (row === -1) return { ok: false, error: 'ご予約が見つかりませんでした。' };
 
-  const r = readRow_(sheet, row);
-  const col = colIndex_(sheet);
+  const r = readRow_(sheet, row, headers);
+  const currentHeaders = headerRow_(sheet);
+  if (headers.length !== currentHeaders.length || headers.some((header, index) => header !== currentHeaders[index])) {
+    throw new Error('予約台帳が更新されました。時間をおいて、もう一度ご予約を確認してください。');
+  }
+  const col = colIndex_(sheet, headers);
 
-  if (!digits_(d.tel) || digits_(r[col('電話番号')]) !== digits_(d.tel)) {
+  if (codeKey_(r[col('予約番号')]) !== codeKey_(d.code) || digits_(r[col('電話番号')]) !== digits_(d.tel)) {
     return { ok: false, error: 'ご予約が見つかりませんでした。' };
   }
 
@@ -2901,8 +2908,8 @@ function colIndex_(sheet, headers) {
 }
 
 /** 台帳の1行を、いまの列の並びのまま読みます */
-function readRow_(sheet, row) {
-  return sheet.getRange(row, 1, 1, headerRow_(sheet).length).getValues()[0];
+function readRow_(sheet, row, headers) {
+  return sheet.getRange(row, 1, 1, (headers || headerRow_(sheet)).length).getValues()[0];
 }
 
 /** 台帳の2行目以降を、いまの列の並びのまま読みます */
@@ -2992,13 +2999,13 @@ function codeKey_(v) {
     .toUpperCase();
 }
 
-function findRowByCode_(sheet, code, snapshot) {
+function findRowByCode_(sheet, code, snapshot, headers) {
   const key = codeKey_(code);
   if (!key) return -1;              // 空欄が空行に当たらないようにします
   if (snapshot && !validBookingHeaders_(snapshot.head, { requireCode: true })) throw new Error(BOOKING_HEADERS_ERROR);
   const last = snapshot ? snapshot.rows.length + 1 : sheet.getLastRow();
   if (last < 2) return -1;
-  const codeColumn = colIndex_(sheet, snapshot && snapshot.head)('予約番号') + 1;
+  const codeColumn = colIndex_(sheet, snapshot ? snapshot.head : headers)('予約番号') + 1;
   const codes = snapshot ? snapshot.rows.map(record => [record[codeColumn - 1]])
     : sheet.getRange(2, codeColumn, last - 1, 1).getValues();
   let matchedRow = -1;

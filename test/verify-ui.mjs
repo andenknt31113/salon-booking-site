@@ -52,9 +52,13 @@ test('日付移動・名簿検索・未保存入力の保護を画面検査か�
   assert.ok(UI_CHECKS.includes('test/admin-daily-usability.mjs'));
 });
 
+test('お客様の照会結果と端末上の予約表示の同期を画面検査から外さない', () => {
+  assert.ok(UI_CHECKS.includes('test/mypage-lookup-sync.mjs'));
+});
+
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 20);
+    assert.equal(UI_CHECKS.length, 21);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);
