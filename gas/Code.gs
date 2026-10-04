@@ -3088,11 +3088,17 @@ const BOOKING_EMAIL_FIELDS = ['予約番号', '来店日', '開始', '終了', '
 const BOOKING_EMAIL_STATUSES = ['配送待ち', '配送処理中', '送信処理受付', '送信結果不明', '宛先なし', '停止中'];
 let BOOKING_EMAIL_CAPTURE = null;
 
-function bookingEmailSignature_(values, headers) {
-  return JSON.stringify(BOOKING_EMAIL_FIELDS.map(function (header) {
+function bookingEmailColumns_(headers) {
+  return BOOKING_EMAIL_FIELDS.map(function (header) {
     const index = headers.indexOf(header);
     if (index < 0 || index !== headers.lastIndexOf(header)) throw userFacingError_(BOOKING_EMAIL_ERROR);
-    const value = values[index];
+    return index;
+  });
+}
+
+function bookingEmailValues_(values, columns) {
+  return BOOKING_EMAIL_FIELDS.map(function (header, position) {
+    const value = values[columns[position]];
     if (header === '予約番号') return codeKey_(value);
     if (header === '来店日') return normalizeDate_(value);
     if (header === '開始' || header === '終了') return normalizeTime_(value);
@@ -3103,7 +3109,11 @@ function bookingEmailSignature_(values, headers) {
       return Number(value);
     }
     return String(value == null ? '' : value).replace(/^'/, '');
-  }));
+  });
+}
+
+function bookingEmailSignature_(values, headers) {
+  return JSON.stringify(bookingEmailValues_(values, bookingEmailColumns_(headers)));
 }
 
 function bookingEmailSheet_(ss) {
@@ -3186,17 +3196,23 @@ function currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHead
   const snapshot = reservationRows ? { head: reservationHeaders || headerRow_(sheet), rows: reservationRows }
     : readSheetSnapshot_(sheet, HEADERS);
   const headers = snapshot.head;
+  const codeColumn = headers.indexOf('予約番号');
+  let columns;
   const current = Object.create(null);
   snapshot.rows.forEach(function (values) {
-    const code = codeKey_(values[headers.indexOf('予約番号')]);
+    const code = codeKey_(values[codeColumn]);
     if (!code) return;
     if (current[code]) current[code] = { duplicate: true };
-    else current[code] = { signature: bookingEmailSignature_(values, headers) };
+    else {
+      if (!columns) columns = bookingEmailColumns_(headers);
+      current[code] = { values: bookingEmailValues_(values, columns) };
+    }
   });
   const latest = Object.create(null);
   readBookingEmailJobs_(queue).forEach(function (record) {
     const booking = current[record.job.code];
     if (booking && booking.duplicate) throw userFacingError_(BOOKING_EMAIL_ERROR);
+    if (booking && !booking.signature) booking.signature = JSON.stringify(booking.values);
     if (booking && booking.signature === record.signature) latest[record.job.code] = record;
   });
   return latest;

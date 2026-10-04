@@ -20,6 +20,13 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
   }
   const effects = [];
   const sent = [];
+  let signatureFieldCount;
+  let signatureSerializations = 0;
+  const scriptJson = Object.create(JSON);
+  scriptJson.stringify = (value, ...options) => {
+    if (Array.isArray(value) && value.length === signatureFieldCount) signatureSerializations++;
+    return JSON.stringify(value, ...options);
+  };
   const properties = new Map(enabled ? [['BOOKING_EMAIL_QUEUE_ENABLED', 'true'], ['BOOKING_EMAIL_WORKER_AT', String(clock)]] : []);
   let held = false;
   let onMail;
@@ -78,7 +85,7 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
   const sheets = new Map();
   const spreadsheet = { getSheetByName: name => sheets.get(name) || null,
     insertSheet: name => { const sheet = makeSheet(name, []); sheet.cells.length = 0; sheets.set(name, sheet); return sheet; } };
-  const context = vm.createContext({ Date: FixedDate,
+  const context = vm.createContext({ Date: FixedDate, JSON: scriptJson,
     console: { log() {}, error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: key => properties.get(key) || null,
@@ -106,6 +113,7 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ setMimeType: () => body }) }
   });
   vm.runInContext(sourcePatch(SOURCE), context);
+  signatureFieldCount = vm.runInContext('BOOKING_EMAIL_FIELDS.length', context);
   const headers = Array.from(vm.runInContext('HEADERS', context));
   const booking = makeSheet('予約一覧', headers);
   const queue = makeSheet(QUEUE_NAME, ['通知ID', '予約照合', '配送内容']);
@@ -121,6 +129,8 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
   const change = overrides => send({ type: 'change', tel: REQUEST.customer.tel, date: '2030-01-06', time: '14:00', ...overrides });
   const cancel = overrides => send({ type: 'cancel', tel: REQUEST.customer.tel, ...overrides });
   return { context, properties, sheets, booking, queue, headers, effects, sent, triggers, send, change, cancel,
+    signatureSerializations: () => signatureSerializations,
+    resetSignatureSerializations: () => { signatureSerializations = 0; },
     jobs: () => queue.cells.slice(1).map(values => JSON.parse(values[2])),
     advance: milliseconds => { clock += milliseconds; },
     onMail: callback => { onMail = callback; }, mailFailure: () => { mailFailure = true; },
@@ -568,4 +578,212 @@ test('認証済みの軽量通知では配送状態だけを追加し、匿名�
     ['code', 'customerMailStatus', 'date', 'endTime', 'name', 'shopMailStatus', 'status', 'time']);
   assert.equal(app.send({ type: 'adminData', notificationsOnly: true }).ok, false);
   assert.equal(JSON.stringify(result).includes(REQUEST.customer.email), false);
+});
+
+const SUMMARY_HISTORY_COUNT = 5000;
+const SUMMARY_HISTORY_TEXT = '架空の過去記録。引用符「\"」と改行\nを保持する。'.repeat(80);
+
+function addSummaryHistory(app, count, overrides = {}) {
+  for (let index = 0; index < count; index++) {
+    const record = { 予約番号: `LM-HISTORY${index}`, 来店日: '2020-01-05', 開始: '10:00', 終了: '11:00',
+      '所要(分)': 60, メニュー: '架空の過去メニュー', 合計金額: 4000, お名前: '架空の過去履歴',
+      電話番号: '00000000000', メール: 'history@example.test', 状態: '予約確定',
+      店舗メール状態: '過去の送信結果', お客様メール状態: '過去の控え',
+      ご要望: SUMMARY_HISTORY_TEXT, 施術メモ: SUMMARY_HISTORY_TEXT, ...overrides };
+    app.booking.cells.push(app.headers.map(header => record[header] ?? ''));
+  }
+}
+
+test('通知依頼のない5000件の履歴を省略せず、配送照合のJSONを作らない', () => {
+  const app = fixture();
+  addSummaryHistory(app, SUMMARY_HISTORY_COUNT);
+  const before = app.booking.cells.map(row => row.slice());
+  app.resetSignatureSerializations();
+  const result = app.summary();
+  assert.equal(result.length, SUMMARY_HISTORY_COUNT);
+  assert.equal(result[0].request, SUMMARY_HISTORY_TEXT);
+  assert.equal(result.at(-1).note, SUMMARY_HISTORY_TEXT);
+  assert.ok(result.every(row => row.shopMailStatus === '過去の送信結果' && row.customerMailStatus === '過去の控え'));
+  assert.equal(app.signatureSerializations(), 0);
+  assert.deepEqual(app.booking.cells, before);
+  assert.deepEqual(app.effects, []);
+  assert.deepEqual(app.sent, []);
+  assert.equal(app.held(), false);
+});
+
+test('5000件の過去履歴と新規1件では通知対象の1件だけをJSON照合する', () => {
+  const app = fixture();
+  assert.equal(app.send().ok, true);
+  addSummaryHistory(app, SUMMARY_HISTORY_COUNT);
+  const effects = app.effects.slice();
+  app.resetSignatureSerializations();
+  const result = app.summary();
+  assert.equal(result.length, SUMMARY_HISTORY_COUNT + 1);
+  const current = result.find(row => row.code === REQUEST.code);
+  assert.equal(current.shopMailStatus, '新規予約：配送待ち');
+  assert.equal(current.customerMailStatus, '新規予約：配送待ち');
+  assert.equal(result.filter(row => row.shopMailStatus === '過去の送信結果').length, SUMMARY_HISTORY_COUNT);
+  assert.equal(result.at(-1).request, SUMMARY_HISTORY_TEXT);
+  assert.equal(app.signatureSerializations(), 1);
+  assert.deepEqual(app.effects, effects);
+  assert.deepEqual(app.sent, []);
+  assert.equal(app.held(), false);
+});
+
+test('同じ予約の配送記録が複数あっても照合JSONは1回だけ作り、最後の一致記録を表示する', () => {
+  const app = fixture();
+  app.send();
+  const previous = app.queue.cells[1];
+  for (const status of ['送信結果不明', '送信処理受付', '宛先なし']) {
+    const job = JSON.parse(previous[2]);
+    job.messages.shop.status = status;
+    app.queue.cells.push([randomUUID(), previous[1], JSON.stringify(job)]);
+  }
+  app.resetSignatureSerializations();
+  assert.equal(app.summary()[0].shopMailStatus, '新規予約：宛先なし');
+  assert.equal(app.signatureSerializations(), 1);
+  assert.equal(app.jobs().length, 4);
+  assert.deepEqual(app.sent, []);
+});
+
+for (const field of ['合計金額', '所要(分)', '指名料']) {
+  test(`通知依頼がなくても履歴の不正な${field}を読み飛ばさない`, () => {
+    const app = fixture();
+    addSummaryHistory(app, 1, { [field]: '不正な数値' });
+    assert.throws(() => app.summary(), /メール配送の記録を確認できません/);
+    assert.equal(app.signatureSerializations(), 0);
+    assert.deepEqual(app.effects, []);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+for (const fault of ['missing', 'duplicate']) {
+  test(`通知依頼がなくても配送照合の見出しの${fault}を拒否する`, () => {
+    const app = fixture();
+    addSummaryHistory(app, 1);
+    if (fault === 'missing') {
+      const column = app.headers.indexOf('メール');
+      app.booking.cells.forEach(row => row.splice(column, 1));
+    } else app.booking.cells.forEach((row, index) => row.push(index ? '増やさない' : 'メール'));
+    assert.throws(() => app.summary(), /メール配送の記録を確認できません/);
+    assert.deepEqual(app.effects, []);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('対象予約が消えていても配送記録自体の壊れたJSONや重複IDは拒否する', () => {
+  for (const fault of ['broken', 'duplicate']) {
+    const app = fixture();
+    app.send();
+    app.booking.cells.length = 1;
+    if (fault === 'broken') app.queue.cells[1][2] = '壊れた配送記録';
+    else app.queue.cells.push(app.queue.cells[1].slice());
+    app.resetSignatureSerializations();
+    assert.throws(() => app.summary(), /メール配送の記録を確認できません/);
+    assert.equal(app.signatureSerializations(), 0);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  }
+});
+
+test('配送記録にだけ残る正常な予約は一覧へ復活させず、JSON照合も増やさない', () => {
+  const app = fixture();
+  app.send();
+  app.booking.cells.length = 1;
+  app.resetSignatureSerializations();
+  assert.equal(app.summary().length, 0);
+  assert.equal(app.signatureSerializations(), 0);
+  assert.equal(app.jobs().length, 1);
+  assert.deepEqual(app.sent, []);
+});
+
+test('配送対象の予約番号が重複していたら片方を選んで配送状態を表示しない', () => {
+  const app = fixture();
+  app.send();
+  app.booking.cells.push(app.booking.cells[1].slice());
+  assert.throws(() => app.summary(), /メール配送の記録を確認できません/);
+  assert.deepEqual(app.sent, []);
+  assert.equal(app.held(), false);
+});
+
+test('配送対象外の番号重複と空行の従来の扱いを変えず、履歴を勝手に整理しない', () => {
+  const app = fixture();
+  addSummaryHistory(app, 2, { 予約番号: 'LM-DUPLICATE' });
+  addSummaryHistory(app, 1, { 予約番号: '', 合計金額: '配送照合の対象外' });
+  app.resetSignatureSerializations();
+  const result = app.summary();
+  assert.equal(result.length, 3);
+  assert.equal(result.filter(row => row.code === 'LM-DUPLICATE').length, 2);
+  assert.equal(app.signatureSerializations(), 0);
+  assert.deepEqual(app.effects, []);
+  assert.deepEqual(app.sent, []);
+});
+
+test('配送照合のキャッシュを要求間で持たず、日時変更後には前の配送状態を当てはめない', () => {
+  const app = fixture();
+  app.send();
+  assert.equal(app.summary()[0].shopMailStatus, '新規予約：配送待ち');
+  app.booking.cells[1][app.headers.indexOf('来店日')] = '2030-01-07';
+  app.resetSignatureSerializations();
+  const changed = app.summary()[0];
+  assert.equal(changed.date, '2030-01-07');
+  assert.equal(changed.shopMailStatus, '');
+  assert.equal(changed.customerMailStatus, '');
+  assert.equal(app.signatureSerializations(), 1);
+  assert.deepEqual(app.sent, []);
+});
+
+test('同じsnapshotの配送見出しを5000件分調べ直さず、各列の重複確認を1回にまとめる', () => {
+  const app = fixture();
+  addSummaryHistory(app, SUMMARY_HISTORY_COUNT);
+  const headers = app.headers.slice().reverse();
+  const rows = app.booking.cells.slice(1).map(row => row.slice().reverse());
+  let duplicateChecks = 0;
+  headers.lastIndexOf = function (...arguments_) {
+    duplicateChecks++;
+    return Array.prototype.lastIndexOf.apply(this, arguments_);
+  };
+  const result = app.context.withLedgerLock_(() =>
+    app.context.currentBookingEmailJobs_(app.booking, app.queue, rows, headers));
+  assert.equal(Object.keys(result).length, 0);
+  assert.equal(duplicateChecks, vm.runInContext('BOOKING_EMAIL_FIELDS.length', app.context));
+  assert.equal(app.signatureSerializations(), 0);
+  assert.equal(app.booking.cells.length, SUMMARY_HISTORY_COUNT + 1);
+  assert.deepEqual(app.effects, []);
+  assert.deepEqual(app.sent, []);
+  assert.equal(app.held(), false);
+});
+
+test('日付・時刻・電話・料金・先頭の引用符の書き方のゆれは元の配送記録と一致する', () => {
+  const cases = [
+    ['来店日', '2030/1/5'], ['来店日', '２０３０／０１／０５'], ['来店日', 'date-cell'],
+    ['開始', '10時'], ['開始', '１０：００'], ['開始', 'time-cell'],
+    ['終了', '１１：００'], ['電話番号', '000-0000-0000'], ['合計金額', '4000'],
+    ['お名前', "'" + REQUEST.customer.name]
+  ];
+  for (const [header, value] of cases) {
+    const app = fixture();
+    app.send();
+    const cell = value === 'date-cell' ? new app.context.Date('2030-01-05T00:00:00+09:00')
+      : value === 'time-cell' ? new app.context.Date('1899-12-30T10:00:00+09:00') : value;
+    app.booking.cells[1][app.headers.indexOf(header)] = cell;
+    app.resetSignatureSerializations();
+    assert.equal(app.summary()[0].shopMailStatus, '新規予約：配送待ち', header);
+    assert.equal(app.signatureSerializations(), 1, header);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  }
+});
+
+test('配送が無効な設置先では、配送照合の列確認やJSONを増やさない', () => {
+  const app = fixture({ enabled: false });
+  addSummaryHistory(app, 1, { 合計金額: '配送以外の従来の読み方' });
+  const result = app.summary();
+  assert.equal(result.length, 1);
+  assert.equal(result[0].shopMailStatus, '過去の送信結果');
+  assert.equal(app.signatureSerializations(), 0);
+  assert.deepEqual(app.effects, []);
+  assert.deepEqual(app.sent, []);
 });
