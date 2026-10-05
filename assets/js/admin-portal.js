@@ -43,7 +43,7 @@ function showAdmin(result) {
   managementView.hidden = false;
   document.documentElement.classList.add('is-managing');
   document.querySelector('#account-label').textContent = user.email || '管理者';
-  frame.src = 'admin.html?design=a&google=1&v=20261006-save-receipt';
+  frame.src = 'admin.html?design=a&google=1&v=20261006-logout-deadline';
 }
 
 async function post(body, signal) {
@@ -74,6 +74,19 @@ async function withRequestTimeout(operation) {
 function connectionDetail(error) {
   if (Number.isInteger(error?.httpStatus)) return `（HTTP ${error.httpStatus}）`;
   return error?.name === 'AbortError' ? '（待ち時間の上限に達しました）' : '';
+}
+
+async function signOutAdmin() {
+  const wasAuthReady = authReady;
+  authReady = false;
+  loginButton.disabled = true;
+  try {
+    await withRequestTimeout(() => sdk.signOut(auth));
+    authReady = wasAuthReady;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 window.authAdminRequest = async payload => {
@@ -107,9 +120,12 @@ window.authAdminRequest = async payload => {
     if (result.authDenied) {
       closeAdmin();
       user = null;
-      await sdk.signOut(auth);
-      showError(result.error || '管理権限を確認できません。もう一度ログインしてください。');
-      return { ok: false, authDenied: true, error: result.error };
+      let error = result.error || '管理権限を確認できません。もう一度ログインしてください。';
+      showError(error);
+      if (!(await signOutAdmin())) error += ' Googleのログアウトを確認できません。ページを閉じてください。';
+      loginButton.disabled = !authReady;
+      showError(error);
+      return { ok: false, authDenied: true, error };
     }
     return result;
   } catch (error) {
@@ -193,7 +209,7 @@ logoutButton.addEventListener('click', async () => {
   loginError.hidden = true;
   loginStatus.textContent = 'ログアウトしています。';
   try {
-    await sdk.signOut(auth);
+    if (!(await signOutAdmin())) throw new Error();
     loginStatus.textContent = '管理者のGoogleアカウントでログインしてください。';
   } catch {
     loginStatus.textContent = '管理画面を閉じました。';
@@ -234,7 +250,7 @@ async function setupAuth() {
     user = auth.currentUser;
     if (user) await loadAdmin();
     else loginStatus.textContent = '管理者のGoogleアカウントでログインしてください。';
-    loginButton.disabled = false;
+    loginButton.disabled = !authReady;
   } catch (error) {
     loginStatus.textContent = '管理画面への接続を確認できませんでした。';
     showError(`接続設定または通信を確認できません${connectionDetail(error)}。「接続をもう一度確認」で再確認してください。予約の受付状況とは別です。`);

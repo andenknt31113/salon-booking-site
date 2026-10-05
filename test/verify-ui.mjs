@@ -111,7 +111,7 @@ test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 29);
+    assert.equal(UI_CHECKS.length, 30);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);
@@ -131,6 +131,14 @@ test('保存応答と下書きの画面試験を旧ログインへ戻さず、Go
   assert.match(source, /window\.authAdminRequest/);
   assert.match(source, /googleAdminEmbedded/);
   assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
+test('実Google管理入口でログアウトの期限・権限失効・遅い返事を画面検査する', async () => {
+  assert.ok(UI_CHECKS.includes('test/admin-logout-deadline-browser.mjs'));
+  const source = await readFile(new URL('./admin-logout-deadline-browser.mjs', import.meta.url), 'utf8');
+  assert.match(source, /\/admin-google\.html/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /fixtureFinishSignOut/);
 });
 
 test('複数ファイルを同時起動せず、前のファイルの終了を待つ', async () => {

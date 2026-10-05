@@ -7,17 +7,18 @@ import { test } from 'node:test';
 const source = readFileSync(new URL('../assets/js/admin-portal.js', import.meta.url), 'utf8');
 const requestSource = source.match(/window\.authAdminRequest = async payload => {[\s\S]*?\n};/)[0];
 const loadSource = source.match(/async function loadAdmin\(\) {[\s\S]*?\n}/)[0];
+const signOutSource = source.match(/async function signOutAdmin\(\) {[\s\S]*?\n}/)[0];
 const dataSource = readFileSync(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 
 function fixture(seed = null) {
   const calls = [];
   const effects = [];
   const context = vm.createContext({ window: {}, actions: new Set(['adminData', 'adminSave']),
-    initialAdminData: seed, user: { getIdToken: async () => randomUUID() }, generation: 1, auth: {},
+    initialAdminData: seed, user: { getIdToken: async () => randomUUID() }, generation: 1, auth: {}, authReady: true,
     withRequestTimeout: callback => callback({ aborted: false }),
     post: async body => { calls.push({ action: body.action, payload: body.payload }); return context.response; },
     managementView: { hidden: true }, connectionDetail: () => '',
-    loginStatus: { textContent: '' }, retryAccessButton: { hidden: true },
+    loginStatus: { textContent: '' }, retryAccessButton: { hidden: true }, loginButton: { disabled: false },
     showAdmin: data => { context.initialAdminData = data; },
     sdk: { signOut: async () => {
       effects.push('sign-out');
@@ -32,7 +33,7 @@ function fixture(seed = null) {
   });
   context.response = { ok: true, reservations: [], closedDates: [], menus: [], coupons: [], settings: {},
     stamps: { menus: '0', coupons: '0', closed: '0', settings: '0' }, pendingEditors: ['styles', 'reviews'] };
-  vm.runInContext(dataSource + '\n' + requestSource + '\n' + loadSource, context);
+  vm.runInContext(dataSource + '\n' + signOutSource + '\n' + requestSource + '\n' + loadSource, context);
   return { context, calls, effects, request: context.window.authAdminRequest };
 }
 

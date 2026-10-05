@@ -7,7 +7,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const BOOKING_CHECKS = Object.freeze([
   'final-backend-boundaries', 'booking-change-recovery', 'booking-ledger-schema', 'booking-backup-safety', 'booking-public-errors',
   'booking-overlap-reads', 'booking-availability-dates', 'booking-reserve-reads', 'booking-reserve-ack',
-  'booking-cancel-ack', 'booking-cancel-conflict', 'booking-identity-privacy', 'booking-target-consistency', 'admin-auth-boundary',
+  'booking-cancel-ack', 'booking-cancel-conflict', 'booking-identity-privacy', 'booking-target-consistency', 'admin-auth-boundary', 'admin-logout-deadline',
   'admin-legacy-preflight', 'phone-request-identity', 'phone-booking-ack', 'phone-result-receipt',
   'booking-write-settings', 'booking-operation-settings', 'admin-note-ack',
   'admin-upload-lock', 'closed-save-validation', 'admin-save-scope', 'admin-save-ack', 'request-lock', 'reminder-recovery',
