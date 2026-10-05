@@ -11,9 +11,11 @@ import { PUBLICATION_SETTING_KEYS, parsePublishedMenus } from '../tools/publicat
 
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html',
   'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js',
   'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
-const GENERATED = ['assets/js/published-menus.js', 'index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html'];
+const GENERATED = ['assets/js/published-menus.js', 'index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];
 
 async function fixture(run) {
   const root = await mkdtemp(join(tmpdir(), 'zer01-site-publication-'));

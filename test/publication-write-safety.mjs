@@ -11,9 +11,11 @@ import vm from 'node:vm';
 
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html',
   'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js',
   'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
-const HTML_FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html'];
+const HTML_FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];
 const FAULT_MODULE = `
 import fileSystem from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';

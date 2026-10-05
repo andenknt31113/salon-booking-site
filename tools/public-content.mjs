@@ -1,8 +1,11 @@
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 
 const ROOT = new URL('../', import.meta.url);
 const read = name => readFile(new URL(name, ROOT), 'utf8');
+const PUBLICATION_PAGES = ['index.html', 'reviews.html', 'menu.html', 'staff.html', 'gallery.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];
 
 export async function publicHtml(catalogSource) {
   const context = vm.createContext({ URL, document: { addEventListener() {} } });
@@ -41,7 +44,9 @@ export async function publicHtml(catalogSource) {
     'gallery.html': { 'style-list': 'section' }
   };
   const files = [];
-  for (const [name, regions] of Object.entries(targets)) {
+  const version = createHash('sha256').update(catalogSource).digest('hex');
+  for (const name of PUBLICATION_PAGES) {
+    const regions = targets[name] || {};
     const previous = await read(name);
     let next = previous;
     for (const [id, tag] of Object.entries(regions)) {
@@ -50,6 +55,9 @@ export async function publicHtml(catalogSource) {
       if (new RegExp('</?' + tag + '\\b', 'i').test(fragments[id])) throw new Error(`${name} の初期表示欄 ${id} の構造を確認してください。ファイルは更新しません。`);
       next = next.replace(pattern, (_match, start, end) => start + fragments[id].replace(/[\t ]+$/gm, '') + end);
     }
+    const script = /(<script\b[^>]*\bsrc=["'])assets\/js\/published-menus\.js(?:\?[^"']*)?(["'][^>]*>)/g;
+    if ([...next.matchAll(script)].length !== 1) throw new Error(`${name} の公開データ読込位置を確認できません。ファイルは更新しません。`);
+    next = next.replace(script, (_match, start, end) => start + 'assets/js/published-menus.js?v=' + version + end);
     files.push({ name, previous, next });
   }
   return files;

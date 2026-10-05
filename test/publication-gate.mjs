@@ -8,9 +8,28 @@ import { test } from 'node:test';
 
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html',
   'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js',
   'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
-const GENERATED_FILES = ['assets/js/published-menus.js', 'index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html'];
+const GENERATED_FILES = ['assets/js/published-menus.js', 'index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];
+
+for (const page of GENERATED_FILES.filter(name => name.endsWith('.html'))) {
+  for (const duplicate of [false, true]) {
+    test(`${page}の公開データ読込位置の${duplicate ? '重複' : '欠落'}では全ファイルを保持する`, async () => {
+      await withPublication(async ({ root, command, snapshot }) => {
+        const path = join(root, page);
+        const html = await readFile(path, 'utf8');
+        const script = html.match(/<script src="assets\/js\/published-menus\.js[^"\n]*"><\/script>/)?.[0];
+        assert.ok(script);
+        await writeFile(path, html.replace(script, duplicate ? script + script : ''), 'utf8');
+        const before = await snapshot();
+        await assert.rejects(command('--write-local'), /公開データ読込位置/);
+        assert.deepEqual(await snapshot(), before);
+      });
+    });
+  }
+}
 
 async function withPublication(run) {
   const root = await mkdtemp(join(tmpdir(), 'zer01-publication-gate-'));

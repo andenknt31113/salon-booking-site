@@ -53,6 +53,16 @@ test('公開する店舗情報・写真の取得と静的同期を一括検査�
   }
 });
 
+test('公開データのcache版と全読込ページの整合を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/publication-cache.mjs'));
+});
+
+test('公開元の原子更新・競合保護・取得先の検査を一括検査から外さない', () => {
+  for (const path of ['test/publication-gate.mjs', 'test/publication-write-safety.mjs', 'test/publish-menu-redirect.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(path), path);
+  }
+});
+
 test('本人照合の失敗から予約の存在・状態を明かさない検査を一括検査から外さない', () => {
   assert.ok(BOOKING_CHECKS.includes('test/booking-identity-privacy.mjs'));
 });
