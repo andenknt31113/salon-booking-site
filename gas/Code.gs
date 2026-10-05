@@ -2386,16 +2386,9 @@ function doAdminData_(d) {
   }
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
   if (d.reservationsOnly === true) {
-    const result = readAdminReservations_(ss, hasReservationCodes ? d.reservationCodes : undefined);
-    const briefDay = d.briefPast === true && result.ok ? todayKey_() : null;
-    const versionSource = conditionalRefresh && result.ok ? JSON.stringify([result, briefDay]) : '';
-    if (briefDay) result.reservations = briefPastReservations_(result.reservations, briefDay);
-    if (conditionalRefresh && result.ok) {
-      const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, versionSource, Utilities.Charset.UTF_8);
-      const version = bytes.map(byte => ((byte & 0xFF) + 0x100).toString(16).slice(1)).join('');
-      if (d.ifNoneMatch === version) return { ok: true, unchanged: true, refreshVersion: version };
-      result.refreshVersion = version;
-    }
+    const result = readAdminReservations_(ss, hasReservationCodes ? d.reservationCodes : undefined,
+      conditionalRefresh ? { ifNoneMatch: d.ifNoneMatch, briefPast: d.briefPast === true } : undefined);
+    if (!conditionalRefresh && d.briefPast === true && result.ok) result.reservations = briefPastReservations_(result.reservations);
     return result;
   }
   if (d.editorTarget !== undefined) {
@@ -2472,7 +2465,9 @@ function briefPastReservations_(reservations, today = todayKey_()) {
   return reservations;
 }
 
-function readAdminReservations_(ss, reservationCodes) {
+const ADMIN_RESERVATION_VERSION_FORMAT = 1;
+
+function readAdminReservations_(ss, reservationCodes, refresh) {
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet || sheet.getLastRow() === 0) return { ok: false, error: '予約台帳を確認できません。' };
   const snapshot = readSheetSnapshot_(sheet, []);
@@ -2511,12 +2506,33 @@ function readAdminReservations_(ss, reservationCodes) {
       return { ok: false, error: '休業日の見出しを確認できません。表示中の予定は更新していません。' };
     }
   }
-  return {
+  const summary = bookingEmailSummary_(sheet, reservationRows, headers);
+  const evaluatedAt = refresh ? Date.now() : undefined;
+  const briefDay = refresh && refresh.briefPast ? todayKey_(new Date(evaluatedAt)) : null;
+  let refreshVersion;
+  if (refresh) {
+    const mailStates = summary ? applyBookingEmailSummary_(Object.keys(summary).map(code => ({ code })), summary, evaluatedAt) : null;
+    const typedRows = rows => rows.map(row => row.map(value => {
+      if (value instanceof Date) return ['date', String(value.getTime())];
+      if (value === undefined) return ['undefined'];
+      if (typeof value === 'number' && !Number.isFinite(value)) return ['number', String(value)];
+      return value;
+    }));
+    const versionSource = JSON.stringify([ADMIN_RESERVATION_VERSION_FORMAT, headers, typedRows(reservationRows),
+      closedSnapshot.head, typedRows(closedSnapshot.rows), mailStates, briefDay]);
+    const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, versionSource, Utilities.Charset.UTF_8);
+    refreshVersion = bytes.map(byte => ((byte & 0xFF) + 0x100).toString(16).slice(1)).join('');
+    if (refresh.ifNoneMatch === refreshVersion) return { ok: true, unchanged: true, refreshVersion };
+  }
+  const result = {
     ok: true,
     reservations: applyBookingEmailSummary_(reservationRows.map(row => adminReservation_(row, header => headers.indexOf(header)))
-      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)), bookingEmailSummary_(sheet, reservationRows, headers)),
+      .sort((first, second) => (second.date + second.time).localeCompare(first.date + first.time)), summary, evaluatedAt),
     closedDates: readSheetRows_(ss, CLOSED_SHEET, CLOSED_HEADERS, closedSnapshot)
   };
+  if (briefDay) result.reservations = briefPastReservations_(result.reservations, briefDay);
+  if (refresh) result.refreshVersion = refreshVersion;
+  return result;
 }
 
 function readAdminNotifications_(ss) {
@@ -3500,7 +3516,7 @@ function bookingEmailSummary_(sheet, reservationRows, reservationHeaders) {
   return currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHeaders);
 }
 
-function applyBookingEmailSummary_(reservations, summary) {
+function applyBookingEmailSummary_(reservations, summary, evaluatedAt) {
   if (!summary) return reservations;
   return reservations.map(function (reservation) {
     const record = summary[codeKey_(reservation.code)];
@@ -3509,7 +3525,7 @@ function applyBookingEmailSummary_(reservations, summary) {
     ['shop', 'customer'].forEach(function (channel) {
       const message = record.job.messages[channel];
       const stale = ['配送待ち', '配送処理中'].indexOf(message.status) >= 0
-        && Date.now() - message.updated > BOOKING_EMAIL_LEASE_MS;
+        && (evaluatedAt === undefined ? Date.now() : evaluatedAt) - message.updated > BOOKING_EMAIL_LEASE_MS;
       result[channel === 'shop' ? 'shopMailStatus' : 'customerMailStatus'] = record.job.action + '：'
         + (stale ? '配送状況を要確認' : message.status);
     });

@@ -15,10 +15,11 @@ const BOOKING = { 予約番号: 'LM-COND1', 来店日: '2030-01-06', 開始: '10
   予約の入口: '電話', ご要望: '架空の要望', 施術メモ: '保持するメモ', 状態: '予約確定',
   店舗メール状態: '送信処理受付', お客様メール状態: '宛先なし' };
 
-function fixture({ records = [BOOKING], delivery = false, denied = false, failure = '' } = {}) {
+function fixture({ records = [BOOKING], delivery = false, denied = false, failure = '', native = true } = {}) {
   let now = NOW;
   let held = false;
   let authorized = false;
+  let conversions = 0;
   const reads = [];
   const accesses = [];
   const writes = [];
@@ -54,6 +55,8 @@ function fixture({ records = [BOOKING], delivery = false, denied = false, failur
       } }
   });
   SCRIPT.runInContext(context);
+  const convertReservation = context.adminReservation_;
+  context.adminReservation_ = (...values) => { conversions++; return convertReservation(...values); };
   context.verifyGoogleAdmin_ = () => { if (denied) throw new Error('架空の本人確認拒否'); authorized = true; };
   const constants = name => Array.from(vm.runInContext(name, context));
   function add(name, headers, rows = []) {
@@ -67,8 +70,8 @@ function fixture({ records = [BOOKING], delivery = false, denied = false, failur
         Array.from({ length: width }, (_cell, columnIndex) => cells[row - 1 + rowIndex]?.[column - 1 + columnIndex] ?? ''));
     }, setValue: forbidWrite('setValue'), setValues: forbidWrite('setValues') });
     const sheet = { cells, getParent: () => spreadsheet, getLastRow: () => cells.length,
-      getLastColumn: () => cells[0].length, getRange: range,
-      getDataRange: () => range(1, 1, cells.length, cells[0].length), appendRow: forbidWrite('appendRow') };
+      getLastColumn: () => cells[0].length, getRange: range, appendRow: forbidWrite('appendRow') };
+    if (native) sheet.getDataRange = () => range(1, 1, cells.length, cells[0].length);
     sheets.set(name, sheet);
     return sheet;
   }
@@ -86,6 +89,7 @@ function fixture({ records = [BOOKING], delivery = false, denied = false, failur
   const send = (payload = REQUEST) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify({
     type: 'googleAdmin', action: 'adminData', payload }) } }));
   return { context, ledger, closed, queue, job, reads, accesses, writes, send,
+    conversions: () => conversions,
     held: () => held, advance: duration => { now += duration; },
     change(field, value) { ledger.cells[1][ledger.cells[0].indexOf(field)] = value; } };
 }
@@ -242,3 +246,128 @@ test('5,000件の全履歴を保持し、変更なしの応答だけを小さく
   console.log(JSON.stringify({ fullBytes: Buffer.byteLength(JSON.stringify(first)),
     unchangedBytes: Buffer.byteLength(JSON.stringify(result)), reservations: first.reservations.length }));
 });
+
+for (const native of [true, false]) {
+  const mode = native ? '使用範囲' : '互換範囲';
+  test(`${mode}：同じ5,000件を再確認しても表示用の履歴を作り直さず、変更時と旧要求では全件を戻す`, () => {
+    const records = Array.from({ length: 5000 }, (_unused, index) => ({ ...BOOKING,
+      予約番号: index ? 'LM-WORK' + index : BOOKING.予約番号,
+      来店日: index % 2 ? '2020-01-01' : BOOKING.来店日,
+      施術メモ: '保持する長い架空メモ'.repeat(20) }));
+    const app = fixture({ records, native });
+    const first = app.send({ ...REQUEST, briefPast: true });
+    assert.equal(first.ok, true);
+    assert.equal(first.reservations.length, 5000);
+    assert.equal(app.conversions(), 5000);
+    for (let index = 0; index < 3; index++) {
+      assert.deepEqual(app.send({ ...REQUEST, briefPast: true, ifNoneMatch: first.refreshVersion }),
+        { ok: true, unchanged: true, refreshVersion: first.refreshVersion });
+      assert.equal(app.conversions(), 5000, '変更なしの取得は顧客情報・メモの表示用変換を繰り返さない');
+    }
+    assert.equal(app.reads.filter(name => name === '予約一覧').length, 4);
+    assert.equal(app.reads.filter(name => name === '休業日').length, 4);
+    app.change('施術メモ', '別端末で保存したメモ');
+    const changed = app.send({ ...REQUEST, briefPast: true, ifNoneMatch: first.refreshVersion });
+    assert.equal(changed.ok, true);
+    assert.equal(changed.unchanged, undefined);
+    assert.equal(changed.reservations.length, 5000);
+    assert.equal(changed.reservations.find(row => row.code === BOOKING.予約番号).note, '別端末で保存したメモ');
+    assert.equal(app.conversions(), 10000);
+    const legacy = app.send({ reservationsOnly: true, briefPast: true });
+    const { refreshVersion, ...content } = changed;
+    assert.deepEqual(content, legacy);
+    assert.equal(app.conversions(), 15000);
+    assert.deepEqual(app.writes, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：配送と期限を最新照合し、同じ状態なら履歴を作り直さず、期限を越えたら全件を返す`, () => {
+    const app = fixture({ native, delivery: true });
+    const first = app.send();
+    assert.match(first.reservations[0].shopMailStatus, /配送待ち/);
+    assert.equal(app.send({ ...REQUEST, ifNoneMatch: first.refreshVersion }).unchanged, true);
+    assert.equal(app.conversions(), 1);
+    app.advance(vm.runInContext('BOOKING_EMAIL_LEASE_MS', app.context) + 1);
+    const changed = app.send({ ...REQUEST, ifNoneMatch: first.refreshVersion });
+    assert.equal(changed.unchanged, undefined);
+    assert.match(changed.reservations[0].shopMailStatus, /配送状況を要確認/);
+    assert.equal(app.conversions(), 2);
+    assert.equal(app.send({ ...REQUEST, ifNoneMatch: changed.refreshVersion }).unchanged, true);
+    assert.equal(app.conversions(), 2);
+    assert.equal(app.reads.filter(name => name === '予約メール配送').length, 4);
+    assert.deepEqual(app.writes, []);
+  });
+}
+
+test('版と表示の配送期限は同じ時点で評価し、履歴変換中に越えた期限は次の再確認で反映する', () => {
+  const app = fixture({ delivery: true });
+  const convert = app.context.adminReservation_;
+  app.context.adminReservation_ = (...values) => {
+    const result = convert(...values);
+    app.advance(vm.runInContext('BOOKING_EMAIL_LEASE_MS', app.context) + 1);
+    return result;
+  };
+  const first = app.send();
+  assert.equal(first.ok, true);
+  assert.match(first.reservations[0].shopMailStatus, /配送待ち/);
+  const next = app.send({ ...REQUEST, ifNoneMatch: first.refreshVersion });
+  assert.equal(next.unchanged, undefined);
+  assert.match(next.reservations[0].shopMailStatus, /配送状況を要確認/);
+  assert.equal(app.send({ ...REQUEST, ifNoneMatch: next.refreshVersion }).unchanged, true);
+  assert.equal(app.conversions(), 2);
+});
+
+for (const target of ['予約一覧', '休業日', '予約メール配送']) {
+  test(`一致版があっても${target}の壊れた見出し・配送内容を省略せずに断る`, () => {
+    const app = fixture({ delivery: true });
+    const first = app.send();
+    assert.equal(first.ok, true);
+    if (target === '予約一覧') app.ledger.cells[0][1] = '予約番号';
+    else if (target === '休業日') app.closed.cells[0][1] = '休業日';
+    else app.queue.cells.push(['unrelated-job-0001', '[]', '{']);
+    const result = app.send({ ...REQUEST, ifNoneMatch: first.refreshVersion });
+    assert.equal(result.ok, false);
+    assert.equal(result.unchanged, undefined);
+    assert.equal(result.refreshVersion, undefined);
+    assert.equal(JSON.stringify(result).includes(BOOKING.お名前), false);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
+  });
+}
+
+for (const native of [true, false]) {
+  for (const target of ['来店日', '開始', '休業日']) {
+    test(`${native ? '使用範囲' : '互換範囲'}：${target}の日付セルを同じISO文字列へ変えた場合も再確認する`, () => {
+      const app = fixture({ native });
+      const value = new app.context.Date('2030-01-05T15:00:00.000Z');
+      if (target === '休業日') app.closed.cells[1][0] = value;
+      else app.change(target, value);
+      const first = app.send();
+      assert.equal(first.ok, true);
+      if (target === '休業日') app.closed.cells[1][0] = value.toISOString();
+      else app.change(target, value.toISOString());
+      const changed = app.send({ ...REQUEST, ifNoneMatch: first.refreshVersion });
+      assert.equal(changed.ok, true);
+      assert.equal(changed.unchanged, undefined);
+      assert.notEqual(changed.refreshVersion, first.refreshVersion);
+      const { refreshVersion, ...content } = changed;
+      assert.deepEqual(content, app.send({ reservationsOnly: true }));
+      assert.deepEqual(app.writes, []);
+    });
+  }
+}
+
+for (const [before, after] of [[Infinity, NaN], [NaN, -Infinity]]) {
+  test('JSONでnull等に揃ってしまうセルの型・値変更を変更なしと誤認しない', () => {
+    const app = fixture();
+    app.change('メニュー', before);
+    const first = app.send();
+    app.change('メニュー', after);
+    const changed = app.send({ ...REQUEST, ifNoneMatch: first.refreshVersion });
+    assert.equal(changed.ok, true);
+    assert.equal(changed.unchanged, undefined);
+    assert.notEqual(changed.refreshVersion, first.refreshVersion);
+    const { refreshVersion, ...content } = changed;
+    assert.deepEqual(content, app.send({ reservationsOnly: true }));
+  });
+}
