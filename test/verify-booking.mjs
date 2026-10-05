@@ -86,6 +86,10 @@ test('日時変更の結果不明・保存内容の照合・再送防止を一�
   assert.ok(BOOKING_CHECKS.includes('test/admin-change-receipt.mjs'));
 });
 
+test('電話受付の不完全な保存応答・照会結果と受付IDの保持を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/phone-result-receipt.mjs'));
+});
+
 test('公開する店舗情報・写真の取得と静的同期を一括検査から外さない', () => {
   for (const path of ['test/site-publication-backend.mjs', 'test/site-publication.mjs', 'test/site-publication-flow.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path), path);

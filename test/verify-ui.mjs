@@ -72,6 +72,15 @@ test('Google管理bridgeの日時変更で結果照合と再送防止を画面�
   assert.ok(UI_CHECKS.includes('test/admin-change-receipt-browser.mjs'));
 });
 
+test('電話受付の画面試験を旧ログインへ戻さず、Google管理bridgeで検査する', async () => {
+  assert.ok(UI_CHECKS.includes('test/phone-unknown-result-ui.mjs'));
+  const source = await readFile(new URL('./phone-unknown-result-ui.mjs', import.meta.url), 'utf8');
+  assert.match(source, /src="admin\.html\?google=1/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /googleAdminEmbedded/);
+  assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
 test('公開店舗情報・写真の初期反映と空一覧の保持を画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/site-publication-browser.mjs'));
 });

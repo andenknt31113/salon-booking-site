@@ -1548,6 +1548,37 @@ async function restorePhoneBooking() {
   }
 }
 
+function validPhoneResponse(result) {
+  const flags = ['confirm', 'requestConflict', 'duplicate', 'found', 'calendarWarning'];
+  return validAdminChangeResponse(result)
+    && flags.every(flag => result[flag] === undefined || typeof result[flag] === 'boolean')
+    && (!result.ok || !result.confirm && !result.requestConflict)
+    && (!result.confirm || !result.unknown && !result.transportError && !result.requestConflict);
+}
+
+function validPhoneBookingResult(result) {
+  if (!validPhoneResponse(result) || !result.ok || result.found === false
+      || supportsPhoneRetry() && result.requestId !== phoneRequestId) return false;
+  const reservation = result.reservation;
+  const validTime = time => typeof time === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time);
+  if (!supportsPhoneRetry() && reservation === undefined) {
+    return typeof result.code === 'string' && !!result.code.trim() && !!phonePayload
+      && validTime(result.endTime) && toMinutes(result.endTime) - toMinutes(phonePayload.time) === phonePayload.minutes;
+  }
+  if (!validReservationRefresh({ ok: true, reservations: [reservation], closedDates: [] })
+      || reservation.detailsPending === true || result.code !== reservation.code || result.endTime !== reservation.endTime
+      || !['menu', 'staffName', 'email', 'visit', 'source', 'request', 'note'].every(field => typeof reservation[field] === 'string')
+      || !reservation.name.trim() || reservation.price < 0
+      || !/^\d{4}-\d{2}-\d{2}$/.test(reservation.date)
+      || !validTime(reservation.time) || !validTime(reservation.endTime)) return false;
+  const date = new Date(reservation.date + 'T12:00:00');
+  const duration = toMinutes(reservation.endTime) - toMinutes(reservation.time);
+  if (!Number.isFinite(date.getTime()) || toKey(date) !== reservation.date || duration < 15 || duration > 480) return false;
+  return !phonePayload || result.duplicate === true || !isCancelled(reservation)
+    && reservation.date === phonePayload.date && reservation.time === phonePayload.time
+    && duration === phonePayload.minutes && reservation.price === phonePayload.price;
+}
+
 async function checkPhoneResult() {
   if (phoneSubmitting || !phoneRequestId) return;
   if (!supportsPhoneRetry()) {
@@ -1559,7 +1590,10 @@ async function checkPhoneResult() {
   setPhoneBusy(true);
   try {
     const result = await adminPost({ type: 'adminAddStatus', requestId: phoneRequestId });
-    if (!result.ok || result.requestId !== phoneRequestId) {
+    if (!validPhoneResponse(result) || !result.ok || result.requestId !== phoneRequestId
+        || typeof result.found !== 'boolean'
+        || !result.found && (result.duplicate === true
+          || ['reservation', 'code', 'endTime'].some(field => result[field] !== undefined))) {
       phoneUncertain = true;
       showAddError('登録結果をまだ確認できません。同じ受付のまま、通信が戻ってから確認してください。');
     } else if (result.found) {
@@ -1570,6 +1604,9 @@ async function checkPhoneResult() {
       phoneConflict = false;
       $('#ab-recovery').textContent = 'まだ登録を確認できません。再試行は同じ受付IDで行います。入力欄が空なら、前の電話受付の内容を入力し直してください。';
     }
+  } catch {
+    phoneUncertain = true;
+    showAddError('登録結果をまだ確認できません。同じ受付のまま、通信が戻ってから確認してください。');
   } finally { setPhoneBusy(false); }
 }
 
@@ -1645,21 +1682,21 @@ async function saveAddBooking(force = false) {
   setPhoneBusy(true);
   try {
     let res = await adminPost(payload);
-    if (!res.ok && res.confirm) {
+    if (validPhoneResponse(res) && !res.ok && res.confirm) {
       phoneUncertain = false;
       if (!confirm(res.error + '\n\n※ネット予約とは別に、店側の判断で入れられます。')) return;
       phonePayload = { ...payload, force: true };
       res = await adminPost(phonePayload);
     }
+    if (!validPhoneResponse(res)) {
+      phoneUncertain = true;
+      showAddError('登録結果を確認できませんでした。新しく登録せず、前の電話受付の結果を確認してください。');
+      return;
+    }
     if (!res.ok) {
       phoneConflict = !!res.requestConflict;
       phoneUncertain = !!res.unknown || !!res.transportError || !supportsPhoneRetry();
       showAddError(res.error || '登録できませんでした。');
-      return;
-    }
-    if (supportsPhoneRetry() && (res.requestId !== phoneRequestId || !res.reservation?.code)) {
-      phoneUncertain = true;
-      showAddError('登録結果を確認できませんでした。新しく登録せず、前の電話受付の結果を確認してください。');
       return;
     }
     finishPhoneBooking(res);
@@ -1670,6 +1707,11 @@ async function saveAddBooking(force = false) {
 }
 
 function finishPhoneBooking(res) {
+  if (!validPhoneBookingResult(res)) {
+    phoneUncertain = true;
+    showAddError('登録結果を確認できませんでした。新しく登録せず、前の電話受付の結果を確認してください。');
+    return;
+  }
   const payload = phonePayload || {};
   const reservation = res.reservation || {
     code: res.code, date: payload.date, time: payload.time, endTime: res.endTime,
