@@ -508,11 +508,13 @@ function renderLineInvite() {
 /* ============================================================
  *  STEP4: 入力フォーム
  * ============================================================ */
+const CUSTOMER_TEXT_LIMITS = Object.freeze({ name: 60, kana: 60, email: 120, request: 1000 });
 const VALIDATORS = {
-  name: v => v.trim().length > 0,
-  kana: v => /^[ァ-ヶー\s　]+$/.test(v.trim()),
+  name: value => value.trim().length > 0 && value.trim().length <= CUSTOMER_TEXT_LIMITS.name,
+  kana: value => /^[ァ-ヶー\s　]+$/.test(value.trim()) && value.trim().length <= CUSTOMER_TEXT_LIMITS.kana,
   tel: v => /^0\d{9,10}$/.test(v.replace(/[-\s]/g, '')),
-  email: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()),
+  email: value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) && value.trim().length <= CUSTOMER_TEXT_LIMITS.email,
+  request: value => value.trim().length <= CUSTOMER_TEXT_LIMITS.request,
   visit: v => v !== '',
   agree: v => v === true
 };
@@ -928,6 +930,11 @@ async function submitReservation() {
   if (submitting) return;   // 二重送信の入口をここで閉じる
   if (!catalogVerified() || (SALON.draft && !changing)) {
     $('#catalog-status').focus();
+    return;
+  }
+  if (!changing && Object.entries(VALIDATORS).some(([field, check]) => !check(state.customer[field]))) {
+    goTo(4);
+    validateForm();
     return;
   }
   let reservation;

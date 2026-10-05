@@ -145,13 +145,13 @@
                 <div class="form-field" data-field="name">
                   <label for="f-name">お名前<span class="required">必須</span></label>
                   <input class="input" type="text" id="f-name" name="name" autocomplete="name" placeholder="山田 花子" required />
-                  <p class="field-error" id="f-name-error">お名前をご入力ください。</p>
+                  <p class="field-error" id="f-name-error">お名前を60文字以内でご入力ください。</p>
                 </div>
 
                 <div class="form-field" data-field="kana">
                   <label for="f-kana">フリガナ<span class="required">必須</span></label>
                   <input class="input" type="text" id="f-kana" name="kana" placeholder="ヤマダ ハナコ" required />
-                  <p class="field-error" id="f-kana-error">フリガナを全角カタカナでご入力ください。</p>
+                  <p class="field-error" id="f-kana-error">フリガナを全角カタカナ・60文字以内でご入力ください。</p>
                 </div>
 
                 <div class="form-field" data-field="tel">
@@ -163,7 +163,7 @@
                 <div class="form-field" data-field="email">
                   <label for="f-email">メールアドレス<span class="required">必須</span></label>
                   <input class="input" type="email" id="f-email" name="email" autocomplete="email" placeholder="example@example.com" required />
-                  <p class="field-error" id="f-email-error">メールアドレスの形式をご確認ください。</p>
+                  <p class="field-error" id="f-email-error">メールアドレスの形式をご確認のうえ、120文字以内でご入力ください。</p>
                 </div>
 
                 <div class="form-field" data-field="visit">
@@ -178,6 +178,7 @@
                 <div class="form-field" data-field="request">
                   <label for="f-request">ご要望・ご相談<span class="optional">任意</span></label>
                   <textarea class="textarea" id="f-request" name="request" placeholder="例）サイドは短めのフェードで、上は少し残したいです。写真のような雰囲気にできますか？"></textarea>
+                  <p class="field-error" id="f-request-error">ご要望・ご相談を1000文字以内でご入力ください。入力内容は残してあります。</p>
                 </div>
 
                 <div class="form-field" data-field="agree">
@@ -276,6 +277,6 @@
 <script src="assets/js/published-menus.js?v=9128053ef54b80337eaafe418d80a039cb002f346a8c1ae2708ba29f36d2f586"></script>
   <script src="assets/js/public-read.js?v=20261005-read-scope"></script>
 <script src="assets/js/common.js?v=20261006-read-deadline"></script>
-  <script src="assets/js/reserve.js?v=20261005-calendar-refresh"></script>
+  <script src="assets/js/reserve.js?v=20261006-input-limits"></script>
 </body>
 </html>

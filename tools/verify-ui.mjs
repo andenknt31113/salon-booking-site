@@ -5,7 +5,7 @@ import { verifyLocalChecks } from './verify-local.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const UI_CHECKS = Object.freeze([
-  'booking-solo-flow-browser', 'booking-draft-recovery-ui', 'phone-unknown-result-ui',
+  'booking-solo-flow-browser', 'booking-input-limits-browser', 'booking-draft-recovery-ui', 'phone-unknown-result-ui',
   'admin-startup-data-browser', 'admin-logout-deadline-browser', 'admin-refresh-schema-browser', 'admin-reservation-refresh-ui',
   'admin-editor-loading-ui', 'admin-note-ack-browser', 'admin-cancel-conflict-ui',
   'admin-customer-details-review-ui', 'admin-date-details-ui', 'admin-numbers-loading-ui', 'admin-initial-date-browser',
