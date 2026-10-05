@@ -4333,7 +4333,7 @@ function sendReminders() {
   let sent = 0;
   let unsent = 0;
   codes.forEach(code => {
-    withLedgerLock_(function () {
+    const delivery = withLedgerLock_(function () {
       const props = PropertiesService.getScriptProperties();
       const progress = reminderProgress_(props, target);
       if (!progress || progress.sent.some(previous => codeKey_(previous) === codeKey_(code))) return;
@@ -4343,7 +4343,8 @@ function sendReminders() {
       const col = record.col;
       progress.pending.push(code);
       saveReminderProgress_(props, progress);
-      const status = mailCustomer_(values[col('メール')], `明日のご予約のご案内（${normalizeTime_(values[col('開始')])}〜）`, [
+      return { progress: progress, raw: JSON.stringify(progress), email: values[col('メール')],
+        subject: `明日のご予約のご案内（${normalizeTime_(values[col('開始')])}〜）`, body: [
         `${values[col('お名前')]} 様`,
         '',
         '明日のご予約をご案内いたします。お気をつけてお越しください。',
@@ -4357,7 +4358,14 @@ function sendReminders() {
         '',
         `${SALON_NAME}`,
         salonSignature_()
-      ].filter(Boolean).join('\n'));
+      ].filter(Boolean).join('\n') };
+    });
+    if (!delivery) return;
+    const status = mailCustomer_(delivery.email, delivery.subject, delivery.body);
+    withLedgerLock_(function () {
+      const props = PropertiesService.getScriptProperties();
+      if (props.getProperty(REMINDER_PROGRESS_KEY) !== delivery.raw) throw userFacingError_(REMINDER_PROGRESS_ERROR);
+      const progress = delivery.progress;
       if (status === '送信処理受付') { sent++; progress.sent.push(code); }
       else unsent++;
       progress.pending = [];

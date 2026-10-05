@@ -12,7 +12,8 @@ class FixedDate extends Date {
   static now() { return Date.parse('2030-01-01T10:00:00+09:00'); }
 }
 
-function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPropertyWrite = false } = {}) {
+function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPropertyWrite = false,
+  failLockAt = 0 } = {}) {
   const records = [
     { 予約番号: 'LM-REM01', 来店日: TARGET, 開始: '10:00', メニュー: '試験カット', 担当: '試験担当',
       お名前: '試験 太郎', メール: 'first@example.test', 状態: '予約確定' },
@@ -23,6 +24,7 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
   const attempts = [];
   const accepted = [];
   const logs = [];
+  const messages = [];
   let held = false;
   let writes = 0;
   let failMail = false;
@@ -31,10 +33,11 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
   let onAcquire;
   let acquisitions = 0;
   const sheet = {
-    getLastRow: () => records.length + 1,
-    getLastColumn: () => HEADERS.length,
+    getLastRow: () => { assert.equal(held, true); return records.length + 1; },
+    getLastColumn: () => { assert.equal(held, true); return HEADERS.length; },
     getRange(row, column, height = 1, width = HEADERS.length) {
       return { getValues() {
+        assert.equal(held, true, '最新の台帳確認はlock内');
         if (failRead) throw new Error('試験用の読込障害');
         const cells = [HEADERS, ...records.map(record => HEADERS.map(header => record[header] ?? ''))];
         return cells.slice(row - 1, row - 1 + height).map(line => line.slice(column - 1, column - 1 + width));
@@ -47,15 +50,17 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
       waitLock() {
         if (held) throw new Error('処理中');
         acquisitions++;
+        if (acquisitions === failLockAt) throw new Error('架空の結果記録lock待ち失敗');
         if (onAcquire) onAcquire(acquisitions);
         if (cancelAtLock) records.forEach(record => { record.状態 = 'キャンセル'; });
         held = true;
       },
-      releaseLock() { held = false; }
+      releaseLock() { assert.equal(held, true); held = false; }
     }) },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: key => properties.get(key) || null,
       setProperty(key, value) {
+        assert.equal(held, true, '通知の確保と結果保存はlock内');
         writes++;
         if (writes === failPropertyWrite) throw new Error('試験用の進捗記録障害');
         if (!discardPropertyWrite) properties.set(key, value);
@@ -67,6 +72,7 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
     }).format(date) },
     MailApp: { sendEmail(address, subject, body) {
       attempts.push(address);
+      messages.push({ address, subject, body, held });
       if (onMail) onMail({ address, subject, body, held });
       if (failMail && address === 'second@example.test') throw new Error('試験用のメール障害');
       accepted.push(address);
@@ -74,7 +80,7 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
   });
   vm.runInContext(source, context);
   context.getSheet_ = () => sheet;
-  return { context, records, properties, attempts, accepted, logs, held: () => held,
+  return { context, records, properties, attempts, accepted, logs, messages, held: () => held,
     failMail: value => { failMail = value; }, failRead: value => { failRead = value; },
     onMail: callback => { onMail = callback; }, onAcquire: callback => { onAcquire = callback; } };
 }
@@ -100,14 +106,23 @@ test('ロック待ち中に取消された予約を、読込済みの古い内�
   assert.deepEqual(app.attempts, []);
 });
 
-test('送信直前の状態確認とメール受付まで同じロックで守り、処理後には解放する', () => {
+test('送信前に最新状態と確保を記録し、メール通信中は予約のlockを解放する', () => {
   const app = environment();
+  const parallel = [];
+  const pending = [];
+  const lockStates = [];
   app.onMail(({ held }) => {
-    assert.equal(held, true);
-    assert.throws(() => app.context.withLedgerLock_(() => {}), /処理中/);
+    lockStates.push(held);
+    pending.push(JSON.parse(app.properties.get(PROGRESS_KEY)).pending.slice());
+    try {
+      app.context.withLedgerLock_(() => { parallel.push(app.held()); });
+    } catch (error) { parallel.push(error.message); }
   });
   app.context.sendReminders();
   assert.equal(app.accepted.length, 2);
+  assert.deepEqual(lockStates, [false, false]);
+  assert.deepEqual(parallel, [true, true]);
+  assert.deepEqual(pending, [['LM-REM01'], ['LM-REM02']]);
   assert.equal(app.held(), false);
 });
 
@@ -209,4 +224,111 @@ test('進捗には予約番号だけを残し、お客様の氏名・メール�
   assert.ok(raw);
   assert.doesNotMatch(raw, /example\.test|試験 太郎|試験 花子|試験カット/);
   assert.deepEqual(JSON.parse(raw), { date: TARGET, sent: ['LM-REM01', 'LM-REM02'], pending: [] });
+});
+
+test('通信中に別のリマインドが実行されても、確保済み通知を二重送信しない', () => {
+  const app = environment();
+  const errors = [];
+  app.onMail(() => {
+    try { app.context.sendReminders(); } catch (error) { errors.push(error.message); }
+  });
+  app.context.sendReminders();
+  assert.deepEqual(app.accepted, ['first@example.test', 'second@example.test']);
+  assert.equal(errors.length, 2);
+  assert.ok(errors.every(error => /前日通知.*確認できません/.test(error)));
+  assert.equal(app.held(), false);
+  assert.deepEqual(JSON.parse(app.properties.get(PROGRESS_KEY)),
+    { date: TARGET, sent: ['LM-REM01', 'LM-REM02'], pending: [] });
+});
+
+for (const cancel of [true, false]) {
+  test(`最初の通知通信中に${cancel ? '取消' : '日時変更'}された次のお客様は確保前に再確認する`, () => {
+    const app = environment();
+    const updates = [];
+    app.onMail(({ address }) => {
+      if (address !== 'first@example.test') return;
+      try {
+        app.context.withLedgerLock_(() => {
+          if (cancel) app.records[1].状態 = 'キャンセル';
+          else app.records[1].開始 = '15:00';
+          updates.push(true);
+        });
+      } catch (error) { updates.push(error.message); }
+    });
+    app.context.sendReminders();
+    assert.deepEqual(updates, [true]);
+    assert.deepEqual(app.accepted, cancel ? ['first@example.test'] : ['first@example.test', 'second@example.test']);
+    if (!cancel) assert.match(app.messages[1].body, /15:00/);
+    assert.equal(app.held(), false);
+  });
+}
+
+for (const [label, change] of [
+  ['壊れた記録', () => '{'],
+  ['削除された記録', () => null],
+  ['別日の記録', () => JSON.stringify({ date: '2030-01-03', sent: [], pending: ['LM-REM01'] })],
+  ['別通知の確保', () => JSON.stringify({ date: TARGET, sent: [], pending: ['LM-REM02'] })],
+  ['成功分の追加', () => JSON.stringify({ date: TARGET, sent: ['LM-OTHER'], pending: ['LM-REM01'] })],
+  ['見かけが同じ別形式', raw => JSON.stringify(JSON.parse(raw), null, 2)]
+]) {
+  test(`送信中に${label}になっても別の進捗を上書きして完了にしない`, () => {
+    const app = environment();
+    app.records.pop();
+    let changed;
+    app.onMail(() => {
+      changed = change(app.properties.get(PROGRESS_KEY));
+      if (changed === null) app.properties.delete(PROGRESS_KEY);
+      else app.properties.set(PROGRESS_KEY, changed);
+    });
+    assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+    assert.deepEqual(app.accepted, ['first@example.test']);
+    assert.equal(app.properties.get(PROGRESS_KEY) ?? null, changed);
+    assert.equal(app.held(), false);
+  });
+}
+
+test('結果記録のlock取得に失敗しても確保を残し、次の実行で再送しない', () => {
+  const app = environment({ failLockAt: 3 });
+  app.records.pop();
+  assert.throws(() => app.context.sendReminders(), /結果記録lock/);
+  assert.deepEqual(app.accepted, ['first@example.test']);
+  assert.deepEqual(JSON.parse(app.properties.get(PROGRESS_KEY)).pending, ['LM-REM01']);
+  assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+  assert.deepEqual(app.attempts, ['first@example.test']);
+  assert.equal(app.held(), false);
+});
+
+test('結果保存が捨てられても確保を消したふりをせず、再実行を止める', () => {
+  const app = environment();
+  app.records.pop();
+  app.onMail(() => {
+    const service = app.context.PropertiesService;
+    const original = service.getScriptProperties;
+    service.getScriptProperties = () => ({ ...original(), setProperty() {} });
+  });
+  assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+  assert.deepEqual(JSON.parse(app.properties.get(PROGRESS_KEY)).pending, ['LM-REM01']);
+  assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+  assert.deepEqual(app.attempts, ['first@example.test']);
+  assert.equal(app.held(), false);
+});
+
+test('通信中の台帳変更を結果保存で巻き戻さず、次の通知は最新の宛先を使う', () => {
+  const app = environment();
+  const updates = [];
+  app.onMail(({ address }) => {
+    if (address !== 'first@example.test') return;
+    try {
+      app.context.withLedgerLock_(() => {
+        app.records[0].メニュー = '変更した施術';
+        app.records[1].メール = 'updated@example.test';
+        updates.push(true);
+      });
+    } catch (error) { updates.push(error.message); }
+  });
+  app.context.sendReminders();
+  assert.deepEqual(updates, [true]);
+  assert.deepEqual(app.accepted, ['first@example.test', 'updated@example.test']);
+  assert.equal(app.records[0].メニュー, '変更した施術');
+  assert.equal(app.held(), false);
 });
