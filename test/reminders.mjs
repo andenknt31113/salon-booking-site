@@ -38,7 +38,7 @@ function harness({ failRead = false, reenter = false } = {}) {
     getLastColumn: () => headers.length,
     getRange: (row, column, height = 1, width = headers.length) => ({
       getValues: () => {
-        if (failRead && row > 1) throw new Error('試験用の台帳読込失敗');
+        if (failRead && (row > 1 || height > 1)) throw new Error('試験用の台帳読込失敗');
         return values.slice(row - 1, row - 1 + height)
           .map(cells => Array.from({ length: width }, (_, offset) => cells[column - 1 + offset] || ''));
       }

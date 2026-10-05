@@ -13,7 +13,7 @@ class FixedDate extends Date {
 }
 
 function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPropertyWrite = false,
-  failLockAt = 0 } = {}) {
+  failLockAt = 0, realSheet = false, native = false, legacy = false } = {}) {
   const records = [
     { 予約番号: 'LM-REM01', 来店日: TARGET, 開始: '10:00', メニュー: '試験カット', 担当: '試験担当',
       お名前: '試験 太郎', メール: 'first@example.test', 状態: '予約確定' },
@@ -25,6 +25,9 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
   const accepted = [];
   const logs = [];
   const messages = [];
+  const reads = [];
+  const headerWrites = [];
+  let headers = HEADERS.slice();
   let held = false;
   let writes = 0;
   let failMail = false;
@@ -34,16 +37,28 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
   let acquisitions = 0;
   const sheet = {
     getLastRow: () => { assert.equal(held, true); return records.length + 1; },
-    getLastColumn: () => { assert.equal(held, true); return HEADERS.length; },
-    getRange(row, column, height = 1, width = HEADERS.length) {
+    getLastColumn: () => { assert.equal(held, true); return headers.length; },
+    getRange(row, column, height = 1, width = headers.length) {
       return { getValues() {
         assert.equal(held, true, '最新の台帳確認はlock内');
+        reads.push({ row, column, height, width, acquisition: acquisitions });
         if (failRead) throw new Error('試験用の読込障害');
-        const cells = [HEADERS, ...records.map(record => HEADERS.map(header => record[header] ?? ''))];
-        return cells.slice(row - 1, row - 1 + height).map(line => line.slice(column - 1, column - 1 + width));
-      } };
+        const cells = [headers, ...records.map(record => headers.map(header => record[header] ?? ''))];
+        return cells.slice(row - 1, row - 1 + height)
+          .map(line => Array.from({ length: width }, (_, offset) => line[column - 1 + offset] ?? ''));
+      }, setValues(values) {
+        assert.equal(held, true);
+        assert.equal(row, 1, '既存の予約を変更せず、欠落した見出しだけを補完する');
+        assert.equal(height, 1);
+        assert.equal(values.length, 1);
+        assert.equal(values[0].length, width);
+        headerWrites.push({ column, values: Array.from(values[0]) });
+        headers.splice(column - 1, width, ...values[0]);
+        return this;
+      }, setFontWeight() { return this; }, setBackground() { return this; } };
     }
   };
+  if (native) sheet.getDataRange = () => sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
   const context = vm.createContext({ Date: FixedDate,
     console: { log: message => logs.push(message), warn() {}, error() {} },
     LockService: { getScriptLock: () => ({
@@ -70,6 +85,9 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
     Utilities: { formatDate: date => new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit'
     }).format(date) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({
+      getSheetByName: name => name === '予約一覧' ? sheet : null
+    }) },
     MailApp: { sendEmail(address, subject, body) {
       attempts.push(address);
       messages.push({ address, subject, body, held });
@@ -79,8 +97,12 @@ function environment({ cancelAtLock = false, failPropertyWrite = 0, discardPrope
     } }
   });
   vm.runInContext(source, context);
-  context.getSheet_ = () => sheet;
-  return { context, records, properties, attempts, accepted, logs, messages, held: () => held,
+  if (realSheet) {
+    headers = Array.from(vm.runInContext('HEADERS', context));
+    if (legacy) headers.splice(headers.indexOf('施術メモ'), 1);
+  } else context.getSheet_ = () => sheet;
+  return { context, records, properties, attempts, accepted, logs, messages, reads, headers, headerWrites,
+    held: () => held,
     failMail: value => { failMail = value; }, failRead: value => { failRead = value; },
     onMail: callback => { onMail = callback; }, onAcquire: callback => { onAcquire = callback; } };
 }
@@ -332,3 +354,164 @@ test('通信中の台帳変更を結果保存で巻き戻さず、次の通知�
   assert.equal(app.records[0].メニュー, '変更した施術');
   assert.equal(app.held(), false);
 });
+
+for (const native of [true, false]) {
+  const method = native ? 'native' : 'fallback';
+
+  test(`${method}の前日通知は、候補収集と各確保で最新の台帳を一回ずつ読む`, () => {
+    const app = environment({ realSheet: true, native });
+    const before = JSON.stringify(app.records);
+    app.context.sendReminders();
+    assert.deepEqual(app.reads.map(read => read.acquisition), [1, 2, 4]);
+    assert.ok(app.reads.every(read => read.row === 1 && read.height === 3 && read.width === app.headers.length));
+    assert.deepEqual(app.accepted, ['first@example.test', 'second@example.test']);
+    assert.ok(app.messages.every(message => !message.held));
+    assert.equal(JSON.stringify(app.records), before);
+    assert.deepEqual(app.headerWrites, []);
+    assert.deepEqual(JSON.parse(app.properties.get(PROGRESS_KEY)),
+      { date: TARGET, sent: ['LM-REM01', 'LM-REM02'], pending: [] });
+    app.context.sendReminders();
+    assert.deepEqual(app.reads.map(read => read.acquisition), [1, 2, 4, 6]);
+    assert.deepEqual(app.attempts, ['first@example.test', 'second@example.test']);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${method}の旧台帳は列補完後に読み直し、独自列と予約の内容を維持する`, () => {
+    const app = environment({ realSheet: true, native, legacy: true });
+    app.headers.reverse();
+    app.headers.push('店舗独自の欄');
+    app.records[0]['店舗独自の欄'] = '維持する記録';
+    const before = JSON.stringify(app.records);
+    const oldHeaders = app.headers.slice();
+    app.context.sendReminders();
+    assert.deepEqual(app.reads.map(read => read.acquisition), [1, 1, 2, 4]);
+    assert.deepEqual(app.headerWrites, [{ column: oldHeaders.length + 1, values: ['施術メモ'] }]);
+    assert.deepEqual(app.headers, [...oldHeaders, '施術メモ']);
+    assert.equal(JSON.stringify(app.records), before);
+    assert.deepEqual(app.accepted, ['first@example.test', 'second@example.test']);
+    assert.match(app.messages[0].body, /試験 太郎 様[\s\S]*10:00[\s\S]*試験カット/);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${method}の列順変更と5,000件の履歴を省略せず、対象の重複番号も検出する`, () => {
+    const app = environment({ realSheet: true, native });
+    app.headers.reverse();
+    const HISTORY_COUNT = 5000;
+    const history = Array.from({ length: HISTORY_COUNT }, (_, index) => ({
+      予約番号: `LM-HIST${index}`, 来店日: '2029-12-01', 開始: '10:00', 状態: '予約確定'
+    }));
+    app.records.push(...history);
+    const before = JSON.stringify(app.records);
+    app.context.sendReminders();
+    assert.equal(app.reads.length, 3);
+    assert.ok(app.reads.every(read => read.height === HISTORY_COUNT + 3));
+    assert.deepEqual(app.accepted, ['first@example.test', 'second@example.test']);
+    assert.equal(JSON.stringify(app.records), before);
+    app.properties.clear();
+    app.records[HISTORY_COUNT + 1].予約番号 = "'ＬＭ－ＲＥＭ０１";
+    assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+    assert.equal(app.attempts.length, 2);
+    assert.equal(app.properties.size, 0);
+    assert.equal(app.held(), false);
+  });
+
+  for (const change of ['取消', '日時と宛先', '読込失敗']) {
+    test(`${method}は通知通信後の${change}を次の確保で読み直す`, () => {
+      const app = environment({ realSheet: true, native });
+      app.onMail(({ address }) => {
+        if (address !== 'first@example.test') return;
+        app.context.withLedgerLock_(() => {
+          if (change === '取消') app.records[1].状態 = 'キャンセル';
+          else if (change === '日時と宛先') {
+            app.records[1].開始 = '15:00';
+            app.records[1].メール = 'changed@example.test';
+          } else app.failRead(true);
+        });
+      });
+      if (change === '読込失敗') assert.throws(() => app.context.sendReminders(), /読込障害/);
+      else app.context.sendReminders();
+      assert.equal(app.reads.length, 3);
+      assert.deepEqual(app.accepted, change === '日時と宛先'
+        ? ['first@example.test', 'changed@example.test'] : ['first@example.test']);
+      if (change === '日時と宛先') assert.match(app.messages[1].body, /15:00/);
+      assert.deepEqual(JSON.parse(app.properties.get(PROGRESS_KEY)),
+        { date: TARGET, sent: change === '日時と宛先' ? ['LM-REM01', 'LM-REM02'] : ['LM-REM01'], pending: [] });
+      assert.equal(app.held(), false);
+    });
+  }
+
+  test(`${method}の初回取得失敗で、通知も進捗も列補完も実行しない`, () => {
+    const app = environment({ realSheet: true, native });
+    app.failRead(true);
+    assert.throws(() => app.context.sendReminders(), /読込障害/);
+    assert.deepEqual(app.attempts, []);
+    assert.equal(app.properties.size, 0);
+    assert.deepEqual(app.headerWrites, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${method}の重複見出しを新しいsnapshotで正常な台帳に変換しない`, () => {
+    const app = environment({ realSheet: true, native });
+    app.headers.push('来店日');
+    assert.throws(() => app.context.sendReminders(), /見出し/);
+    assert.deepEqual(app.attempts, []);
+    assert.equal(app.properties.size, 0);
+    assert.deepEqual(app.headerWrites, []);
+    assert.equal(app.held(), false);
+  });
+}
+
+for (const state of ['予約確定', 'キャンセル']) {
+  for (const code of ['LM-REM01', "'ＬＭ－ＲＥＭ０１", 'lmrem01']) {
+    test(`別日の${state}行に同じ番号${code}があれば、曖昧な予約を通知しない`, () => {
+      const app = environment({ realSheet: true, native: true });
+      app.records.push({ ...app.records[0], 予約番号: code, 来店日: '2029-12-01', 状態: state });
+      const before = JSON.stringify(app.records);
+      assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+      assert.deepEqual(app.attempts, []);
+      assert.equal(app.properties.size, 0);
+      assert.equal(JSON.stringify(app.records), before);
+      assert.equal(app.held(), false);
+    });
+  }
+}
+
+test('対象外だけの重複番号で、無関係な一意のお客様の通知を止めない', () => {
+  const app = environment({ realSheet: true, native: true });
+  app.records.push(...['LM-OLD', "'ＬＭ－ＯＬＤ"].map(code => ({
+    予約番号: code, 来店日: '2029-12-01', 状態: 'キャンセル'
+  })));
+  app.context.sendReminders();
+  assert.deepEqual(app.accepted, ['first@example.test', 'second@example.test']);
+  assert.equal(app.held(), false);
+});
+
+for (const afterFirstMail of [false, true]) {
+  test(`${afterFirstMail ? '最初の通信後' : '候補収集後'}の重複番号追加も確保前に拒否する`, () => {
+    const app = environment({ realSheet: true, native: true });
+    const addDuplicate = () => app.records.push({ ...app.records[1],
+      来店日: '2029-12-01', 予約番号: "'ＬＭ－ＲＥＭ０２", 状態: 'キャンセル' });
+    if (afterFirstMail) app.onMail(({ address }) => {
+      if (address === 'first@example.test') app.context.withLedgerLock_(addDuplicate);
+    });
+    else app.onAcquire(number => { if (number === 2) addDuplicate(); });
+    assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+    assert.deepEqual(app.accepted, afterFirstMail ? ['first@example.test'] : []);
+    if (afterFirstMail) assert.deepEqual(JSON.parse(app.properties.get(PROGRESS_KEY)),
+      { date: TARGET, sent: ['LM-REM01'], pending: [] });
+    else assert.equal(app.properties.size, 0);
+    assert.equal(app.records.length, 3);
+    assert.equal(app.held(), false);
+  });
+}
+
+for (const code of ['', '---', '番号不明']) {
+  test(`照会できない対象番号${JSON.stringify(code)}を通知済みにしない`, () => {
+    const app = environment({ realSheet: true, native: true });
+    app.records[0].予約番号 = code;
+    assert.throws(() => app.context.sendReminders(), /前日通知.*確認できません/);
+    assert.deepEqual(app.attempts, []);
+    assert.equal(app.properties.size, 0);
+    assert.equal(app.held(), false);
+  });
+}

@@ -4308,15 +4308,19 @@ function saveReminderProgress_(props, progress) {
   if (props.getProperty(REMINDER_PROGRESS_KEY) !== raw) throw userFacingError_(REMINDER_PROGRESS_ERROR);
 }
 
-function reminderRows_(sheet, target) {
-  const col = colIndex_(sheet);
-  const found = new Set();
-  return readRows_(sheet).filter(values => !isCancelled_(values[col('状態')])
+function reminderRows_(sheet, target, snapshot) {
+  snapshot = snapshot || readSheetSnapshot_(sheet, HEADERS);
+  const col = colIndex_(sheet, snapshot.head);
+  const counts = new Map();
+  snapshot.rows.forEach(values => {
+    const key = codeKey_(values[col('予約番号')]);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return snapshot.rows.filter(values => !isCancelled_(values[col('状態')])
     && normalizeDate_(values[col('来店日')]) === target).map(values => {
     const code = halfWidth_(values[col('予約番号')]).replace(/^'/, '').trim().toUpperCase();
     const key = codeKey_(code);
-    if (!/^[A-Z0-9-]{1,20}$/.test(code) || found.has(key)) throw userFacingError_(REMINDER_PROGRESS_ERROR);
-    found.add(key);
+    if (!/^[A-Z0-9-]{1,20}$/.test(code) || !key || counts.get(key) !== 1) throw userFacingError_(REMINDER_PROGRESS_ERROR);
     return { code: code, values: values, col: col };
   });
 }
@@ -4328,7 +4332,9 @@ function sendReminders() {
   const codes = withLedgerLock_(function () {
     const props = PropertiesService.getScriptProperties();
     if (!reminderProgress_(props, target)) return [];
-    return reminderRows_(getSheet_(), target).map(record => record.code);
+    const reservationContext = {};
+    const sheet = getSheet_(reservationContext);
+    return reminderRows_(sheet, target, reservationContext.snapshot).map(record => record.code);
   });
   let sent = 0;
   let unsent = 0;
@@ -4337,7 +4343,10 @@ function sendReminders() {
       const props = PropertiesService.getScriptProperties();
       const progress = reminderProgress_(props, target);
       if (!progress || progress.sent.some(previous => codeKey_(previous) === codeKey_(code))) return;
-      const record = reminderRows_(getSheet_(), target).find(candidate => codeKey_(candidate.code) === codeKey_(code));
+      const reservationContext = {};
+      const sheet = getSheet_(reservationContext);
+      const record = reminderRows_(sheet, target, reservationContext.snapshot)
+        .find(candidate => codeKey_(candidate.code) === codeKey_(code));
       if (!record) return;
       const values = record.values;
       const col = record.col;
