@@ -15,6 +15,17 @@ test('予約を塞がない認証順と前日通知の復旧を一括検査の�
   }
 });
 
+test('前日通知・電話再送・保存中の入力・名簿からの電話受付・模擬変更の旧試験を一括検査から外さない', async () => {
+  const files = ['test/reminders.mjs', 'test/phone-retry.mjs', 'test/admin-save-guard.mjs',
+    'test/customer-phone-guard.mjs', 'test/mock-change.mjs'];
+  for (const file of files) assert.ok(BOOKING_CHECKS.includes(file), file);
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  for (const file of ['test/reminders.mjs', 'test/admin-save-guard.mjs', 'test/customer-phone-guard.mjs', 'test/mock-change.mjs']) {
+    assert.equal(workflow.split("- '" + file + "'").length - 1, 2, 'pushとpull_requestで検査する: ' + file);
+  }
+  assert.equal(workflow.split("- 'test/phone-*.mjs'").length - 1, 2);
+});
+
 test('メモ保存の応答照合と別画面の競合を一括検査から外さない', () => {
   for (const path of ['test/admin-note-conflict.mjs', 'test/admin-note-ack-ui.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path), path);

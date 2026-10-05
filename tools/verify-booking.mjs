@@ -14,7 +14,8 @@ export const BOOKING_CHECKS = Object.freeze([
   'admin-note-conflict', 'admin-note-ack-ui', 'booking-lookup-reads', 'reservation-lookup', 'request-dispatch',
   'booking-write-response', 'booking-clock-boundary', 'admin-change-receipt',
   'site-publication-backend', 'site-publication', 'site-publication-flow', 'publication-cache',
-  'publication-gate', 'publication-write-safety', 'publish-menu-redirect'
+  'publication-gate', 'publication-write-safety', 'publish-menu-redirect',
+  'reminders', 'phone-retry', 'admin-save-guard', 'customer-phone-guard', 'mock-change'
 ].map(name => `test/${name}.mjs`));
 
 export async function verifyBooking({ root = ROOT, output = process.stdout } = {}) {
