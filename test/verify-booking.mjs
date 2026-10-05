@@ -44,6 +44,9 @@ test('並べ替え中の別予約の保存・成功確認を防ぐ検査を一�
 });
 
 const execute = promisify(execFile);
+test('設定保存の狭い読込と不完全な成功応答の拒否を一括検査から外さない', () => {
+  for (const path of ['test/admin-save-scope.mjs', 'test/admin-save-ack.mjs']) assert.ok(BOOKING_CHECKS.includes(path));
+});
 const SCRIPT = `import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { test } from 'node:test';

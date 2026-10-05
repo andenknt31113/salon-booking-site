@@ -2614,7 +2614,12 @@ function doAdminSave_(d) {
   else return { ok: false, error: '不明な保存先です: ' + d.target };
 
   // 保存後の印を返す。続けて保存しても弾かれないように。
-  return { ok: true, stamps: allStamps_(ss) };
+  try {
+    return { ok: true, stamps: d.stampScope === 'target'
+      ? { [d.target]: sheetStamp_(ss, sheetName) } : allStamps_(ss) };
+  } catch (error) {
+    throw Object.assign(userFacingError_('保存の結果を確認できません。保存を繰り返さず、制作担当者へ連絡して保存先を確認してください。'), { unknown: true });
+  }
 }
 
 /* お客様が書いた言葉は、店側からは書き換えられません。

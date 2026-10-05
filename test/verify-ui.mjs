@@ -62,7 +62,7 @@ test('保存バーが休業メモのキーボード操作を隠さないこと�
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 22);
+    assert.equal(UI_CHECKS.length, 23);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);
@@ -70,6 +70,10 @@ test('全対象を架空の認証値で実行し、標準出力・エラーか�
     await assertCleanup(log());
     await assert.rejects(lstat(join(root, '.env')), { code: 'ENOENT' });
   });
+});
+
+test('不完全な保存結果で下書きを消さない検査を画面検査から外さない', () => {
+  assert.ok(UI_CHECKS.includes('test/admin-save-ack-browser.mjs'));
 });
 
 test('複数ファイルを同時起動せず、前のファイルの終了を待つ', async () => {

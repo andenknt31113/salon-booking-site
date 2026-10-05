@@ -10,7 +10,7 @@ export const BOOKING_CHECKS = Object.freeze([
   'booking-cancel-ack', 'booking-cancel-conflict', 'booking-identity-privacy', 'booking-target-consistency', 'admin-auth-boundary',
   'admin-legacy-preflight', 'phone-request-identity', 'phone-booking-ack',
   'booking-write-settings', 'booking-operation-settings', 'admin-note-ack',
-  'admin-upload-lock', 'closed-save-validation', 'request-lock', 'reminder-recovery',
+  'admin-upload-lock', 'closed-save-validation', 'admin-save-scope', 'admin-save-ack', 'request-lock', 'reminder-recovery',
   'admin-note-conflict', 'admin-note-ack-ui', 'booking-lookup-reads', 'reservation-lookup', 'request-dispatch'
 ].map(name => `test/${name}.mjs`));
 

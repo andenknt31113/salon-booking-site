@@ -3237,7 +3237,7 @@ async function save(target) {
   }
   btn.disabled = true;
   btn.textContent = '保存中…';
-  const payload = { type: 'adminSave', target, rows: submitted, stamp: stamps[target] };
+  const payload = { type: 'adminSave', target, rows: submitted, stamp: stamps[target], stampScope: 'target' };
 
   pendingSaves.add(target);
   if (['menus', 'coupons'].includes(target) && typeof invalidatePublicMenuCheck === 'function') invalidatePublicMenuCheck();
@@ -3252,6 +3252,13 @@ async function save(target) {
     btn.textContent = btn.dataset.label;
   }
 
+  if (!res || typeof res !== 'object' || Array.isArray(res) || typeof res.ok !== 'boolean'
+      || (res.ok && (!res.stamps || typeof res.stamps !== 'object' || Array.isArray(res.stamps)
+        || typeof res.stamps[target] !== 'string' || !res.stamps[target].trim()
+        || ['unknown', 'stale', 'transportError', 'authDenied', 'invalid', 'restored'].some(flag => res[flag] === true)))) {
+    res = { ok: false, unknown: true,
+      error: '保存の結果を確認できません。入力は残しています。保存を繰り返さず、制作担当者へ連絡して保存先を確認してください。' };
+  }
   if (!res.ok) {
     showSaveError(target, res.error || '保存に失敗しました。',
       (res.invalidDuration || res.invalidClosed) && Number.isInteger(res.invalidRow) ? res.invalidRow : -1,
@@ -3265,7 +3272,7 @@ async function save(target) {
     }
     return;
   }
-  if (res.stamps && res.stamps[target] != null) stamps[target] = res.stamps[target];
+  stamps[target] = res.stamps[target];
   /* 休業日は予約一覧にも出しているので、保存したらそちらも描き直します。
      保存したのに予定表が前のままだと、保存できたのか分かりません。 */
   if (target === 'closed') {

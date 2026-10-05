@@ -538,7 +538,8 @@ return (req, res) => {
           if (d.target === 'styles') { SHEET_STYLE.length = 0; (d.rows||[]).forEach(r=>SHEET_STYLE.push(r)); }
           if (d.target === 'reviews') { SHEET_REVIEW.length = 0; (d.rows||[]).forEach(r=>SHEET_REVIEW.push(r)); }
           if (d.target === 'settings') SHEET_SETTINGS = d.rows || {};
-          return reply(res, { ok:true, stamps: allStamps() });
+          return reply(res, { ok:true, stamps: d.stampScope === 'target'
+            ? { [d.target]: stampOf(d.target) } : allStamps() });
         }
       }
 
