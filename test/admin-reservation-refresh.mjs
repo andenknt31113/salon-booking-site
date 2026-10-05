@@ -140,7 +140,7 @@ test('予約の更新は軽量取得を使い、編集中の設定・メニュ�
   const menus = app.adminData.menus;
   const stamps = app.adminData.stamps;
   await app.context.refreshReservations();
-  assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true, ifNoneMatch: '' }]);
   assert.equal(app.adminData.reservations[0].code, 'LM-NEW');
   assert.deepEqual(app.adminData.closedDates, []);
   assert.equal(app.adminData.menus, menus);
@@ -155,7 +155,7 @@ test('詳細未取得の起動データを更新する場合だけ軽量な過�
   app.adminData.reservations[0].detailsPending = true;
   const menus = app.adminData.menus;
   await app.context.refreshReservations();
-  assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true, briefPast: true }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true, ifNoneMatch: '', briefPast: true }]);
   assert.equal(app.adminData.reservations.length, 2);
   assert.equal(app.adminData.reservations[0].detailsPending, true);
   assert.equal(app.adminData.menus, menus);

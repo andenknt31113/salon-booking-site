@@ -91,7 +91,8 @@ for (const design of ['', '?design=a']) {
         assert.equal(await page.locator('#ab-price').inputValue(), '6900');
         assert.deepEqual(await page.evaluate(() => window.fixtureRequests), [
           { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true },
-          { type: 'adminData', reservationsOnly: true }, { type: 'adminData', reservationsOnly: true }
+          { type: 'adminData', reservationsOnly: true, ifNoneMatch: '' },
+          { type: 'adminData', reservationsOnly: true, ifNoneMatch: '' }
         ]);
         const width = await page.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: window.innerWidth }));
         assert.ok(width.page <= width.viewport, '390pxで横にはみ出さない');

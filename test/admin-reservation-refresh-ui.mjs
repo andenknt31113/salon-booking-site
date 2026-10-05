@@ -29,7 +29,8 @@ async function withAdmin(design, run, allowedWrites = []) {
     assert.equal(new URL(request.url()).origin, base, '外部サービスへ接続しない');
     if (request.url() === base + '/exec' && request.method() === 'POST') {
       const payload = JSON.parse(request.postData());
-      requests.push({ type: payload.type, reservationsOnly: payload.reservationsOnly === true });
+      requests.push({ type: payload.type, reservationsOnly: payload.reservationsOnly === true,
+        ...(Object.hasOwn(payload, 'ifNoneMatch') ? { ifNoneMatch: payload.ifNoneMatch } : {}) });
       if (payload.type === 'adminData' && payload.reservationsOnly === true) {
         if (control.gate) await control.gate;
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify(control.response) });
@@ -96,7 +97,7 @@ for (const design of ['', '?design=a']) {
       await page.locator('#ab-name').fill('電話受付の書きかけ');
       await page.locator('#refresh-reservations').click();
       await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
-      assert.deepEqual(requests, [{ type: 'adminData', reservationsOnly: true }]);
+      assert.deepEqual(requests, [{ type: 'adminData', reservationsOnly: true, ifNoneMatch: '' }]);
       assert.match(await page.locator(`[data-code="${booking.code}"]`).innerText(), /更新後の試験客/);
       assert.equal(await page.locator('#ab-name').inputValue(), '電話受付の書きかけ');
       assert.equal(await page.evaluate(() => JSON.stringify({ edits, stamps: adminData.stamps, menus: adminData.menus })), before);
@@ -126,6 +127,43 @@ for (const design of ['', '?design=a']) {
       await page.locator('#refresh-reservations').click();
       assert.equal(requests.length, requested, '書きかけがある間は追加取得しない');
       assert.match(await page.locator('#reservation-freshness').innerText(), /編集中/);
+    });
+  });
+
+  test(`変更なし応答でも全履歴・休業・電話入力を保持する ${design || '従来版'}`, async () => {
+    await withAdmin(design, async ({ page, booking, control, requests }) => {
+      const version = 'a'.repeat(64);
+      control.response.refreshVersion = version;
+      await page.locator('#refresh-reservations').click();
+      await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+      assert.equal(await page.evaluate(() => adminData.refreshVersion), version);
+      await page.locator('#add-booking').click();
+      await page.locator('#ab-name').fill('電話受付の書きかけ');
+      const before = await page.evaluate(() => JSON.stringify({ adminData, edits }));
+      control.response = { ok: true, unchanged: true, refreshVersion: version };
+      await page.locator('#refresh-reservations').click();
+      await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+      assert.deepEqual(requests, [{ type: 'adminData', reservationsOnly: true, ifNoneMatch: '' },
+        { type: 'adminData', reservationsOnly: true, ifNoneMatch: version }]);
+      assert.equal(await page.evaluate(() => JSON.stringify({ adminData, edits })), before);
+      assert.match(await page.locator(`[data-code="${booking.code}"]`).innerText(), /更新後の試験客/);
+      assert.equal(await page.locator('#ab-name').inputValue(), '電話受付の書きかけ');
+      assert.match(await page.locator('#reservation-freshness').innerText(), /最終読込/);
+    });
+  });
+
+  test(`一致しない版の変更なし応答を成功扱いせず、予定を保持する ${design || '従来版'}`, async () => {
+    await withAdmin(design, async ({ page, booking, control }) => {
+      control.response.refreshVersion = 'a'.repeat(64);
+      await page.locator('#refresh-reservations').click();
+      await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+      const before = await page.evaluate(() => JSON.stringify(adminData));
+      control.response = { ok: true, unchanged: true, refreshVersion: 'b'.repeat(64) };
+      await page.locator('#refresh-reservations').click();
+      await page.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+      assert.equal(await page.evaluate(() => JSON.stringify(adminData)), before);
+      assert.match(await page.locator(`[data-code="${booking.code}"]`).innerText(), /更新後の試験客/);
+      assert.match(await page.locator('#reservation-freshness').innerText(), /取得できません/);
     });
   });
 }

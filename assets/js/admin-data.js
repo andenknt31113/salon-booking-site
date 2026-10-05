@@ -5,9 +5,11 @@ const AdminData = (() => {
   const values = value => record(value) && Object.values(value).every(scalar);
   const rows = (value, key) => Array.isArray(value)
     && value.every(row => values(row) && Object.hasOwn(row, key));
+  const version = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 
   function validRefresh(result) {
-    return record(result) && result.ok === true && Array.isArray(result.reservations)
+    return record(result) && result.ok === true && result.unchanged === undefined
+        && (result.refreshVersion === undefined || version(result.refreshVersion)) && Array.isArray(result.reservations)
         && result.reservations.every(row => values(row)
           && typeof row.code === 'string' && row.code.trim()
           && ['date', 'time', 'endTime', 'name', 'tel', 'status'].every(key => typeof row[key] === 'string')
@@ -16,6 +18,12 @@ const AdminData = (() => {
             || row.detailsPending === true && row.note === undefined && row.request === undefined))
         && new Set(result.reservations.map(row => row.code)).size === result.reservations.length
         && rows(result.closedDates, '休業日') && result.closedDates.every(row => typeof row.休業日 === 'string');
+  }
+
+  function validUnchangedRefresh(result, expectedVersion) {
+    return record(result) && result.ok === true && result.unchanged === true
+      && version(expectedVersion) && result.refreshVersion === expectedVersion
+      && Object.keys(result).every(key => ['ok', 'unchanged', 'refreshVersion'].includes(key));
   }
 
   function validStartup(result) {
@@ -39,5 +47,5 @@ const AdminData = (() => {
         || typeof result.capabilities[key] === 'boolean');
   }
 
-  return Object.freeze({ validStartup, validRefresh });
+  return Object.freeze({ validStartup, validRefresh, validUnchangedRefresh });
 })();

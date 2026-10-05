@@ -3594,10 +3594,13 @@ async function refreshReservations() {
   button.disabled = true;
   status.textContent = '最新の予定を読み込んでいます。';
   try {
+    const ifNoneMatch = adminData.refreshVersion || '';
     const result = await adminPost({ type: 'adminData', reservationsOnly: true,
+      ifNoneMatch,
       ...(hasPendingReservationDetails() ? { briefPast: true } : {}) });
     if (generation !== dashboardGeneration) return;
-    if (!validReservationRefresh(result)) throw new Error('読み込み失敗');
+    const unchanged = AdminData.validUnchangedRefresh(result, ifNoneMatch);
+    if (!unchanged && !validReservationRefresh(result)) throw new Error('読み込み失敗');
     if (hasUnsavedReservationNotes() || activeChange) {
       status.textContent = '編集中の予約があるため更新を保留しました。保存後に読み込んでください。';
       return;
@@ -3607,8 +3610,11 @@ async function refreshReservations() {
       status.textContent = '読み込み中に予定や休業設定が変わったため、更新を保留しました。現在の表示を保持しています。もう一度読み込んでください。';
       return;
     }
-    adminData.reservations = result.reservations || [];
-    adminData.closedDates = result.closedDates || [];
+    if (!unchanged) {
+      adminData.reservations = result.reservations;
+      adminData.closedDates = result.closedDates;
+      adminData.refreshVersion = result.refreshVersion || '';
+    }
     renderStats();
     renderReservations();
     renderAdminCalendar();

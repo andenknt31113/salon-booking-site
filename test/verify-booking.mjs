@@ -32,6 +32,14 @@ test('メモ保存の応答照合と別画面の競合を一括検査から外�
   }
 });
 
+test('条件付き予定更新の台帳検査と画面の保持を恒久検査から外さない', async () => {
+  for (const file of ['test/admin-conditional-refresh-backend.mjs', 'test/admin-conditional-refresh.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(file), file);
+  }
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  assert.equal(workflow.split("- 'test/admin-conditional-refresh*.mjs'").length - 1, 2);
+});
+
 test('予約確認の本人照合と狭い読込を一括検査から外さない', () => {
   for (const path of ['test/booking-lookup-reads.mjs', 'test/reservation-lookup.mjs', 'test/request-dispatch.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path));

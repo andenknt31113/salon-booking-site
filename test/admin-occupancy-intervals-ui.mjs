@@ -154,7 +154,7 @@ for (const design of ['', '?design=a']) {
       }
       assert.deepEqual(await page.evaluate(() => window.fixtureRequests), [
         { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true },
-        { type: 'adminData', reservationsOnly: true }
+        { type: 'adminData', reservationsOnly: true, ifNoneMatch: '' }
       ]);
       assert.deepEqual(errors, []);
       assert.deepEqual(unexpected, []);

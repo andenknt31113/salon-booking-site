@@ -2351,7 +2351,7 @@ function doAdminData_(d) {
   requireAdmin_(d);
   const hasPhoneCatalog = Object.prototype.hasOwnProperty.call(d, 'phoneCatalogOnly');
   if (hasPhoneCatalog && (d.phoneCatalogOnly !== true
-      || ['notificationsOnly', 'reservationsOnly', 'reservationCodes', 'editorTarget', 'startupOnly', 'briefPast', 'deferMenus']
+      || ['notificationsOnly', 'reservationsOnly', 'reservationCodes', 'editorTarget', 'startupOnly', 'briefPast', 'deferMenus', 'ifNoneMatch']
         .some(key => Object.prototype.hasOwnProperty.call(d, key)))) {
     return { ok: false, error: '電話予約のメニュー取得を確認できません。管理画面を読み込み直してください。' };
   }
@@ -2361,6 +2361,14 @@ function doAdminData_(d) {
       || d.reservationCodes.some(code => typeof code !== 'string' || !code.trim())
       || new Set(d.reservationCodes).size !== d.reservationCodes.length)) {
     return { ok: false, error: '取得する予約番号を確認できません。管理画面を読み込み直してください。' };
+  }
+  const conditionalRefresh = Object.prototype.hasOwnProperty.call(d, 'ifNoneMatch');
+  if (conditionalRefresh && (d.reservationsOnly !== true || typeof d.ifNoneMatch !== 'string'
+      || !/^(?:[a-f0-9]{64})?$/.test(d.ifNoneMatch)
+      || ['notificationsOnly', 'startupOnly', 'deferMenus', 'editorTarget', 'reservationCodes']
+        .some(key => Object.prototype.hasOwnProperty.call(d, key))
+      || d.briefPast !== undefined && typeof d.briefPast !== 'boolean')) {
+    return { ok: false, error: '予定の更新確認を読み取れません。管理画面を読み込み直してください。' };
   }
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const headersByTarget = { menus: MENU_HEADERS, coupons: COUPON_HEADERS, styles: STYLE_HEADERS,
@@ -2379,7 +2387,15 @@ function doAdminData_(d) {
   if (d.notificationsOnly === true) return readAdminNotifications_(ss);
   if (d.reservationsOnly === true) {
     const result = readAdminReservations_(ss, hasReservationCodes ? d.reservationCodes : undefined);
-    if (d.briefPast === true && result.ok) result.reservations = briefPastReservations_(result.reservations);
+    const briefDay = d.briefPast === true && result.ok ? todayKey_() : null;
+    const versionSource = conditionalRefresh && result.ok ? JSON.stringify([result, briefDay]) : '';
+    if (briefDay) result.reservations = briefPastReservations_(result.reservations, briefDay);
+    if (conditionalRefresh && result.ok) {
+      const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, versionSource, Utilities.Charset.UTF_8);
+      const version = bytes.map(byte => ((byte & 0xFF) + 0x100).toString(16).slice(1)).join('');
+      if (d.ifNoneMatch === version) return { ok: true, unchanged: true, refreshVersion: version };
+      result.refreshVersion = version;
+    }
     return result;
   }
   if (d.editorTarget !== undefined) {
@@ -2445,8 +2461,7 @@ function doAdminData_(d) {
   return result;
 }
 
-function briefPastReservations_(reservations) {
-  const today = todayKey_();
+function briefPastReservations_(reservations, today = todayKey_()) {
   reservations.forEach(reservation => {
     if (!validDateKey_(reservation.date) || reservation.date >= today
         || (!reservation.note && !reservation.request)) return;

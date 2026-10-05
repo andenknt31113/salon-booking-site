@@ -135,7 +135,10 @@ for (const response of [{ ok: true, unknown: true }, { ok: false, unknown: true,
     withPage(async ({ page, writes, dialogs }) => {
       const original = await saveOriginal(page);
       await page.goto(base + '/mypage.html');
-      await page.locator('[data-change]').click();
+      await Promise.all([
+        page.waitForURL(base + '/reserve.html?change=1'),
+        page.locator('[data-change]').click()
+      ]);
       await page.waitForFunction(() => Catalog.loaded && Remote.loaded && changing !== null);
       await page.locator('#cal-body .slot:not(:disabled)').last().click();
       await page.locator('#step-cta button').click();
@@ -204,7 +207,10 @@ test('正常な日時変更は変更後の日時だけを成立済みとして�
   withPage(async ({ page, writes }) => {
     const original = await saveOriginal(page);
     await page.goto(base + '/mypage.html');
-    await page.locator('[data-change]').click();
+    await Promise.all([
+      page.waitForURL(base + '/reserve.html?change=1'),
+      page.locator('[data-change]').click()
+    ]);
     await page.waitForFunction(() => Catalog.loaded && Remote.loaded && changing !== null);
     await page.locator('#cal-body .slot:not(:disabled)').last().click();
     await page.locator('#step-cta button').click();

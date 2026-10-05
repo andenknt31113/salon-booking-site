@@ -155,7 +155,7 @@ test('詳細の未取得印と全量のメモを区別し、更新だけでメ�
   assert.equal(await app.run(result), true);
   assert.equal(app.context.adminData.reservations[0].detailsPending, true);
   assert.deepEqual(app.context.adminData.settings, { 値: '保持する設定' });
-  assert.deepEqual(app.requests, [{ type: 'adminData', reservationsOnly: true }]);
+  assert.deepEqual(app.requests, [{ type: 'adminData', reservationsOnly: true, ifNoneMatch: '' }]);
   assert.equal(app.validate({ ...result, reservations: [{ ...pending, note: '' }] }), false);
   assert.equal(app.validate({ ...result, reservations: [{ ...pending, detailsPending: false }] }), false);
 });
