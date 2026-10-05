@@ -60,6 +60,15 @@ test('日常操作の画面試験を旧ログインへ戻さず、Google管理br
   assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
 });
 
+test('施術メモの結果不明・下書き保護もGoogle管理bridgeで検査し、旧ログインへ戻さない', async () => {
+  assert.ok(UI_CHECKS.includes('test/admin-note-ack-browser.mjs'));
+  const source = await readFile(new URL('./admin-note-ack-browser.mjs', import.meta.url), 'utf8');
+  assert.match(source, /src="admin\.html\?google=1/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /googleAdminEmbedded/);
+  assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
 test('お客様の照会結果と端末上の予約表示の同期を画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/mypage-lookup-sync.mjs'));
 });
