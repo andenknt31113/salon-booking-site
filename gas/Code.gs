@@ -775,8 +775,8 @@ function isClosedWeekday_(sheet, dateKey, settings) {
 }
 
 /** 今日（日本時間）の yyyy-MM-dd */
-function todayKey_() {
-  return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+function todayKey_(now) {
+  return Utilities.formatDate(now || new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 }
 
 /* yyyy-MM-dd を「通し日数」に直す。日付どうしの引き算に使います。
@@ -816,8 +816,8 @@ function or_(v, alt, limit) {
 }
 
 /** いま何時何分か（日本時間・0時からの分） */
-function nowMinJst_() {
-  return timeToMin_(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm')) || 0;
+function nowMinJst_(now) {
+  return timeToMin_(Utilities.formatDate(now || new Date(), 'Asia/Tokyo', 'HH:mm')) || 0;
 }
 
 /* 予約の内容を確かめる。問題があれば理由を返します。
@@ -830,7 +830,8 @@ function checkReserve_(sheet, d, settings) {
   if (!validDateKey_(date)) {
     return '来店日が正しくありません。';
   }
-  const ahead = dayNo_(date) - dayNo_(todayKey_());
+  const now = new Date();
+  const ahead = dayNo_(date) - dayNo_(todayKey_(now));
   if (ahead < 0) return 'すでに過ぎた日付です。';
   if (ahead > BOOKABLE_DAYS) return `ご予約は${BOOKABLE_DAYS}日先まで承っております。`;
 
@@ -856,7 +857,7 @@ function checkReserve_(sheet, d, settings) {
   /* 直前すぎる予約。画面は2時間前で締めていますが、
      しばらく開きっぱなしだった画面からは、締めたあとの枠も送られてきます。
      30分後の予約が入っても、店は気づけないまま席を空けられません。 */
-  const untilMin = ahead * 1440 + start - nowMinJst_();
+  const untilMin = ahead * 1440 + start - nowMinJst_(now);
   if (untilMin < MIN_LEAD_HOURS * 60 - LEAD_GRACE_MINUTES) {
     return `当日のご予約は${MIN_LEAD_HOURS}時間前までとなっております。お手数ですが店舗までお電話ください。`;
   }
@@ -1729,13 +1730,15 @@ function doAdminChange_(sheet, d) {
     return { ok: false, stale: true, error: '別の画面で予約日時が変わりました。最新の予定を確認してください。' };
   }
   if (isCancelled_(before[col('状態')])) return { ok: false, error: 'キャンセル済みのご予約は変更できません。' };
-  if (dayNo_(oldDate) < dayNo_(todayKey_())) {
+  const now = new Date();
+  const today = todayKey_(now);
+  if (dayNo_(oldDate) < dayNo_(today)) {
     return { ok: false, error: '過ぎたご予約の日時は変更できません。' };
   }
   if (normalizeDate_(d.date) === oldDate && normalizeTime_(d.time) === oldTime) {
     return { ok: false, error: '変更前と同じ日時です。' };
   }
-  if (normalizeDate_(d.date) === todayKey_() && timeToMin_(normalizeTime_(d.time)) < nowMinJst_()) {
+  if (normalizeDate_(d.date) === today && timeToMin_(normalizeTime_(d.time)) < nowMinJst_(now)) {
     return { ok: false, error: 'すでに過ぎた時刻には変更できません。' };
   }
   const changed = doChange_(sheet, d);
@@ -1796,14 +1799,15 @@ function doChange_(sheet, d) {
   /* 変更先も、新規予約と同じ条件で確かめます。
      ここを見ていないと「予約は今日以降しか取れないのに、
      変更なら過去や営業時間外に動かせる」という抜け道になります。 */
-  const ahead = dayNo_(newDate) - dayNo_(todayKey_());
+  const now = new Date();
+  const ahead = dayNo_(newDate) - dayNo_(todayKey_(now));
   if (ahead < 0) return { ok: false, invalid: true, error: 'すでに過ぎた日付には変更できません。' };
   if (ahead > BOOKABLE_DAYS) {
     return { ok: false, invalid: true, error: `ご予約は${BOOKABLE_DAYS}日先まで承っております。` };
   }
   const startMin = timeToMin_(newTime);
   if (startMin == null) return { ok: false, invalid: true, error: '開始時刻が正しくありません。' };
-  const untilMin = ahead * 1440 + startMin - nowMinJst_();
+  const untilMin = ahead * 1440 + startMin - nowMinJst_(now);
   if (!admin && untilMin < MIN_LEAD_HOURS * 60 - LEAD_GRACE_MINUTES) {
     return { ok: false, invalid: true, error: `当日のご予約は${MIN_LEAD_HOURS}時間前までとなっております。お手数ですが店舗までお電話ください。` };
   }
