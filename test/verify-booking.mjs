@@ -43,6 +43,10 @@ test('日付をまたぐ受付で過去の枠を保存しない検査を一括�
   assert.ok(BOOKING_CHECKS.includes('test/booking-clock-boundary.mjs'));
 });
 
+test('日時変更の結果不明・保存内容の照合・再送防止を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/admin-change-receipt.mjs'));
+});
+
 test('本人照合の失敗から予約の存在・状態を明かさない検査を一括検査から外さない', () => {
   assert.ok(BOOKING_CHECKS.includes('test/booking-identity-privacy.mjs'));
 });

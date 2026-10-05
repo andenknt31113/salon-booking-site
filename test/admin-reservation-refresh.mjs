@@ -108,7 +108,8 @@ test('正常な空台帳と休業シート未作成は、予約・休業とも�
 });
 
 function clientFixture(response) {
-  const selected = ['validReservationRefresh', 'hasPendingReservationDetails', 'hasUnsavedReservationNotes', 'refreshReservations', 'checkAdminChange'];
+  const selected = ['validReservationRefresh', 'validAdminChangeResponse', 'validAdminChangeReservation',
+    'hasPendingReservationDetails', 'hasUnsavedReservationNotes', 'refreshReservations', 'checkAdminChange'];
   const functions = selected.map(name => {
     const match = adminSource.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, 'm'));
     return match ? match[0] : '';
@@ -121,6 +122,8 @@ function clientFixture(response) {
     menus: [{ 名称: '入力中メニュー' }], stamps: { closed: 'old-stamp' } };
   const edits = { settings: [{ value: '未保存の設定' }] };
   const context = vm.createContext({ adminData, edits, activeChange: null, dashboardGeneration: 1,
+    toMinutes: value => { const parts = value.split(':').map(Number); return parts[0] * 60 + parts[1]; },
+    isCancelled: row => row.status === 'キャンセル',
     pendingNoteSaves: new Set(), $: selector => selector === '#reservation-freshness' ? status : button,
     $$: () => [], adminPost: async request => { requests.push(request); return response; },
     renderStats() {}, renderReservations() {}, renderAdminCalendar() {}, renderCustomers() {}, renderNumbers() {},
@@ -210,8 +213,11 @@ test('欠けた取得応答で表示中の予約・休業を消さず、再確�
 });
 
 test('日時変更の結果確認も軽量取得で行い、編集中データを再取得しない', async () => {
-  const app = clientFixture({ ok: true, reservations: [{ ...CLIENT_BOOKING, date: '2030-01-04', time: '14:00' }], closedDates: [] });
-  app.context.activeChange = { code: 'LM-FRESH', date: '2030-01-04', time: '14:00', pending: false };
+  const app = clientFixture({ ok: true, reservations: [{ ...CLIENT_BOOKING, date: '2030-01-04', time: '14:00', endTime: '15:00',
+    menu: '試験カット', staffName: '試験担当', email: 'example@example.invalid', visit: '', source: '',
+    request: '', note: '保存したメモ', shopMailStatus: '', customerMailStatus: '' }], closedDates: [] });
+  app.context.activeChange = { code: 'LM-FRESH', date: '2030-01-04', time: '14:00',
+    fromTime: '10:00', fromEndTime: '11:00', pending: false };
   await app.context.checkAdminChange(app.checkButton);
   assert.deepEqual(JSON.parse(JSON.stringify(app.requests)), [{ type: 'adminData', reservationsOnly: true }]);
   assert.equal(app.context.activeChange, null);

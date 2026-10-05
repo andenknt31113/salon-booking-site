@@ -888,7 +888,7 @@ function openAdminChange(button) {
   if (!reservation || isCancelled(reservation) || reservation.date < toKey(new Date())) return;
   const card = button.closest('.booking-card');
   if (!card) return;
-  activeChange = { code: reservation.code, fromDate: reservation.date, fromTime: reservation.time,
+  activeChange = { code: reservation.code, fromDate: reservation.date, fromTime: reservation.time, fromEndTime: reservation.endTime,
     date: reservation.date, time: reservation.time, pending: false, uncertain: false };
   const editor = document.createElement('div');
   editor.className = 'admin-change-editor';
@@ -938,6 +938,27 @@ function showChangedReservation(reservation) {
   focusBooking(reservation.code);
 }
 
+function validAdminChangeResponse(result) {
+  const flags = ['unknown', 'transportError', 'stale', 'restored', 'invalid', 'authDenied', 'taken', 'closed', 'deadline', 'cancelled'];
+  return result !== null && typeof result === 'object' && !Array.isArray(result)
+    && typeof result.ok === 'boolean'
+    && flags.every(flag => result[flag] === undefined || typeof result[flag] === 'boolean')
+    && (result.error === undefined || typeof result.error === 'string')
+    && (!result.ok || !result.error && !flags.some(flag => result[flag] === true));
+}
+
+function validAdminChangeReservation(reservation, changing) {
+  if (!validReservationRefresh({ ok: true, reservations: [reservation], closedDates: [] })
+      || reservation.detailsPending === true || isCancelled(reservation)
+      || reservation.code !== changing.code || reservation.date !== changing.date || reservation.time !== changing.time
+      || !['menu', 'staffName', 'email', 'visit', 'source', 'request', 'note']
+        .every(field => typeof reservation[field] === 'string')) return false;
+  const times = [changing.fromTime, changing.fromEndTime, reservation.time, reservation.endTime];
+  if (!times.every(time => typeof time === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time))) return false;
+  const duration = toMinutes(changing.fromEndTime) - toMinutes(changing.fromTime);
+  return duration > 0 && toMinutes(reservation.endTime) - toMinutes(reservation.time) === duration;
+}
+
 async function saveAdminChange(button) {
   if (!activeChange || activeChange.pending || activeChange.uncertain) return;
   const editor = button.closest('[data-change-editor]');
@@ -953,23 +974,31 @@ async function saveAdminChange(button) {
     return;
   }
   const changing = activeChange;
+  const generation = dashboardGeneration;
   changing.pending = true;
   const confirmed = await confirmReservationAction('予約日時の変更',
     `予約番号 ${changing.code}\n変更前：${changing.fromDate} ${changing.fromTime}\n変更後：${date} ${time}\n予約番号と所要時間は変わりません。`, 'この日時へ変更する');
   changing.pending = false;
-  if (!confirmed || activeChange !== changing || !button.isConnected) return;
-  activeChange.date = date;
-  activeChange.time = time;
-  activeChange.pending = true;
+  if (!confirmed || generation !== dashboardGeneration || activeChange !== changing || !button.isConnected) return;
+  changing.date = date;
+  changing.time = time;
+  changing.pending = true;
   editor.querySelectorAll('input, select, button').forEach(field => { field.disabled = true; });
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = true; });
   status.textContent = '台帳へ保存しています…';
-  const result = await adminPost({ type: 'adminChange', code: activeChange.code,
-    fromDate: activeChange.fromDate, fromTime: activeChange.fromTime, date, time });
-  activeChange.pending = false;
+  let result;
+  try {
+    result = await adminPost({ type: 'adminChange', code: changing.code,
+      fromDate: changing.fromDate, fromTime: changing.fromTime, date, time });
+  } catch {
+    result = null;
+  }
+  changing.pending = false;
+  if (generation !== dashboardGeneration || activeChange !== changing || !button.isConnected) return;
   editor.querySelectorAll('input, select, button').forEach(field => { field.disabled = false; });
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = false; });
-  if (result.ok && result.reservation?.code === activeChange.code) {
+  const validResponse = validAdminChangeResponse(result);
+  if (validResponse && result.ok && validAdminChangeReservation(result.reservation, changing)) {
     showChangedReservation(result.reservation);
     const calendarNotice = result.calendarWarning
       ? ' カレンダー連携は未確認です。予約台帳を正として制作担当者へお知らせください。' : '';
@@ -977,11 +1006,11 @@ async function saveAdminChange(button) {
     if (await refreshReservations()) $('#reservation-freshness').textContent = '日時を保存し、最新の予定を読み込みました。' + calendarNotice;
     return;
   }
-  if (result.transportError || result.stale || result.ok) {
-    activeChange.uncertain = true;
+  if (!validResponse || result.transportError || result.unknown || result.stale || result.ok) {
+    changing.uncertain = true;
     editor.querySelector('[data-change-save]').disabled = true;
     editor.querySelector('[data-change-check]').hidden = false;
-    status.textContent = result.stale
+    status.textContent = result?.stale === true
       ? '別の画面で日時が変わった可能性があります。保存し直さず、最新の予定を確認してください。'
       : '保存結果を確認できません。もう一度保存せず、最新の予定を確認してください。';
     return;
@@ -1041,7 +1070,7 @@ async function checkAdminChange(button) {
   button.disabled = false;
   if (generation !== dashboardGeneration || activeChange !== changing) return;
   $$('[data-note-input], [data-note-save]').forEach(field => { field.disabled = false; });
-  if (!validReservationRefresh(result)) {
+  if (!validAdminChangeResponse(result) || !validReservationRefresh(result)) {
     status.textContent = '台帳を確認できませんでした。再送せず、時間をおいて確認してください。';
     return;
   }
@@ -1055,11 +1084,15 @@ async function checkAdminChange(button) {
     status.textContent = '予約が見つかりません。保存し直さず、制作担当者へご連絡ください。';
     return;
   }
-  if (live.date === activeChange.date && live.time === activeChange.time) {
+  if (validAdminChangeReservation(live, changing)) {
     adminData.reservations = result.reservations;
     adminData.closedDates = result.closedDates || [];
     showChangedReservation(live);
     $('#reservation-freshness').textContent = '台帳で変更後の日時を確認しました。';
+    return;
+  }
+  if (live.date === changing.date && live.time === changing.time) {
+    status.textContent = '台帳の日時は変更後ですが、所要時間や予約内容を確認できません。保存し直さず、制作担当者へご連絡ください。';
     return;
   }
   status.textContent = live.date === activeChange.fromDate && live.time === activeChange.fromTime

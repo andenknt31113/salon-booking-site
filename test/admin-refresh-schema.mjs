@@ -10,7 +10,8 @@ const BOOKING = { code: 'LM-SCHEMA', date: '2030-01-05', time: '10:00', endTime:
   menu: '架空カット', staffName: '架空担当', email: '', visit: '', source: '',
   shopMailStatus: '', customerMailStatus: '', note: '保存済みのメモ', request: '' };
 const snapshot = () => ({ ok: true, reservations: [{ ...BOOKING }], closedDates: [] });
-const definitions = ['validReservationRefresh', 'hasPendingReservationDetails', 'hasUnsavedReservationNotes',
+const definitions = ['validReservationRefresh', 'validAdminChangeResponse', 'validAdminChangeReservation',
+  'hasPendingReservationDetails', 'hasUnsavedReservationNotes',
   'refreshReservations', 'checkAdminChange', 'loadReservationDetails'].map(name => {
   const match = SOURCE.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, 'm'));
   assert.ok(match, `${name} の実装が必要です`);
@@ -32,6 +33,8 @@ function fixture(operation = '予定更新') {
     closedDates: [{ 休業日: '2030-01-06', 開始: '', 終了: '', メモ: '保存済みの休業' }],
     menus: [{ メニュー名: '保持するメニュー' }], settings: { 値: '保持する設定' }, stamps: { closed: '0' } },
     dashboardGeneration: 1, pendingNoteSaves: new Set(), activeChange: null,
+    toMinutes: value => { const parts = value.split(':').map(Number); return parts[0] * 60 + parts[1]; },
+    isCancelled: row => row.status === 'キャンセル',
     reservationDetailsRead: null, reservationDetailsError: '', scopedDetailsReads: new Map(),
     $: selector => selector === '#reservation-freshness' ? status : button, $$: () => [],
     adminPost: async payload => { requests.push(JSON.parse(JSON.stringify(payload))); return context.response; },
@@ -48,7 +51,7 @@ function fixture(operation = '予定更新') {
       if (operation === '予定更新') return context.refreshReservations();
       if (operation === '履歴取得') return context.loadReservationDetails();
       context.activeChange = { code: BOOKING.code, date: BOOKING.date, time: BOOKING.time,
-        fromDate: '2030-01-04', fromTime: '12:00', pending: false, uncertain: true };
+        fromDate: '2030-01-04', fromTime: '12:00', fromEndTime: '13:00', pending: false, uncertain: true };
       return context.checkAdminChange(button);
     }
   };
