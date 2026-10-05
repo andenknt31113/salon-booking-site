@@ -9,7 +9,7 @@ const QUEUE_HEADERS = ['通知ID', '予約照合', '配送内容'];
 const FIXED_TIME = Date.parse('2030-01-01T10:00:00+09:00');
 const BOOKING_CODE = 'LMSNAPSHOT';
 
-function fixture({ native = true } = {}) {
+function fixture({ native = true, realSheet = false } = {}) {
   const calls = [];
   const writes = [];
   const sent = [];
@@ -17,6 +17,9 @@ function fixture({ native = true } = {}) {
   let failing = false;
   let afterHeader;
   let beforeSnapshot;
+  let afterRelease;
+  let onSend;
+  let ledgerFailure = false;
   const properties = new Map([['BOOKING_EMAIL_QUEUE_ENABLED', 'true']]);
   const sheets = new Map();
   const spreadsheet = { getSheetByName: name => sheets.get(name) || null };
@@ -30,6 +33,7 @@ function fixture({ native = true } = {}) {
     const range = (row, column, height = 1, columns = 1) => ({
       getValues() {
         record(name, 'getValues');
+        if (ledgerFailure && name === '予約一覧') throw new Error('架空の台帳読込障害');
         if (failing && name === '予約メール配送') throw new Error('架空の配送読込障害');
         if (name === '予約メール配送' && row === 1 && height > 1 && beforeSnapshot) {
           const action = beforeSnapshot;
@@ -49,7 +53,15 @@ function fixture({ native = true } = {}) {
         record(name, 'setValue');
         writes.push({ name, row, column });
         cells[row - 1][column - 1] = value;
-      }
+      },
+      setValues(values) {
+        record(name, 'setValues');
+        values.forEach((line, rowIndex) => line.forEach((value, columnIndex) => {
+          cells[row - 1 + rowIndex] ||= [];
+          cells[row - 1 + rowIndex][column - 1 + columnIndex] = value;
+        }));
+        return this;
+      }, setFontWeight() { return this; }, setBackground() { return this; }
     });
     const sheet = { cells, getParent: () => spreadsheet,
       getLastRow() { record(name, 'getLastRow'); return cells.length; },
@@ -65,12 +77,17 @@ function fixture({ native = true } = {}) {
   };
   const context = vm.createContext({ Date,
     console: { log() {}, warn() {}, error() {} },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties.get(key) || null }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties.get(key) || null,
+      setProperty: (key, value) => properties.set(key, value) }) },
     LockService: { getScriptLock: () => ({ waitLock() { assert.equal(held, false); held = true; },
-      releaseLock() { assert.equal(held, true); held = false; } }) },
+      releaseLock() { assert.equal(held, true); held = false; if (afterRelease) afterRelease(); } }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() { assert.equal(held, true); } },
     Utilities: { getUuid: randomUUID },
-    MailApp: { sendEmail(...arguments_) { sent.push(arguments_); } }
+    MailApp: { sendEmail(...arguments_) {
+      assert.equal(held, false, 'メール送信で予約の台帳lockを保持しない');
+      sent.push(arguments_);
+      if (onSend) onSend();
+    } }
   });
   vm.runInContext(SOURCE, context);
   const bookingHeaders = Array.from(vm.runInContext('HEADERS', context));
@@ -80,7 +97,7 @@ function fixture({ native = true } = {}) {
     メール: 'customer@example.test', 状態: '予約確定' })[header] ?? '');
   const booking = makeSheet('予約一覧', [bookingHeaders, bookingValues]);
   const queue = makeSheet('予約メール配送', [QUEUE_HEADERS]);
-  context.getSheet_ = () => booking;
+  if (!realSheet) context.getSheet_ = () => booking;
   const jobRow = (status = '配送待ち') => {
     const message = { to: 'customer@example.test', subject: '架空の確認', body: '架空の控え', status, updated: FIXED_TIME };
     const job = { version: 1, code: BOOKING_CODE, action: '新規予約', created: FIXED_TIME,
@@ -89,7 +106,9 @@ function fixture({ native = true } = {}) {
   };
   const lock = operation => context.withLedgerLock_(operation);
   return { context, booking, queue, calls, writes, sent, jobRow, properties, sheets, held: () => held,
-    fail: () => { failing = true; }, afterHeader: action => { afterHeader = action; },
+    fail: () => { failing = true; }, failLedger: () => { ledgerFailure = true; },
+    afterRelease: action => { afterRelease = action; }, onSend: action => { onSend = action; },
+    afterHeader: action => { afterHeader = action; },
     beforeSnapshot: action => { beforeSnapshot = action; },
     read: () => lock(() => Array.from(context.readBookingEmailJobs_(queue), record => JSON.parse(JSON.stringify(record)))),
     summary: (rows, headers) => lock(() => JSON.parse(JSON.stringify(context.bookingEmailSummary_(booking, rows, headers)))),
@@ -368,3 +387,196 @@ test('見出し周辺の空白は従来の確認と同じように読む', () =>
   assert.deepEqual(app.writes, []);
   assert.deepEqual(app.sent, []);
 });
+
+for (const native of [true, false]) {
+  const mode = native ? '使用範囲' : '互換範囲';
+  const realFixture = () => fixture({ native, realSheet: true });
+  const bookingReads = app => app.calls.filter(call => call === '予約一覧:getValues').length;
+
+  test(`${mode}：実配送確保は見出し確認と予約照合で最新の台帳を一度だけ取得する`, () => {
+    const app = realFixture();
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    const original = structuredClone(app.booking.cells);
+    const delivery = app.claim(row[0]);
+    assert.equal(delivery.id, row[0]);
+    assert.equal(bookingReads(app), 1);
+    assert.equal(JSON.parse(app.queue.cells[1][2]).messages.shop.status, '配送処理中');
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 6);
+    assert.deepEqual(app.booking.cells, original);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.sent, []);
+  });
+
+  test(`${mode}：実workerは候補一覧と各配送確保で別の最新snapshotを取得する`, () => {
+    const app = realFixture();
+    app.queue.cells.push(app.jobRow());
+    const original = structuredClone(app.booking.cells);
+    assert.deepEqual(JSON.parse(JSON.stringify(app.context.deliverBookingEmails())), { processed: 2 });
+    assert.equal(bookingReads(app), 3);
+    assert.deepEqual(app.sent.map(message => message[0]), ['shop@example.test', 'customer@example.test']);
+    const messages = JSON.parse(app.queue.cells[1][2]).messages;
+    assert.equal(messages.shop.status, '送信処理受付');
+    assert.equal(messages.customer.status, '送信処理受付');
+    assert.deepEqual(app.booking.cells, original);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：配送対象がなくても最新台帳を一度確認し、監査後のidleでは再取得しない`, () => {
+    const app = realFixture();
+    assert.equal(app.context.deliverBookingEmails().processed, 0);
+    assert.equal(bookingReads(app), 1);
+    const reads = app.calls.length;
+    assert.equal(app.context.deliverBookingEmails().idle, true);
+    assert.equal(app.calls.length, reads);
+    assert.equal(app.properties.get(vm.runInContext('BOOKING_EMAIL_DIRTY', app.context)), 'false');
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+
+  test(`${mode}：5,000件の履歴も切り捨てず一括照合して同じ配送を確保する`, () => {
+    const app = realFixture();
+    const headers = app.booking.cells[0];
+    for (let index = 0; index < 5000; index++) {
+      const values = app.booking.cells[1].slice();
+      values[headers.indexOf('予約番号')] = `LMHISTORY${index}`;
+      app.booking.cells.push(values);
+    }
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    const original = structuredClone(app.booking.cells);
+    assert.equal(app.claim(row[0]).id, row[0]);
+    assert.equal(bookingReads(app), 1);
+    assert.deepEqual(app.booking.cells, original);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：候補取得後の取消を配送確保時に読み直し、古い控えを送らない`, () => {
+    const app = realFixture();
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    let releases = 0;
+    app.afterRelease(() => {
+      releases++;
+      if (releases === 1) app.booking.cells[1][app.booking.cells[0].indexOf('状態')] = 'キャンセル';
+    });
+    assert.equal(app.context.deliverBookingEmails().processed, 0);
+    assert.equal(bookingReads(app), 3);
+    assert.equal(app.queue.cells[1][2], row[2]);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：候補取得後の最新依頼を読み直し、古い通知IDを確保しない`, () => {
+    const app = realFixture();
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    let releases = 0;
+    app.afterRelease(() => { if (++releases === 1) app.queue.cells.push(app.jobRow()); });
+    assert.equal(app.context.deliverBookingEmails().processed, 0);
+    assert.equal(bookingReads(app), 3);
+    assert.equal(app.queue.cells[1][2], row[2]);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：店舗通知後の取消をお客様通知の確保前に読み直す`, () => {
+    const app = realFixture();
+    app.queue.cells.push(app.jobRow());
+    app.onSend(() => { app.booking.cells[1][app.booking.cells[0].indexOf('状態')] = 'キャンセル'; });
+    assert.equal(app.context.deliverBookingEmails().processed, 1);
+    assert.equal(bookingReads(app), 3);
+    assert.deepEqual(app.sent.map(message => message[0]), ['shop@example.test']);
+    const messages = JSON.parse(app.queue.cells[1][2]).messages;
+    assert.equal(messages.shop.status, '送信処理受付');
+    assert.equal(messages.customer.status, '配送待ち');
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：送信例外は結果不明を記録し、次の監査で自動再送しない`, () => {
+    const app = realFixture();
+    app.queue.cells.push(app.jobRow());
+    app.onSend(() => { throw new Error('架空の送信結果不明'); });
+    assert.equal(app.context.deliverBookingEmails().processed, 2);
+    assert.equal(bookingReads(app), 3);
+    const messages = JSON.parse(app.queue.cells[1][2]).messages;
+    assert.equal(messages.shop.status, '送信結果不明');
+    assert.equal(messages.customer.status, '送信結果不明');
+    assert.equal(app.context.deliverBookingEmails().processed, 0);
+    assert.equal(app.sent.length, 2);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：期限切れの確保は送信結果不明にして自動再送しない`, () => {
+    const app = realFixture();
+    const row = app.jobRow();
+    const job = JSON.parse(row[2]);
+    job.messages.shop = { ...job.messages.shop, status: '配送処理中', updated: Date.now() - 60 * 60 * 1000, claim: randomUUID() };
+    row[2] = JSON.stringify(job);
+    app.queue.cells.push(row);
+    assert.equal(app.claim(row[0]), null);
+    assert.equal(bookingReads(app), 1);
+    assert.equal(JSON.parse(app.queue.cells[1][2]).messages.shop.status, '送信結果不明');
+    assert.equal(app.claim(row[0]), null);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：列補完が必要な旧台帳は補完後の予約を新しく取得する`, () => {
+    const app = realFixture();
+    const missing = app.booking.cells[0].indexOf('施術メモ');
+    app.booking.cells.forEach(values => values.splice(missing, 1));
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    assert.equal(app.claim(row[0]).id, row[0]);
+    assert.equal(bookingReads(app), 2);
+    assert.equal(app.booking.cells[0].at(-1), '施術メモ');
+    assert.equal(app.booking.cells[1][app.booking.cells[0].indexOf('予約番号')], BOOKING_CODE);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  for (const [label, corrupt] of [
+    ['重複見出し', app => { app.booking.cells[0][0] = '開始'; }],
+    ['重複予約番号', app => { app.booking.cells.push(app.booking.cells[1].slice()); }],
+    ['対象外予約の非有限料金', app => {
+      const values = app.booking.cells[1].slice();
+      values[app.booking.cells[0].indexOf('予約番号')] = 'LMUNRELATED';
+      values[app.booking.cells[0].indexOf('合計金額')] = Infinity;
+      app.booking.cells.push(values);
+    }],
+    ['台帳読込障害', app => { app.failLedger(); }],
+    ['配送JSON破損', app => { app.queue.cells[1][2] = '不正'; }]
+  ]) {
+    test(`${mode}：実配送確保でも${label}を正常扱いせず書込・送信しない`, () => {
+      const app = realFixture();
+      const row = app.jobRow();
+      app.queue.cells.push(row);
+      corrupt(app);
+      const original = structuredClone(app.booking.cells);
+      const queue = structuredClone(app.queue.cells);
+      assert.throws(() => app.claim(row[0]));
+      assert.deepEqual(app.booking.cells, original);
+      assert.deepEqual(app.queue.cells, queue);
+      assert.deepEqual(app.writes, []);
+      assert.deepEqual(app.sent, []);
+      assert.equal(app.held(), false);
+    });
+  }
+
+  test(`${mode}：配送無効時は台帳を読まず既存記録や設定を変更しない`, () => {
+    const app = realFixture();
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    app.properties.set('BOOKING_EMAIL_QUEUE_ENABLED', 'false');
+    assert.equal(app.context.deliverBookingEmails().disabled, true);
+    assert.equal(app.claim(row[0]), null);
+    assert.deepEqual(app.calls, []);
+    assert.equal(app.queue.cells[1][2], row[2]);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+}

@@ -3413,9 +3413,11 @@ function saveBookingEmailJob_(queue, record) {
 function claimBookingEmail_(code, id, channel) {
   return withLedgerLock_(function () {
     if (PropertiesService.getScriptProperties().getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return null;
-    const sheet = getSheet_();
+    const reservationContext = {};
+    const sheet = getSheet_(reservationContext);
     const queue = bookingEmailSheet_(sheet.getParent());
-    const record = currentBookingEmailJobs_(sheet, queue)[code];
+    const snapshot = reservationContext.snapshot;
+    const record = currentBookingEmailJobs_(sheet, queue, snapshot && snapshot.rows, snapshot && snapshot.head)[code];
     if (!record || record.id !== id) return null;
     const message = record.job.messages[channel];
     if (message.status === '配送処理中' && Date.now() - message.updated > BOOKING_EMAIL_LEASE_MS) {
@@ -3461,9 +3463,11 @@ function deliverBookingEmails() {
     return { processed: 0, idle: true };
   }
   const candidates = withLedgerLock_(function () {
-    const sheet = getSheet_();
+    const reservationContext = {};
+    const sheet = getSheet_(reservationContext);
     const queue = bookingEmailSheet_(sheet.getParent());
-    const latest = currentBookingEmailJobs_(sheet, queue);
+    const snapshot = reservationContext.snapshot;
+    const latest = currentBookingEmailJobs_(sheet, queue, snapshot && snapshot.rows, snapshot && snapshot.head);
     const props = PropertiesService.getScriptProperties();
     const heartbeat = String(Date.now());
     props.setProperty(BOOKING_EMAIL_HEARTBEAT, heartbeat);
