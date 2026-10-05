@@ -57,6 +57,30 @@ async function withAdmin(design, run) {
 }
 
 for (const design of ['', '?design=a']) {
+  test(`休業日でも絞り込みの該当なしと解除先を隠さない ${design || '従来版'}`, async () => {
+    await withAdmin(design, async (page, code) => {
+      await page.evaluate(() => {
+        adminData.closedDates = [{ '休業日': '2026-10-08', '開始': '', '終了': '', 'メモ': '' }];
+      });
+      await page.locator('#filter-date').fill('2026-10-08');
+      await page.locator('#filter-status').selectOption('cancelled');
+      const rows = page.locator('#admin-rows');
+      assert.match(await rows.innerText(), /この条件に合うご予約はありません.*すべての日・状態に戻す/s);
+      assert.match(await rows.innerText(), /終日お休み/);
+      assert.equal(await rows.locator(`[data-code="${code}"]`).count(), 0, '状態に合わない予約は出さない');
+      await page.locator('#filter-status').selectOption('reserved');
+      assert.equal(await rows.locator(`[data-code="${code}"]`).count(), 1);
+      assert.match(await rows.innerText(), /終日お休み・予約1件あり/);
+      assert.equal(await rows.locator('.empty-state').count(), 0, '該当予約がある場合は該当なしと案内しない');
+      await page.locator('#filter-status').selectOption('cancelled');
+      await page.locator('#filter-reset').click();
+      assert.equal(await page.locator('#filter-date').inputValue(), '');
+      assert.equal(await page.locator('#filter-status').inputValue(), 'all');
+      assert.equal(await rows.locator(`[data-code="${code}"]`).count(), 1, '解除して予約を再表示する');
+      assert.equal(await rows.locator('.empty-state').count(), 0);
+    });
+  });
+
   test(`日付移動・電話予約の日付・下書き保護 ${design || '従来版'}`, async () => {
     await withAdmin(design, async (page, code) => {
       assert.equal(await page.locator('.admin-workspace-header #add-booking').count(), 1, '電話受付は作業見出しの隣');

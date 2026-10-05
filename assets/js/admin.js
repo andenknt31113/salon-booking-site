@@ -610,6 +610,7 @@ function renderReservations() {
     ? `<button class="btn btn-ghost btn-sm" type="button" data-toggle-past style="margin-bottom:14px;">${
         showPast ? '過ぎたご予約を畳む' : `過ぎたご予約（${pastCount}件）も見る`}</button>`
     : '';
+  const EMPTY_FILTER_MESSAGE = 'この条件に合うご予約はありません。上の「すべての日・状態に戻す」で戻せます。';
 
   if (!keys.length) {
     /* 「該当する予約はありません」だけだと、絞り込んだままなのか
@@ -617,14 +618,16 @@ function renderReservations() {
        入っているはずの予約を見落とすか、入っていない予約を待つことになります。 */
     const total = (adminData.reservations || []).length;
     const message = (dateFilter || $('#filter-status').value !== 'all')
-      ? 'この条件に合うご予約はありません。上の「すべての日・状態に戻す」で戻せます。'
+      ? EMPTY_FILTER_MESSAGE
       : total ? '本日より先のご予約は、まだありません。'
         : 'まだご予約はありません。電話で受けたご予約は「＋ 電話予約を入れる」から台帳に入れてください。';
     $('#admin-rows').innerHTML = pastButton + `<p class="empty-state">${esc(message)}</p>`;
     return;
   }
 
-  $('#admin-rows').innerHTML = pastButton + keys.map(date => {
+  const emptyFilter = !list.length && (dateFilter || $('#filter-status').value !== 'all')
+    ? `<p class="empty-state">${esc(EMPTY_FILTER_MESSAGE)}</p>` : '';
+  $('#admin-rows').innerHTML = pastButton + emptyFilter + keys.map(date => {
     const rows = byDate.get(date);
     const h = dayHeading(date);
     const live = rows.filter(r => !isCancelled(r)).length;
@@ -3597,6 +3600,8 @@ document.addEventListener('DOMContentLoaded', () => {
     entries.forEach(({ target }) => {
       target.closest('.admin-pane').style.setProperty('--admin-savebar-height', `${target.getBoundingClientRect().height}px`);
     });
+    const visibleBar = $$('.admin-savebar').find(bar => bar.getClientRects().length);
+    document.documentElement.style.setProperty('--admin-savebar-height', `${visibleBar?.getBoundingClientRect().height || 0}px`);
   });
   $$('.admin-savebar').forEach(bar => savebarObserver.observe(bar));
   $('#refresh-reservations').addEventListener('click', refreshReservations);

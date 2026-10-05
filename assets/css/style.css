@@ -1237,6 +1237,9 @@ textarea.input { resize: vertical; line-height: 1.8; }
 #dashboard .admin-pane:has(> .admin-savebar) {
   padding-bottom: calc(var(--admin-savebar-height, 120px) + 24px);
 }
+html:has(#dashboard:not([hidden]) .admin-pane:not([hidden]) > .admin-savebar) {
+  scroll-padding-bottom: calc(var(--admin-savebar-height, 120px) + 24px);
+}
 .admin-savebar .btn { flex: 1 1 100%; }
 .admin-savebar-note { flex: 1 1 100%; margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .admin-savebar-note:empty { display: none; }
