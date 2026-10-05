@@ -44,7 +44,12 @@ function fixture(target) {
 const uncertain = [null, [], {}, { ok: true }, { ok: 'true' }, { ok: 1 },
   { ok: true, stamps: null }, { ok: true, stamps: [] }, { ok: true, stamps: {} },
   ...[null, '', '  ', 0, 123, [], {}].map(stamp => ({ ok: true, stamps: { TARGET: stamp } })),
-  ...['unknown', 'stale', 'transportError', 'authDenied', 'invalid', 'restored'].map(flag => ({ ok: true, stamps: { TARGET: 'saved' }, [flag]: true }))];
+  ...['unknown', 'stale', 'transportError', 'authDenied', 'invalid', 'restored', 'invalidDuration', 'invalidClosed']
+    .map(flag => ({ ok: true, stamps: { TARGET: 'saved' }, [flag]: true })),
+  ...['unknown', 'stale', 'transportError', 'authDenied', 'invalid', 'restored', 'invalidDuration', 'invalidClosed']
+    .flatMap(flag => ['true', 'false'].map(value => ({ ok: true, stamps: { TARGET: 'saved' }, [flag]: value }))),
+  ...['保存結果は未確認です。', { message: '不完全な応答' }, [], 1]
+    .map(error => ({ ok: true, stamps: { TARGET: 'saved' }, error }))];
 
 for (const [index, response] of uncertain.entries()) {
   test(`保存の未確認応答${index + 1}：六対象で下書き・印・参照データを保存済みへ進めない`, async () => {
@@ -115,4 +120,33 @@ test('結果不明・通信断・競合の拒否は元の案内を維持し、�
   assert.match(app.errors[0], /通信に失敗しました.*入力を残しています/);
   assert.equal(app.context.isDirty('settings'), true);
   assert.equal(app.button.disabled, false);
+});
+
+test('確定拒否でもエラーフラグや文面の型が壊れている場合は結果不明として入力を保持する', async () => {
+  for (const response of [{ ok: false, unknown: 'false', error: '架空の応答' },
+    { ok: false, stale: 'false', error: '架空の応答' }, { ok: false, error: { message: '架空の応答' } }]) {
+    const app = fixture('closed');
+    const before = JSON.stringify({ edits: app.context.edits, stamps: app.context.stamps, adminData: app.context.adminData });
+    const saving = app.context.save('closed');
+    app.complete(response);
+    await saving;
+    assert.equal(JSON.stringify({ edits: app.context.edits, stamps: app.context.stamps, adminData: app.context.adminData }), before);
+    assert.match(app.errors[0], /保存の結果を確認できません/);
+    assert.equal(app.context.isDirty('closed'), true);
+    assert.equal(app.requests.length, 1);
+    assert.equal(app.button.disabled, false);
+  }
+});
+
+test('falseのエラーフラグ・空のエラー文を含む正常な保存応答は従来どおり完了する', async () => {
+  const app = fixture('closed');
+  const saving = app.context.save('closed');
+  app.complete({ ok: true, stamps: { closed: 'saved' }, error: '', unknown: false, stale: false,
+    transportError: false, authDenied: false, invalid: false, restored: false, invalidDuration: false, invalidClosed: false });
+  await saving;
+  assert.equal(app.context.isDirty('closed'), false);
+  assert.equal(app.context.stamps.closed, 'saved');
+  assert.equal(app.success.style.display, 'block');
+  assert.deepEqual(app.errors, []);
+  assert.equal(app.requests.length, 1);
 });

@@ -125,6 +125,14 @@ test('不完全な保存結果で下書きを消さない検査を画面検査�
   assert.ok(UI_CHECKS.includes('test/admin-save-ack-browser.mjs'));
 });
 
+test('保存応答と下書きの画面試験を旧ログインへ戻さず、Google管理bridgeで検査する', async () => {
+  const source = await readFile(new URL('./admin-save-ack-browser.mjs', import.meta.url), 'utf8');
+  assert.match(source, /src="admin\.html\?google=1/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /googleAdminEmbedded/);
+  assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
 test('複数ファイルを同時起動せず、前のファイルの終了を待つ', async () => {
   await fixture(async ({ root, output, log }) => {
     const serialScript = `import { closeSync, openSync, unlinkSync } from 'node:fs';

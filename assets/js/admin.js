@@ -3327,10 +3327,13 @@ async function save(target) {
     btn.textContent = btn.dataset.label;
   }
 
+  const responseFlags = ['unknown', 'stale', 'transportError', 'authDenied', 'invalid', 'restored', 'invalidDuration', 'invalidClosed'];
   if (!res || typeof res !== 'object' || Array.isArray(res) || typeof res.ok !== 'boolean'
-      || (res.ok && (!res.stamps || typeof res.stamps !== 'object' || Array.isArray(res.stamps)
+      || responseFlags.some(flag => res[flag] !== undefined && typeof res[flag] !== 'boolean')
+      || res.error !== undefined && typeof res.error !== 'string'
+      || (res.ok && (res.error || !res.stamps || typeof res.stamps !== 'object' || Array.isArray(res.stamps)
         || typeof res.stamps[target] !== 'string' || !res.stamps[target].trim()
-        || ['unknown', 'stale', 'transportError', 'authDenied', 'invalid', 'restored'].some(flag => res[flag] === true)))) {
+        || responseFlags.some(flag => res[flag] === true)))) {
     res = { ok: false, unknown: true,
       error: '保存の結果を確認できません。入力は残しています。保存を繰り返さず、制作担当者へ連絡して保存先を確認してください。' };
   }
