@@ -1000,6 +1000,12 @@ async function submitReservation() {
     if (sent.ok && sent.code && sent.code !== reservation.code) {
       reservation.code = sent.code;
     }
+    if (sent.noEndpoint) {
+      Store.remove(requestCode);
+      setSubmitting(false);
+      alert('店舗へ送信できません。予約は登録されていません。' + contactWay());
+      return;
+    }
     /* 店舗側で「その枠はもう埋まっている」と判断された場合は、
        予約として保存せず日時の選び直しに戻す。
        画面側の確認をすり抜けて同時に押されたときにここへ来る。 */

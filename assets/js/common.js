@@ -638,6 +638,9 @@ const Availability = {
 async function sendToEndpoint(payload) {
   if (!SALON.reservationEndpoint) return { ok: false, noEndpoint: true };
   const DEFAULT_WRITE_TIMEOUT_MS = 45000;
+  const REJECTION_FLAGS = ['noEndpoint', 'restored', 'deadline', 'taken', 'stale', 'cancelled',
+    'invalid', 'closed', 'scheduleChanged', 'catalogChanged', 'conflict', 'draft', 'authDenied'];
+  const RESPONSE_FLAGS = ['unknown', ...REJECTION_FLAGS];
   const configured = SALON.bookingTransport && SALON.bookingTransport.writeTimeoutMs;
   const timeoutMs = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_WRITE_TIMEOUT_MS;
   const controller = new AbortController();
@@ -654,6 +657,11 @@ async function sendToEndpoint(payload) {
       const data = await res.json();
       if (!res.ok || !data || typeof data.ok !== 'boolean'
           || (data.ok && typeof data.message === 'string')) throw new Error();
+      if (RESPONSE_FLAGS.some(flag => data[flag] !== undefined && typeof data[flag] !== 'boolean')
+          || (data.error !== undefined && typeof data.error !== 'string')) throw new Error();
+      const rejected = REJECTION_FLAGS.some(flag => data[flag] === true);
+      if ((data.ok && (data.unknown === true || rejected || (data.error && data.error.trim())))
+          || (data.unknown === true && rejected)) throw new Error();
       return data;
     })();
     const deadline = new Promise((_resolve, reject) => {
