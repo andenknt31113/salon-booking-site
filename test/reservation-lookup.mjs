@@ -6,6 +6,7 @@ import { test } from 'node:test';
 const source = readFileSync(new URL('../assets/js/common.js', import.meta.url), 'utf8');
 const begin = source.indexOf('async function lookupReservation(');
 const end = source.indexOf('\n/** キャンセルを受信先へ通知する', begin);
+const deadline = source.match(/^async function readJsonWithDeadline\([^]*?^}/m)?.[0] || '';
 assert.ok(begin >= 0 && end > begin);
 const reservation = {
   code: 'LM-CHECK', date: '2026-10-08', time: '10:00', endTime: '11:00',
@@ -14,7 +15,7 @@ const reservation = {
 };
 
 function environment(fetch, timing = {}) {
-  return vm.runInNewContext(source.slice(begin, end) + ';lookupReservation', {
+  return vm.runInNewContext(deadline + '\n' + source.slice(begin, end) + ';lookupReservation', {
     SALON: { reservationEndpoint: 'https://example.test/exec' }, fetch,
     normalizeCode: value => String(value).replace(/[^a-z0-9]/gi, '').toUpperCase(),
     fromKey: value => new Date(value + 'T00:00:00Z'),
@@ -35,6 +36,39 @@ test('照会は対象の予約が揃った正常な応答だけを返す', async
     assert.equal((await lookup('lm-check', '00000000000')).reservation.status, status);
   }
 });
+
+for (const stage of ['接続', '本文']) {
+  test(`照会の${stage}が中断を無視しても、予約なしと断言せず確認へ戻れる`, async () => {
+    let release;
+    let stop;
+    let signal;
+    let retry = false;
+    let cleared = 0;
+    const response = { ok: true, reservation };
+    const pending = new Promise(resolve => { release = resolve; });
+    const lookup = environment(async (_url, options) => {
+      if (retry) return { ok: true, json: async () => response };
+      signal = options.signal;
+      return stage === '接続' ? pending : { ok: true, json: () => pending };
+    }, { setTimeout: callback => { stop = callback; return '照会タイマー'; }, clearTimeout: () => { cleared++; } });
+    let settled = false;
+    const result = lookup('LM-CHECK', '00000000000').then(value => { settled = true; return value; });
+    stop();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, true, '中断に応答しない通信でも照会操作へ戻る');
+    const failed = await result;
+    assert.equal(failed.ok, false);
+    assert.equal(failed.reservation, undefined);
+    assert.match(failed.error, /時間.*予約を取り直す必要はありません/);
+    assert.equal(signal.aborted, true);
+    retry = true;
+    assert.equal((await lookup('LM-CHECK', '00000000000')).reservation.code, reservation.code);
+    release(stage === '接続' ? { ok: true, json: async () => response } : response);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(await result, failed, '期限後の返事を成功へすり替えない');
+    assert.equal(cleared, 2);
+  });
+}
 
 test('HTTP失敗・別の応答・壊れた予約を成功にしない', async () => {
   const cases = [

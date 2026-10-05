@@ -60,6 +60,12 @@ test('予約確認の本人照合と狭い読込を一括検査から外さな�
   }
 });
 
+test('空席・メニュー・照会の有限待機を恒久の予約検査から外さない', () => {
+  for (const path of ['test/availability-response.mjs', 'test/catalog-response.mjs', 'test/reservation-lookup.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(path), path);
+  }
+});
+
 test('バックアップの保存確認と古い控えの保護を一括検査から外さない', () => {
   assert.ok(BOOKING_CHECKS.includes('test/booking-backup-safety.mjs'));
 });

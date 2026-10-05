@@ -15,14 +15,15 @@ const BOUNDARY_TOLERANCE = 1;
 for (const design of ['', '?design=a']) {
   for (const width of [320, 390, 768, 1280]) {
     for (const dirty of [false, true]) {
-      test(`${design ? 'A案・管理フレーム' : '従来版'}／${width}px／${dirty ? '未保存' : '保存前'}：Tab移動した休業メモを保存バーで隠さない`, async () => {
+      test(`${design ? 'A案' : '従来版'}・Google管理フレーム／${width}px／${dirty ? '未保存' : '保存前'}：Tab移動した休業メモを保存バーで隠さない`, async () => {
         let handler;
         const server = http.createServer((request, response) => {
           if (request.url === '/savebar-frame') {
             response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
             response.end(`<!doctype html><html lang="ja"><title>架空の管理枠</title>
               <body style="margin:0;overflow:hidden;display:grid;height:100dvh;grid-template-rows:${WORKSPACE_HEADER_HEIGHT}px minmax(0,1fr)">
-              <header>架空の管理枠</header><iframe title="管理画面" src="admin.html?design=a"
+              <script>window.authAdminRequest = payload => window.fixtureAdminRequest(payload);</script>
+              <header>架空の管理枠</header><iframe title="管理画面" src="admin.html?google=1${design ? '&design=a' : ''}"
                 style="border:0;width:100%;height:100%;min-height:0"></iframe></body></html>`);
             return;
           }
@@ -34,29 +35,47 @@ for (const design of ['', '?design=a']) {
           await once(server, 'listening');
           handler = createMockHandler({ port: server.address().port });
           const base = `http://127.0.0.1:${server.address().port}`;
+          const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) })
+            .then(response => response.json());
           browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
           const mainPage = await browser.newPage({ viewport: { width, height: VIEWPORT_HEIGHT },
-            locale: 'ja-JP', timezoneId: 'Asia/Tokyo', reducedMotion: 'reduce' });
+            locale: 'ja-JP', timezoneId: 'Asia/Tokyo', reducedMotion: 'reduce', serviceWorkers: 'block' });
           const errors = [];
           const writes = [];
+          const operations = [];
+          const directRequests = [];
+          const blocked = [];
           mainPage.on('pageerror', error => errors.push(error.message));
           await mainPage.route('**/*', route => {
             const request = route.request();
-            if (new URL(request.url()).origin !== base) return route.abort();
-            if (request.method() === 'POST') {
-              const type = request.postDataJSON().type;
-              if (!['adminLogin', 'adminData'].includes(type)) writes.push(type);
+            const url = new URL(request.url());
+            if (url.origin !== base) {
+              blocked.push(request.method());
+              return route.abort();
+            }
+            if (url.pathname === '/exec') {
+              directRequests.push(request.method());
+              return route.abort();
             }
             return route.continue();
           });
-          await mainPage.goto(base + (design ? '/savebar-frame' : '/admin.html'));
-          const page = design ? await (await mainPage.locator('iframe').elementHandle()).contentFrame() : mainPage;
+          await mainPage.exposeFunction('fixtureAdminRequest', payload => {
+            assert.equal(Object.hasOwn(payload, 'password'), false, '旧パスワードを渡さない');
+            assert.equal(Object.hasOwn(payload, 'token'), false, '旧合鍵を渡さない');
+            operations.push(structuredClone(payload));
+            if (payload.type !== 'adminData') writes.push(payload.type);
+            return post({ ...payload, password: PASSWORD });
+          });
+          await mainPage.goto(base + '/savebar-frame');
+          const page = await (await mainPage.locator('iframe').elementHandle()).contentFrame();
+          assert.ok(page);
+          await page.locator('#dashboard:not([hidden])').waitFor();
+          assert.equal(await page.locator('#gate').isVisible(), false, '旧ログイン画面を操作しない');
+          assert.deepEqual(await page.evaluate(() => ({ embedded: window.googleAdminEmbedded, password: adminPw, token: adminToken })),
+            { embedded: true, password: '', token: '' });
+          assert.deepEqual(operations[0], { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true });
           assert.equal(await page.locator('.admin-savebar:visible').count(), 0);
           assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollPaddingBottom), 'auto');
-          await page.locator('#passcode').fill(PASSWORD);
-          await page.locator('#remember-me').uncheck();
-          await page.locator('#gate-btn').click();
-          await page.locator('#dashboard:not([hidden])').waitFor();
           await page.locator('#admin-tabs [data-pane="closed"]').click();
           const memo = page.locator('#closed-rows [data-col="メモ"]').first();
           const before = await memo.inputValue();
@@ -103,6 +122,8 @@ for (const design of ['', '?design=a']) {
             return parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom) >= bar.getBoundingClientRect().height;
           });
           assert.deepEqual(writes, [], '表示・入力・Tab操作だけでは保存しない');
+          assert.deepEqual(directRequests, [], '管理操作はGoogle管理bridgeだけを通す');
+          assert.deepEqual(blocked, [], '本番を含む外部サービスへ通信しない');
           assert.deepEqual(errors, []);
         } finally {
           if (browser) await browser.close();

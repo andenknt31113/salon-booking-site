@@ -92,6 +92,14 @@ test('保存バーが休業メモのキーボード操作を隠さないこと�
   assert.ok(UI_CHECKS.includes('test/admin-savebar-focus.mjs'));
 });
 
+test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検査する', async () => {
+  const source = await readFile(new URL('./admin-savebar-focus.mjs', import.meta.url), 'utf8');
+  assert.match(source, /src="admin\.html\?google=1/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /googleAdminEmbedded/);
+  assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
     assert.equal(UI_CHECKS.length, 29);

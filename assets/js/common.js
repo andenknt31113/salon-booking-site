@@ -682,6 +682,30 @@ async function sendToEndpoint(payload) {
  *  氏名・電話番号などは一切受け取りません。
  * ============================================================ */
 const AVAILABILITY_REQUEST_TIMEOUT_MS = 30000;
+
+async function readJsonWithDeadline(request, timeoutMs) {
+  const controller = new AbortController();
+  let timeout;
+  const expired = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(Object.assign(new Error('読取の応答を確認できませんでした。'), { name: 'AbortError' }));
+    }, timeoutMs);
+  });
+  try {
+    const response = (async () => {
+      const result = await request(controller.signal);
+      return { ok: result.ok, data: result.ok ? await result.json() : null };
+    })();
+    return await Promise.race([response, expired]);
+  } catch (error) {
+    if (controller.signal.aborted) throw Object.assign(new Error('読取の応答を確認できませんでした。'), { name: 'AbortError' });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const Remote = {
   booked: null,       // null = 未取得または取得失敗
   loaded: false,
@@ -708,20 +732,17 @@ const Remote = {
     if (this.loaded && !force) return Promise.resolve(this.booked !== null);
 
     this.loading = (async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), AVAILABILITY_REQUEST_TIMEOUT_MS);
       try {
         const request = { type: 'availability' };
-        const res = typeof readPublicEndpoint === 'function' ? await readPublicEndpoint(request, controller.signal)
-          : await fetch(SALON.reservationEndpoint, {
+        const { ok, data } = await readJsonWithDeadline(signal => typeof readPublicEndpoint === 'function'
+          ? readPublicEndpoint(request, signal) : fetch(SALON.reservationEndpoint, {
           method: 'POST',
           cache: 'no-store',
-          signal: controller.signal,
+          signal,
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(request)
-        });
-        const data = await res.json();
-        if (!res.ok || !data || data.ok !== true || !this.accept(data.booked)) {
+        }), AVAILABILITY_REQUEST_TIMEOUT_MS);
+        if (!ok || !data || data.ok !== true || !this.accept(data.booked)) {
           throw new Error('空席状況の応答を確認できませんでした。');
         }
         return true;
@@ -730,7 +751,6 @@ const Remote = {
         this.booked = null;
         return false;
       } finally {
-        clearTimeout(timeout);
         this.loaded = true;
         this.loading = null;
       }
@@ -824,21 +844,18 @@ const Catalog = {
 
   async _fetch() {
     if (!SALON.reservationEndpoint) return this.source;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), CATALOG_REQUEST_TIMEOUT_MS);
     try {
       const request = { type: 'menu', booking: BOOKING_CATALOG_PAGES.has(document.body.dataset.page),
         initialAvailability: document.body.dataset.page === 'reserve' };
-      const res = typeof readPublicEndpoint === 'function' ? await readPublicEndpoint(request, controller.signal)
-        : await fetch(SALON.reservationEndpoint, {
+      const { ok, data } = await readJsonWithDeadline(signal => typeof readPublicEndpoint === 'function'
+        ? readPublicEndpoint(request, signal) : fetch(SALON.reservationEndpoint, {
         method: 'POST',
         cache: 'no-store',
-        signal: controller.signal,
+        signal,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(request)
-      });
-      const data = await res.json();
-      if (!res.ok || !data || data.ok !== true
+      }), CATALOG_REQUEST_TIMEOUT_MS);
+      if (!ok || !data || data.ok !== true
           || !Array.isArray(data.categories) || !Array.isArray(data.coupons)
           || !Array.isArray(data.closedDates) || !data.settings
           || typeof data.settings !== 'object' || Array.isArray(data.settings)) {
@@ -886,8 +903,6 @@ const Catalog = {
       if (document.body.dataset.page === 'reserve' && data.booked !== undefined) Remote.accept(data.booked);
     } catch (e) {
       console.warn('メニューと受付条件を確認できませんでした。', e);
-    } finally {
-      clearTimeout(timeout);
     }
     return this.source;
   }
@@ -1186,18 +1201,15 @@ async function lookupReservation(code, tel) {
   if (!SALON.reservationEndpoint) {
     return { ok: false, error: 'ただいまオンラインでの照会をご利用いただけません。' };
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LOOKUP_REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(SALON.reservationEndpoint, {
+    const { ok, data } = await readJsonWithDeadline(signal => fetch(SALON.reservationEndpoint, {
       method: 'POST',
       cache: 'no-store',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ type: 'lookup', code: code, tel: tel }),
-      signal: controller.signal
-    });
-    if (!res.ok) return { ok: false, error: '予約の照会に接続できませんでした。時間をおいてもう一度お試しください。' };
-    const data = await res.json();
+      signal
+    }), LOOKUP_REQUEST_TIMEOUT_MS);
+    if (!ok) return { ok: false, error: '予約の照会に接続できませんでした。時間をおいてもう一度お試しください。' };
     /* 形が違う応答（Googleのログイン画面など）は失敗として扱います。
        公開設定を間違えて入れ直すと、JSONではなくHTMLが返ってきます。
        そのまま返すと、お客様の画面には何も出ないまま「終わった」ように見えます。 */
@@ -1220,13 +1232,11 @@ async function lookupReservation(code, tel) {
       }
     }
     return data;
-  } catch (e) {
-    if (controller.signal.aborted) {
+  } catch (error) {
+    if (error?.name === 'AbortError') {
       return { ok: false, error: '照会に時間がかかっています。時間をおいてもう一度お試しください。予約を取り直す必要はありません。' };
     }
     return { ok: false, error: '通信に失敗しました。時間をおいてお試しください。' };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
