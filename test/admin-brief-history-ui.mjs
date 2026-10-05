@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -47,6 +48,10 @@ for (const design of ['', '?design=a']) {
     await once(server, 'listening');
     handler = createMockHandler({ port: server.address().port });
     const base = `http://127.0.0.1:${server.address().port}`;
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo',
+      year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     let browser;
     let finishDetails;
     const reads = [];
@@ -56,24 +61,18 @@ for (const design of ['', '?design=a']) {
     let rows;
     try {
       browser = await engines.chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-      const page = await browser.newPage({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
-      page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/*', async route => {
-        const request = route.request();
-        const url = new URL(request.url());
-        if (url.origin !== base) return route.abort();
-        if (url.pathname !== '/exec' || request.method() !== 'POST') return route.continue();
-        const payload = request.postDataJSON();
+      const shell = await browser.newPage({ viewport: { width: 390, height: 844 },
+        timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
+      shell.on('pageerror', error => errors.push(error.message));
+      const admin = await openGoogleAdmin({ shell, base, design, request: async payload => {
         if (payload.type !== 'adminData') {
-          if (!['adminLogin', 'adminAddStatus'].includes(payload.type)) writes.push(payload.type);
-          return route.continue();
+          if (payload.type !== 'adminAddStatus') writes.push(payload.type);
+          return post(payload);
         }
         reads.push({ startupOnly: payload.startupOnly, briefPast: payload.briefPast,
           reservationsOnly: payload.reservationsOnly, reservationCodes: payload.reservationCodes });
-        const response = await route.fetch();
-        const body = await response.json();
+        const body = await post(payload);
         if (payload.startupOnly) {
-          const today = await page.evaluate(() => toKey(new Date()));
           rows = historicalRows(today);
           rows.push({ ...rows[1], code: 'LM-FUTURE', date: today, name: '本日の架空顧客',
             note: '今日のメモは初回に必要', request: '今日のご要望' });
@@ -83,23 +82,20 @@ for (const design of ['', '?design=a']) {
           delete body.styles;
           delete body.reviews;
           body.pendingEditors = ['styles', 'reviews'];
-          return route.fulfill({ response, json: body });
+          return body;
         }
         if (payload.reservationsOnly) {
           detailAttempt++;
           await new Promise(resolve => { finishDetails = resolve; });
-          return route.fulfill({ response, json: detailAttempt <= 2
+          return detailAttempt <= 2
             ? { ok: false, error: '架空の履歴取得障害' }
             : { ok: true, reservations: rows.filter(row => !payload.reservationCodes
-              || payload.reservationCodes.includes(row.code)).map(row => ({ ...row })), closedDates: body.closedDates } });
+              || payload.reservationCodes.includes(row.code)).map(row => ({ ...row })), closedDates: body.closedDates };
         }
-        return route.fulfill({ response, json: body });
-      });
-      await page.goto(base + '/admin.html' + design);
-      await page.locator('#passcode').fill(password);
-      await page.locator('#remember-me').uncheck();
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
+        return body;
+      } });
+      const page = admin.frame;
+      assert.equal(await page.evaluate(() => toKey(new Date())), today, '架空台帳と画面の当日が一致する');
       assert.equal(reads.length, 1);
       assert.equal(reads[0].briefPast, true, '初回は過去の長いメモを要求しない');
       assert.equal(await page.evaluate(() => adminData.reservations.length), HISTORY_COUNT + 1);
@@ -108,8 +104,8 @@ for (const design of ['', '?design=a']) {
       assert.equal(await page.locator('#admin-rows [data-code]').count(), 1);
       let failedCsvMessage = '';
       let downloads = 0;
-      page.on('download', () => { downloads++; });
-      page.once('dialog', dialog => { failedCsvMessage = dialog.message(); dialog.dismiss(); });
+      shell.on('download', () => { downloads++; });
+      shell.once('dialog', dialog => { failedCsvMessage = dialog.message(); dialog.dismiss(); });
       await page.locator('#export-csv').click();
       await waitUntil(() => detailAttempt === 1);
       finishDetails();
@@ -163,10 +159,10 @@ for (const design of ['', '?design=a']) {
       if (process.env.TEST_SCREENSHOT_DIR) {
         await mkdir(process.env.TEST_SCREENSHOT_DIR, { recursive: true });
         await customer.scrollIntoViewIfNeeded();
-        await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `customer-profile-${design ? 'a' : 'original'}.png`), fullPage: false });
+        await shell.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `customer-profile-${design ? 'a' : 'original'}.png`), fullPage: false });
       }
       await page.locator('#admin-tabs [data-pane="reserve"]').click();
-      const downloadEvent = page.waitForEvent('download');
+      const downloadEvent = shell.waitForEvent('download');
       await page.locator('#export-csv').click();
       await waitUntil(() => detailAttempt === 4);
       assert.equal(reads[4].reservationCodes, undefined, '全件CSVは省略なしの全量取得を使う');
@@ -181,15 +177,16 @@ for (const design of ['', '?design=a']) {
       assert.equal(await page.locator('#admin-rows [data-code]').count(), 1, '履歴からの移動はその日だけ表示し、5000件のカードを作らない');
       assert.equal(await page.locator('#admin-rows [data-note-box="LM-H0000001"] [data-note-input]').inputValue(), '保存済みの施術メモ1');
       for (const width of [320, 390, 768, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
+        await shell.setViewportSize({ width, height: 900 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
       if (process.env.TEST_SCREENSHOT_DIR) {
         await mkdir(process.env.TEST_SCREENSHOT_DIR, { recursive: true });
-        await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `brief-history-${design ? 'a' : 'original'}.png`), fullPage: true });
+        await shell.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `brief-history-${design ? 'a' : 'original'}.png`), fullPage: true });
       }
       assert.deepEqual(writes, ['adminSave'], '指定した架空の休業保存以外は書き込まない');
       assert.deepEqual(errors, []);
+      admin.assertIsolated();
     } finally {
       finishDetails?.();
       if (browser) await browser.close();

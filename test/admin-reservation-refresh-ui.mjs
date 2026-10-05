@@ -3,6 +3,7 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
@@ -19,28 +20,16 @@ async function withAdmin(design, run, allowedWrites = []) {
   const port = server.address().port;
   handler = createMockHandler({ port });
   const base = `http://127.0.0.1:${port}`;
-  const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) }).then(response => response.json());
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+  const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+    .then(response => response.json());
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 },
+    timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
   const errors = [];
   const requests = [];
   const control = { response: undefined, gate: undefined };
-  await context.route('**/*', async route => {
-    const request = route.request();
-    assert.equal(new URL(request.url()).origin, base, '外部サービスへ接続しない');
-    if (request.url() === base + '/exec' && request.method() === 'POST') {
-      const payload = JSON.parse(request.postData());
-      requests.push({ type: payload.type, reservationsOnly: payload.reservationsOnly === true,
-        ...(Object.hasOwn(payload, 'ifNoneMatch') ? { ifNoneMatch: payload.ifNoneMatch } : {}) });
-      if (payload.type === 'adminData' && payload.reservationsOnly === true) {
-        if (control.gate) await control.gate;
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(control.response) });
-      }
-    }
-    return route.continue();
-  });
-  const page = await context.newPage();
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('dialog', dialog => dialog.dismiss());
+  const shell = await context.newPage();
+  shell.on('pageerror', error => errors.push(error.message));
+  shell.on('dialog', dialog => dialog.dismiss());
   try {
     const booking = await post({ type: 'adminAdd', password, force: true, date: '2026-10-08',
       time: '10:00', minutes: 60, name: '更新前の試験客', tel: '00000000000', price: 6900 });
@@ -48,17 +37,23 @@ async function withAdmin(design, run, allowedWrites = []) {
     const initial = await post({ type: 'adminData', password });
     control.response = { ok: true, reservations: initial.reservations.map(row => ({ ...row, name: '更新後の試験客' })),
       closedDates: initial.closedDates };
-    await page.goto(base + '/admin.html' + design);
-    await page.locator('#passcode').fill(password);
-    await page.locator('#remember-me').uncheck();
-    await page.locator('#gate-btn').click();
-    await page.locator('#dashboard:not([hidden])').waitFor();
+    const admin = await openGoogleAdmin({ shell, base, design, request: async payload => {
+      requests.push({ type: payload.type, reservationsOnly: payload.reservationsOnly === true,
+        ...(Object.hasOwn(payload, 'ifNoneMatch') ? { ifNoneMatch: payload.ifNoneMatch } : {}) });
+      if (payload.type === 'adminData' && payload.reservationsOnly === true) {
+        if (control.gate) await control.gate;
+        return structuredClone(control.response);
+      }
+      return post(payload);
+    } });
+    const page = admin.frame;
     await page.locator('#filter-date').fill('2026-10-08');
     assert.ok(requests.some(request => request.type === 'adminData' && !request.reservationsOnly), '初回は全管理データを取得する');
     requests.length = 0;
     await run({ page, booking, initial, control, requests });
     assert.ok(requests.every(request => request.type === 'adminData' || allowedWrites.includes(request.type)), '指定した架空操作以外は書き込まない');
     assert.deepEqual(errors, []);
+    admin.assertIsolated();
   } finally {
     await context.close();
     server.closeAllConnections();

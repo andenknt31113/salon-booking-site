@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -20,14 +21,17 @@ for (const design of ['', '?design=a']) {
     const port = server.address().port;
     handler = createMockHandler({ port });
     const base = `http://127.0.0.1:${port}`;
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
     const errors = [];
     const writes = [];
     let browser;
     try {
       browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
         process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-      const page = await browser.newPage({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
-      page.on('pageerror', error => errors.push(error.message));
+      const shell = await browser.newPage({ viewport: { width: 390, height: 844 },
+        timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
+      shell.on('pageerror', error => errors.push(error.message));
       const booking = { date: '2030-01-14', time: '10:00', endTime: '11:00', name: '架空 集計確認',
         tel: '00000000041', price: 4000, status: '予約確定', source: 'LINE', visit: '2回目以降',
         menu: '試験カット', code: 'LM-NUMBERS-FIRST', request: '', note: '' };
@@ -36,37 +40,30 @@ for (const design of ['', '?design=a']) {
         { ...booking, code: 'LM-NUMBERS-PREV', date: '2029-12-14', price: 3000 },
         { ...booking, code: 'LM-NUMBERS-FUTURE', date: '2030-01-20', price: 5000 },
         ...Array.from({ length: HISTORICAL_COUNT }, (_, index) => ({ ...booking, code: `LM-HISTORY-${index}`, date: '2025-01-01' }))];
-      await page.clock.install({ time: new Date(SYNTHETIC_TIME) });
-      await page.route('**/*', async route => {
-        const request = route.request();
-        if (!['127.0.0.1', 'localhost'].includes(new URL(request.url()).hostname)) return route.abort();
-        if (new URL(request.url()).pathname !== '/exec' || request.method() !== 'POST') return route.continue();
-        const payload = request.postDataJSON();
-        if (payload.type !== 'adminData') { writes.push(payload.type); return route.continue(); }
-        const response = await route.fetch();
-        const body = await response.json();
-        body.reservations = rows;
+      await shell.clock.install({ time: new Date(SYNTHETIC_TIME) });
+      await shell.context().addInitScript(() => {
+        document.addEventListener('DOMContentLoaded', () => {
+          if (typeof monthBookings !== 'function') return;
+          const read = monthBookings;
+          const aggregate = occupancy;
+          window.monthReads = 0;
+          window.occupancyReads = 0;
+          monthBookings = key => { window.monthReads++; return read(key); };
+          occupancy = (...args) => { window.occupancyReads++; return aggregate(...args); };
+        });
+      });
+      const admin = await openGoogleAdmin({ shell, base, design, request: async payload => {
+        if (payload.type !== 'adminData') { writes.push(payload.type); return post(payload); }
+        const body = await post(payload);
+        body.reservations = structuredClone(rows);
         body.closedDates = [];
         if (!payload.reservationsOnly) Object.assign(body.settings, {
           'ホットペッパー手数料率（％）': '2', 'ホットペッパー掲載料（月額・円）': '70000'
         });
-        return route.fulfill({ response, body: JSON.stringify(body) });
-      });
-      await page.goto(base + '/admin.html' + design);
-      await page.evaluate(() => {
-        const read = monthBookings;
-        const aggregate = occupancy;
-        window.monthReads = 0;
-        window.occupancyReads = 0;
-        monthBookings = key => { window.monthReads++; return read(key); };
-        occupancy = (...args) => { window.occupancyReads++; return aggregate(...args); };
-      });
-      await page.locator('#passcode').fill(password);
-      await page.locator('#remember-me').uncheck();
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
-      assert.deepEqual(writes, ['adminLogin']);
-      writes.length = 0;
+        return body;
+      } });
+      const page = admin.frame;
+      assert.deepEqual(writes, [], '旧ログインも書込操作も行わない');
       assert.equal(await page.locator('#numbers-body .num-card').count(), 0);
       assert.equal(await page.evaluate(() => window.monthReads), 0);
       await page.locator('#admin-tabs [data-pane="numbers"]').click();
@@ -101,13 +98,14 @@ for (const design of ['', '?design=a']) {
       assert.equal(await page.locator('#numbers-month [data-month="-1"]').getAttribute('aria-selected'), 'false');
       assert.match(await page.locator('#numbers-savings .num-value').innerText(), /560/);
       for (const width of [320, 390, 768, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
+        await shell.setViewportSize({ width, height: 900 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
-      if (process.env.TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
+      if (process.env.TEST_SCREENSHOT_DIR) await shell.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
         `numbers-${design ? 'a' : 'original'}.png`), fullPage: true });
       assert.deepEqual(writes, []);
       assert.deepEqual(errors, []);
+      admin.assertIsolated();
     } finally {
       if (browser) await browser.close();
       server.closeAllConnections();

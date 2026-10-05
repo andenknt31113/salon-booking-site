@@ -3,6 +3,7 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -18,10 +19,12 @@ for (const design of ['', '?design=a']) {
     const port = server.address().port;
     handler = createMockHandler({ port });
     const base = `http://127.0.0.1:${port}`;
-    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) }).then(response => response.json());
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
     const browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
       process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 },
+      timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
     const operations = [];
     const notices = [];
     const errors = [];
@@ -29,26 +32,18 @@ for (const design of ['', '?design=a']) {
       const booking = await post({ type: 'adminAdd', password, force: true, date: futureDate(), time: '10:00',
         minutes: 60, name: '取消競合の試験客', tel: '00000000000' });
       assert.equal(booking.ok, true);
-      await context.route('**/*', async route => {
-        const request = route.request();
-        if (new URL(request.url()).origin !== base) return route.abort();
-        if (request.url() === base + '/exec' && request.method() === 'POST') {
-          const payload = JSON.parse(request.postData());
-          if (payload.type === 'cancel') {
-            operations.push(payload);
-            return route.fulfill({ json: { ok: false, stale: true,
-              error: '別の画面で予約日時が変わりました。最新の予定を確認してください。' } });
-          }
+      const shell = await context.newPage();
+      shell.on('pageerror', error => errors.push(error.message));
+      shell.on('dialog', async dialog => { notices.push(dialog.message()); await dialog.accept(); });
+      const admin = await openGoogleAdmin({ shell, base, design, request: async payload => {
+        if (payload.type === 'cancel') {
+          operations.push(structuredClone(payload));
+          return { ok: false, stale: true,
+            error: '別の画面で予約日時が変わりました。最新の予定を確認してください。' };
         }
-        return route.continue();
-      });
-      const page = await context.newPage();
-      page.on('pageerror', error => errors.push(error.message));
-      page.on('dialog', async dialog => { notices.push(dialog.message()); await dialog.accept(); });
-      await page.goto(base + '/admin.html' + design);
-      await page.locator('#passcode').fill(password);
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
+        return post(payload);
+      } });
+      const page = admin.frame;
       const card = page.locator(`[data-code="${booking.code}"]`);
       await card.locator('[data-admin-cancel]').click();
       const dialog = page.getByRole('dialog');
@@ -71,6 +66,7 @@ for (const design of ['', '?design=a']) {
       const current = (await post({ type: 'adminData', password })).reservations.find(row => row.code === booking.code);
       assert.equal(current.time, '14:00');
       assert.equal(current.status, '予約確定');
+      admin.assertIsolated();
     } finally {
       await context.close();
       await browser.close();

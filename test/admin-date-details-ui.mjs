@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -78,37 +79,36 @@ async function fixture(design, run, prepareRows = () => {}) {
   const errors = [];
   const dialogs = [];
   let rows;
-  let today;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo',
+    year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   let closedDates = [];
   try {
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     handler = createMockHandler({ port: server.address().port });
     const base = `http://127.0.0.1:${server.address().port}`;
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
     browser = await engines.chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
     context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo',
       serviceWorkers: 'block', acceptDownloads: true });
-    const page = await context.newPage();
-    page.setDefaultTimeout(TEST_TIMEOUT_MS);
-    page.on('pageerror', error => errors.push(error.message));
-    page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
-    await context.route('**/*', async route => {
-      const request = route.request();
-      const url = new URL(request.url());
-      if (url.origin !== base) {
-        return route.abort();
-      }
-      if (sourceOverride && url.pathname === '/assets/js/admin.js') {
-        return route.fulfill({ contentType: 'text/javascript', body: sourceOverride });
-      }
-      if (url.pathname !== '/exec' || request.method() !== 'POST') return route.continue();
-      const payload = request.postDataJSON();
+    const shell = await context.newPage();
+    shell.setDefaultTimeout(TEST_TIMEOUT_MS);
+    await context.addInitScript(date => {
+      document.addEventListener('DOMContentLoaded', () => {
+        const filter = document.querySelector('#filter-date');
+        if (filter) filter.value = date;
+      });
+    }, today);
+    shell.on('pageerror', error => errors.push(error.message));
+    shell.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+    const admin = await openGoogleAdmin({ shell, base, design, sourceOverride, request: async payload => {
       if (payload.type === 'adminNote') {
         const row = rows.find(row => row.code === payload.code);
         writes.push({ type: payload.type, code: payload.code, note: payload.note, expectedNote: payload.expectedNote });
-        if (!row || row.note !== payload.expectedNote) return route.fulfill({ json: { ok: false, conflict: true } });
+        if (!row || row.note !== payload.expectedNote) return { ok: false, conflict: true };
         row.note = payload.note;
-        return route.fulfill({ json: { ok: true, code: row.code, note: row.note } });
+        return { ok: true, code: row.code, note: row.note };
       }
       if (payload.type === 'adminChange') {
         const row = rows.find(row => row.code === payload.code);
@@ -116,23 +116,22 @@ async function fixture(design, run, prepareRows = () => {}) {
         assert.ok(row, '架空の予約だけを変更する');
         Object.assign(row, { date: payload.date, time: payload.time,
           endTime: `${String(Number(payload.time.slice(0, 2)) + 1).padStart(2, '0')}:${payload.time.slice(3)}` });
-        return route.fulfill({ json: { ok: true, reservation: { ...row } } });
+        return { ok: true, reservation: { ...row } };
       }
       if (payload.type === 'adminSave' && payload.target === 'closed') {
         writes.push({ type: payload.type, target: payload.target });
         closedDates = payload.rows.map(row => ({ ...row }));
-        return route.fulfill({ json: { ok: true, stamps: { closed: 'fixture-closed-saved' } } });
+        return { ok: true, stamps: { closed: 'fixture-closed-saved' } };
       }
       if (payload.type !== 'adminData') {
-        assert.ok(['adminLogin', 'adminAddStatus'].includes(payload.type), '指定外の架空書込をしない');
-        return route.continue();
+        assert.equal(payload.type, 'adminAddStatus', '指定外の架空書込をしない');
+        return post(payload);
       }
       reads.push({ startupOnly: payload.startupOnly, briefPast: payload.briefPast,
         reservationsOnly: payload.reservationsOnly, reservationCodes: payload.reservationCodes?.slice() });
       if (payload.startupOnly) {
-        const response = await route.fetch();
-        const body = await response.json();
-        assert.equal(body.ok, true, 'MOCK_ADMIN_PASSWORD で架空の管理画面へログインできる');
+        const body = await post(payload);
+        assert.equal(body.ok, true, '架空台帳の管理データを取得できる');
         if (!rows) {
           rows = reservationRows(today);
           prepareRows(rows);
@@ -142,27 +141,22 @@ async function fixture(design, run, prepareRows = () => {}) {
         delete body.styles;
         delete body.reviews;
         body.pendingEditors = ['styles', 'reviews'];
-        return route.fulfill({ response, json: body });
+        return body;
       }
       assert.equal(payload.reservationsOnly, true, '追加の詳細取得は既存の予約専用APIを使う');
-      if (payload.briefPast) return route.fulfill({ json: { ok: true,
-        reservations: briefRows(rows, today), closedDates: closedDates.map(row => ({ ...row })) } });
+      if (payload.briefPast) return { ok: true,
+        reservations: briefRows(rows, today), closedDates: closedDates.map(row => ({ ...row })) };
       const result = { ok: true, reservations: rows.filter(row => !payload.reservationCodes
         || payload.reservationCodes.includes(row.code)).map(row => ({ ...row })),
       closedDates: closedDates.map(row => ({ ...row })) };
       const selected = { codes: payload.reservationCodes?.slice(), result, released: false, fulfilled: false };
       pending.push(selected);
       const response = await new Promise(resolve => { selected.release = resolve; });
-      await route.fulfill({ json: response });
       selected.fulfilled = true;
-    });
-    await page.goto(base + '/admin.html' + design);
-    today = await page.evaluate(() => toKey(new Date()));
-    await page.evaluate(date => { document.querySelector('#filter-date').value = date; }, today);
-    await page.locator('#passcode').fill(password);
-    await page.locator('#remember-me').uncheck();
-    await page.locator('#gate-btn').click();
-    await page.locator('#dashboard:not([hidden])').waitFor();
+      return response;
+    } });
+    const page = admin.frame;
+    assert.equal(await page.evaluate(() => toKey(new Date())), today, '架空台帳と画面の当日が一致する');
     assert.equal(reads[0].briefPast, true);
     assert.equal(await page.evaluate(() => adminData.reservations.length), HISTORY_COUNT);
     assert.equal(await page.locator('#admin-rows [data-code]').count(), 1);
@@ -170,6 +164,7 @@ async function fixture(design, run, prepareRows = () => {}) {
       codes: rows.slice(0, 3).map(row => row.code), pending, reads, writes, dialogs, errors };
     await run(state);
     assert.deepEqual(errors, [], '画面の JavaScript エラーなし');
+    admin.assertIsolated();
   } finally {
     for (const selected of pending) {
       if (!selected.released) selected.release?.({ ok: false, error: '架空試験の終了' });
@@ -209,7 +204,7 @@ async function idle(page) {
 
 async function assertWidths(page) {
   for (const width of VIEWPORT_WIDTHS) {
-    await page.setViewportSize({ width, height: 900 });
+    await page.page().setViewportSize({ width, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true,
       `${width}px でページ横overflowなし`);
   }
@@ -290,8 +285,8 @@ for (const design of ['', '?design=a']) {
       const selected = await readAt(state, 0, codes);
       await chooseDate(page, '');
       const downloads = [];
-      page.on('download', download => downloads.push(download));
-      const downloadEvent = page.waitForEvent('download');
+      page.page().on('download', download => downloads.push(download));
+      const downloadEvent = page.page().waitForEvent('download');
       await page.locator('#export-csv').click();
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(state.pending.length, 1, '選択詳細の応答前には全量APIを開始しない');

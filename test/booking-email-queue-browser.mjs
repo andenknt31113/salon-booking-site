@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { join } from 'node:path';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -19,26 +20,24 @@ for (const design of ['', '?design=a']) {
     const port = server.address().port;
     server.on('request', createMockHandler({ port }));
     const base = `http://127.0.0.1:${port}`;
-    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) }).then(response => response.json());
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
     const browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
       process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+    const shell = await browser.newPage({ viewport: { width: 390, height: 844 },
+      timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
     const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
+    shell.on('pageerror', error => errors.push(error.message));
     let status = '配送待ち';
     let brokenMailStatus = false;
     let brokenNotification = false;
     try {
-      await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)
-        ? route.continue() : route.abort());
       const booking = await post({ type: 'adminAdd', password, force: true, date: visitDate,
         time: '10:00', minutes: 60, price: 4000, name: '架空 配送確認', tel: '00000000031' });
       assert.equal(booking.ok, true);
-      await page.route('**/exec', async route => {
-        const request = JSON.parse(route.request().postData() || '{}');
-        if (request.type !== 'adminData') return route.continue();
-        const response = await route.fetch();
-        const body = await response.json();
+      const admin = await openGoogleAdmin({ shell, base, design, request: async request => {
+        const body = await post(request);
+        if (request.type !== 'adminData') return body;
         body.reservations = (body.reservations || []).map(reservation => reservation.code === booking.code
           ? { ...reservation, shopMailStatus: '新規予約：' + status, customerMailStatus: '新規予約：' + status }
           : reservation);
@@ -50,12 +49,9 @@ for (const design of ['', '?design=a']) {
             body.reservations[0].code = '';
           }
         }
-        await route.fulfill({ response, body: JSON.stringify(body) });
-      });
-      await page.goto(base + '/admin.html' + design);
-      await page.locator('#passcode').fill(password);
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
+        return body;
+      } });
+      const page = admin.frame;
       await page.locator('#filter-date').fill(visitDate);
       await page.locator('#filter-date').dispatchEvent('change');
       const card = page.locator(`#admin-rows .booking-card[data-code="${booking.code}"]`);
@@ -109,6 +105,8 @@ for (const design of ['', '?design=a']) {
       assert.equal(await card.locator('[data-note-input]').inputValue(), '配送確認中も残す下書き');
       assert.deepEqual(errors, []);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      assert.ok(admin.operations.every(payload => payload.type === 'adminData'), '配送確認だけでは予約を書き換えない');
+      admin.assertIsolated();
     } finally {
       await browser.close();
       server.closeAllConnections();

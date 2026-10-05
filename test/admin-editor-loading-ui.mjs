@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -19,6 +20,8 @@ for (const design of ['', '?design=a']) {
     const port = server.address().port;
     handler = createMockHandler({ port });
     const base = `http://127.0.0.1:${port}`;
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
     const calls = [];
     const writes = [];
     const errors = [];
@@ -31,17 +34,12 @@ for (const design of ['', '?design=a']) {
     try {
       browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
         process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-      page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/*', async route => {
-        const request = route.request();
-        const url = new URL(request.url());
-        if (!['127.0.0.1', 'localhost'].includes(url.hostname)) return route.abort();
-        if (url.pathname !== '/exec' || request.method() !== 'POST') return route.continue();
-        const payload = request.postDataJSON();
+      const shell = await browser.newPage({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+      shell.on('pageerror', error => errors.push(error.message));
+      const admin = await openGoogleAdmin({ shell, base, design, request: async payload => {
         if (payload.type !== 'adminData') {
-          if (payload.type !== 'adminLogin') writes.push(payload.type);
-          return route.continue();
+          writes.push(payload.type);
+          return post(payload);
         }
         calls.push(payload);
         if (payload.phoneCatalogOnly === true) {
@@ -51,10 +49,9 @@ for (const design of ['', '?design=a']) {
             await new Promise(resolve => { finishCatalog = resolve; beginCatalog(); });
             delete result.editors.coupons.stamp;
           }
-          return route.fulfill({ json: result });
+          return result;
         }
-        const response = await route.fetch();
-        const body = await response.json();
+        const body = await post(payload);
         if (payload.startupOnly === true) {
           catalog = { ok: true, phoneCatalog: true, editors: Object.fromEntries(['menus', 'coupons']
             .map(target => [target, { ok: true, editorTarget: target, rows: body[target],
@@ -66,13 +63,9 @@ for (const design of ['', '?design=a']) {
           body.pendingEditors = ['menus', 'coupons', 'styles', 'reviews'];
           body.capabilities.phoneCatalog = true;
         }
-        return route.fulfill({ response, json: body });
-      });
-      await page.goto(base + '/admin.html' + design);
-      await page.locator('#passcode').fill(password);
-      await page.locator('#remember-me').uncheck();
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
+        return body;
+      } });
+      const page = admin.frame;
       await page.locator('#add-booking').click();
       let readTimer;
       try {
@@ -120,13 +113,14 @@ for (const design of ['', '?design=a']) {
       assert.equal(calls.filter(payload => payload.editorTarget).length, 0);
       assert.equal(calls.filter(payload => payload.phoneCatalogOnly === true).length, 2);
       for (const width of [320, 390, 768, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
+        await shell.setViewportSize({ width, height: 900 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
-      if (process.env.TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
+      if (process.env.TEST_SCREENSHOT_DIR) await shell.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
         `phone-catalog-${design ? 'a' : 'original'}.png`), fullPage: true });
       assert.deepEqual(errors, []);
       assert.deepEqual(writes, [], 'メニュー取得・手入力だけでは予約も台帳も書き換えない');
+      admin.assertIsolated();
     } finally {
       finishCatalog?.();
       if (browser) await browser.close();
@@ -143,6 +137,8 @@ for (const design of ['', '?design=a']) {
     const port = server.address().port;
     handler = createMockHandler({ port });
     const base = `http://127.0.0.1:${port}`;
+    const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify({ ...payload, password }) })
+      .then(response => response.json());
     const calls = [];
     const errors = [];
     let finishStyles;
@@ -153,18 +149,12 @@ for (const design of ['', '?design=a']) {
     try {
       browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
         process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-      page.on('pageerror', error => errors.push(error.message));
-      await page.route('**/*', async route => {
-        const request = route.request();
-        const url = new URL(request.url());
-        if (!['127.0.0.1', 'localhost'].includes(url.hostname)) return route.abort();
-        if (url.pathname !== '/exec' || request.method() !== 'POST') return route.continue();
-        const payload = request.postDataJSON();
-        if (payload.type !== 'adminData') return route.continue();
+      const shell = await browser.newPage({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+      shell.on('pageerror', error => errors.push(error.message));
+      const admin = await openGoogleAdmin({ shell, base, design, request: async payload => {
+        if (payload.type !== 'adminData') return post(payload);
         calls.push(payload);
-        const response = await route.fetch();
-        const body = await response.json();
+        const body = await post(payload);
         if (payload.startupOnly === true) {
           delete body.styles;
           delete body.reviews;
@@ -173,20 +163,16 @@ for (const design of ['', '?design=a']) {
           body.pendingEditors = ['styles', 'reviews'];
         } else if (payload.editorTarget === 'styles') {
           await new Promise(resolve => { finishStyles = resolve; beginStyles(); });
-          return route.fulfill({ response, json: { ok: true, editorTarget: 'styles', rows: body.styles, stamp: '123456abcdef' } });
+          return { ok: true, editorTarget: 'styles', rows: body.styles, stamp: '123456abcdef' };
         } else if (payload.editorTarget === 'reviews') {
           reviewAttempt++;
-          return route.fulfill({ response, json: reviewAttempt === 1
+          return reviewAttempt === 1
             ? { ok: false, error: '架空の口コミ読込障害' }
-            : { ok: true, editorTarget: 'reviews', rows: [], stamp: '0' } });
+            : { ok: true, editorTarget: 'reviews', rows: [], stamp: '0' };
         }
-        return route.fulfill({ response, json: body });
-      });
-      await page.goto(base + '/admin.html' + design);
-      await page.locator('#passcode').fill(password);
-      await page.locator('#remember-me').uncheck();
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
+        return body;
+      } });
+      const page = admin.frame;
       assert.equal(calls.length, 1);
       assert.equal(calls[0].startupOnly, true);
       assert.equal(await page.locator('[data-save="styles"]').isDisabled(), true);
@@ -222,12 +208,14 @@ for (const design of ['', '?design=a']) {
       await page.locator('#admin-tabs [data-pane="menus"]').click();
       assert.equal(await page.locator('[data-target="menus"][data-col="価格"]').first().inputValue(), '7654');
       for (const width of [320, 390, 768, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
+        await shell.setViewportSize({ width, height: 900 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
-      if (process.env.TEST_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
+      if (process.env.TEST_SCREENSHOT_DIR) await shell.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
         `editor-${design ? 'a' : 'original'}.png`), fullPage: true });
       assert.deepEqual(errors, []);
+      assert.ok(admin.operations.every(payload => payload.type === 'adminData'), '編集欄の入力だけでは保存しない');
+      admin.assertIsolated();
     } finally {
       finishStyles?.();
       if (browser) await browser.close();

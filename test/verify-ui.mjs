@@ -69,6 +69,33 @@ test('施術メモの結果不明・下書き保護もGoogle管理bridgeで検�
   assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
 });
 
+for (const file of ['admin-reservation-refresh-ui', 'admin-editor-loading-ui', 'admin-cancel-conflict-ui',
+  'admin-date-details-ui', 'admin-numbers-loading-ui', 'booking-email-queue-browser', 'admin-brief-history-ui']) {
+  test(`${file}は現行のGoogle管理fixtureを使い、既存の操作検査と外部隔離を維持する`, async () => {
+    assert.ok(UI_CHECKS.includes(`test/${file}.mjs`));
+    const source = await readFile(new URL(`./${file}.mjs`, import.meta.url), 'utf8');
+    assert.match(source, /import \{ openGoogleAdmin \} from '\.\/google-admin-fixture\.mjs'/);
+    assert.match(source, /await openGoogleAdmin\(/);
+    assert.match(source, /admin\.assertIsolated\(\)/);
+    assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+    assert.doesNotMatch(source, /['"]adminLogin['"]/);
+  });
+}
+
+test('共通管理fixtureは旧認証と外部通信を拒否し、Nodeの契約試験を実CIから外さない', async () => {
+  const source = await readFile(new URL('./google-admin-fixture.mjs', import.meta.url), 'utf8');
+  assert.match(source, /src="admin\.html\?google=1/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /googleAdminEmbedded/);
+  assert.match(source, /Object\.hasOwn\(payload, 'password'\)/);
+  assert.match(source, /Object\.hasOwn\(payload, 'token'\)/);
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /- run: node --test [^\n]*test\/google-admin-fixture-contract\.mjs/);
+  for (const file of ['test/google-admin-fixture.mjs', 'test/google-admin-fixture-contract.mjs']) {
+    assert.equal(workflow.split(`- '${file}'`).length - 1, 2, 'pushとpull_requestの両方で検査を起動する');
+  }
+});
+
 test('お客様の照会結果と端末上の予約表示の同期を画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/mypage-lookup-sync.mjs'));
 });

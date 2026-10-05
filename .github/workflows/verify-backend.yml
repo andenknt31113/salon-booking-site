@@ -18,6 +18,15 @@ on:
       - 'tools/verify-ui.mjs'
       - 'test/verify-booking.mjs'
       - 'test/verify-ui.mjs'
+      - 'test/google-admin-fixture.mjs'
+      - 'test/google-admin-fixture-contract.mjs'
+      - 'test/admin-reservation-refresh-ui.mjs'
+      - 'test/admin-editor-loading-ui.mjs'
+      - 'test/admin-cancel-conflict-ui.mjs'
+      - 'test/admin-date-details-ui.mjs'
+      - 'test/admin-numbers-loading-ui.mjs'
+      - 'test/admin-brief-history-ui.mjs'
+      - 'test/booking-email-queue-browser.mjs'
       - 'test/mock-gas.mjs'
       - 'test/mock-change.mjs'
       - 'test/reminders.mjs'
@@ -101,6 +110,15 @@ on:
       - 'tools/verify-ui.mjs'
       - 'test/verify-booking.mjs'
       - 'test/verify-ui.mjs'
+      - 'test/google-admin-fixture.mjs'
+      - 'test/google-admin-fixture-contract.mjs'
+      - 'test/admin-reservation-refresh-ui.mjs'
+      - 'test/admin-editor-loading-ui.mjs'
+      - 'test/admin-cancel-conflict-ui.mjs'
+      - 'test/admin-date-details-ui.mjs'
+      - 'test/admin-numbers-loading-ui.mjs'
+      - 'test/admin-brief-history-ui.mjs'
+      - 'test/booking-email-queue-browser.mjs'
       - 'test/mock-gas.mjs'
       - 'test/mock-change.mjs'
       - 'test/reminders.mjs'
@@ -184,7 +202,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
-      - run: node --test test/verify-booking.mjs test/verify-ui.mjs test/hermetic-admin-contracts.mjs
+      - run: node --test test/verify-booking.mjs test/verify-ui.mjs test/hermetic-admin-contracts.mjs test/google-admin-fixture-contract.mjs
       - run: node tools/verify-booking.mjs
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/booking-email-snapshot.mjs test/gas-native-snapshot.mjs test/sheet-read-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs test/admin-menu-deferred.mjs test/admin-editor-loading.mjs
