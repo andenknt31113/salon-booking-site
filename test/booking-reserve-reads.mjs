@@ -268,6 +268,67 @@ for (const native of [true, false]) {
     assert.equal(app.held(), false);
   });
 
+  for (const queue of [true, false]) {
+    test(`${native ? 'native' : 'fallback'}・後送${queue}：旧列の補完でも取得済みの見出しを使い、補完後の新しい並びで保存する`, () => {
+      const app = fixture({ native, queue, headers: ['独自列', '電話番号', '予約番号', '来店日', '開始', '終了'] });
+      const before = structuredClone(app.ledger.cells);
+      assert.equal(app.send().ok, true);
+      const reads = app.calls.filter(call => call.name === '予約一覧' && call.method === 'values');
+      assert.equal(reads.length, 3, '補完前・補完後・保存後の三取得だけにする');
+      assert.deepEqual(reads.map(read => [read.row, read.numRows, read.appended]),
+        [[1, 2, false], [1, 2, false], [3, 1, true]]);
+      assert.deepEqual(app.ledger.cells[0].slice(0, before[0].length), before[0]);
+      assert.deepEqual(app.ledger.cells[1], before[1]);
+      const headers = app.ledger.cells[0];
+      assert.equal(app.ledger.cells[2][headers.indexOf('来店日')], REQUEST.date);
+      assert.equal(app.ledger.cells[2][headers.indexOf('合計金額')], REQUEST.totalPrice);
+      assert.equal(app.ledger.cells[2][headers.indexOf('開始')], REQUEST.time);
+      assert.equal(app.effects.filter(effect => effect === 'booking').length, 1);
+      assert.equal(app.effects.includes('mail'), !queue);
+      assert.equal(app.held(), false);
+    });
+  }
+
+  test(`${native ? 'native' : 'fallback'}：空白だけの見出しは既存の実幅を読み直し、最初の独自列を消さない`, () => {
+    const app = fixture({ native, headers: ['　'], records: [] });
+    assert.equal(app.send().ok, true);
+    const headers = app.ledger.cells[0];
+    assert.equal(headers[0], '　');
+    assert.equal(headers.length, Array.from(vm.runInContext('HEADERS', app.context)).length + 1);
+    assert.equal(app.ledger.cells[1][headers.indexOf('予約番号')], REQUEST.code);
+    assert.equal(app.ledger.cells[1][0], '');
+    assert.equal(app.held(), false);
+  });
+
+  test(`${native ? 'native' : 'fallback'}：補完前に列幅が変わった場合は古い見出しで追加せず、新しい独自列を保持する`, () => {
+    const app = fixture({ native, headers: ['独自列', '電話番号', '予約番号', '来店日', '開始', '終了'] });
+    const originalRange = app.ledger.getRange.bind(app.ledger);
+    let changed = false;
+    app.ledger.getRange = (row, column, height = 1, width = 1) => {
+      const range = originalRange(row, column, height, width);
+      const originalValues = range.getValues.bind(range);
+      range.getValues = () => {
+        const values = originalValues();
+        if (!changed && row === 1 && height > 1) {
+          changed = true;
+          app.ledger.cells[0].push('後から足した列');
+          app.ledger.cells[1].push('別の新しい内容');
+        }
+        return values;
+      };
+      return range;
+    };
+    assert.equal(app.send().ok, true);
+    assert.equal(changed, true);
+    const headers = app.ledger.cells[0];
+    assert.equal(headers[6], '後から足した列');
+    assert.equal(app.ledger.cells[1][6], '別の新しい内容');
+    assert.equal(headers.filter(header => header === '開始').length, 1);
+    assert.equal(app.ledger.cells[2][headers.indexOf('開始')], REQUEST.time);
+    assert.equal(app.ledger.cells[2][headers.indexOf('合計金額')], REQUEST.totalPrice);
+    assert.equal(app.held(), false);
+  });
+
   test(`${native ? 'native' : 'fallback'}：準備中の拒否と、読み取りが失敗した場合の未保存を保持する`, () => {
     const app = fixture({ native });
     const settings = app.sheets.get('設定');

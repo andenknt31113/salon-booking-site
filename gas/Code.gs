@@ -3144,15 +3144,15 @@ function getSheet_(reservationContext) {
        見出しが無いと rowFor_ の書き先が消え、記録したつもりのものが
        どこにも残りません。右端に足すだけなので、店の人が足した列も、
        いま入っている値も動きません。 */
-    if (reservationContext) {
-      const snapshot = readSheetSnapshot_(sheet, []);
+    const snapshot = reservationContext ? readSheetSnapshot_(sheet, []) : null;
+    if (snapshot) {
       if (HEADERS.every(header => snapshot.head.includes(header))) {
         if (!validBookingHeaders_(snapshot.head, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
         reservationContext.snapshot = snapshot;
         return sheet;
       }
     }
-    ensureHeaders_(ss, SHEET_NAME, HEADERS);
+    ensureHeaders_(ss, SHEET_NAME, HEADERS, snapshot);
   }
   return sheet;
 }
@@ -4247,7 +4247,7 @@ function replaceKeepingImages_(ss, name, headers, keyHeader, rows) {
     スタイルの「説明」のように、あとから増えた列があります。先に作られた
     シートには見出しがなく、書いても読み返せない場所に入ってしまいます。
     店の人が自分で足した列は動かしたくないので、消さずに右へ足すだけにします。 */
-function ensureHeaders_(ss, name, headers) {
+function ensureHeaders_(ss, name, headers, snapshot) {
   const sheet = ss.getSheetByName(name);
   const last = sheet ? sheet.getLastRow() : 0;
   if (!last) return;   // 作りたてなら writeSheetRows_ が見出しを書く
@@ -4258,8 +4258,9 @@ function ensureHeaders_(ss, name, headers) {
      その長さを足す先に使うと、空の列を1つ挟んだ21列目に見出しを書いて
      しまい、20列目が名前の無い列として残ります。 */
   const width = sheet.getLastColumn() || 0;
-  const head = width ? sheet.getRange(1, 1, 1, width).getValues()[0]
-    .map(function (v) { return String(v == null ? '' : v).trim(); }) : [];
+  const head = snapshot && snapshot.head.length === width ? snapshot.head
+    : width ? sheet.getRange(1, 1, 1, width).getValues()[0]
+      .map(function (v) { return String(v == null ? '' : v).trim(); }) : [];
   if (name === SHEET_NAME && !validBookingHeaders_(head, { requireCode: true, allowMissing: last < 2 })) {
     throw userFacingError_(BOOKING_HEADERS_ERROR);
   }
