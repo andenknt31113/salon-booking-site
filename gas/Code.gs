@@ -890,13 +890,15 @@ function doGet(event) {
   const validOrigin = /^https:\/\/[a-z0-9]+(?:[.-][a-z0-9]+)*(?::\d{1,5})?$/i.test(origin)
     || /^http:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}$/.test(origin);
   if (!['menu', 'availability'].includes(params.type) || !validOrigin
+      || (params.type === 'menu' && Object.prototype.hasOwnProperty.call(params, 'initialAvailability')
+        && !['true', 'false'].includes(params.initialAvailability))
       || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(requestId)) {
     return json_({ ok: false, error: '読取要求を確認できません。' });
   }
   let result;
   try {
     result = withLedgerLock_(() => {
-      if (params.type === 'menu') return doMenu_({ booking: true, initialAvailability: true });
+      if (params.type === 'menu') return doMenu_({ booking: true, initialAvailability: params.initialAvailability !== 'false' });
       const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
       if (!sheet) throw userFacingError_('予約台帳を確認できません。');
       return doAvailability_(sheet);

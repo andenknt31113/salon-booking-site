@@ -13,7 +13,7 @@ export const UI_CHECKS = Object.freeze([
   'admin-publication-browser', 'admin-occupancy-intervals-ui', 'booking-email-queue-browser',
   'admin-brief-history-ui', 'admin-daily-usability', 'admin-savebar-focus', 'admin-save-ack-browser', 'mypage-lookup-sync',
   'booking-write-response-browser', 'admin-change-receipt-browser', 'site-publication-browser', 'publication-cache-browser',
-  'booking-calendar-refresh-browser'
+  'booking-calendar-refresh-browser', 'public-read-menu-browser'
 ].map(name => `test/${name}.mjs`));
 
 export async function verifyUI({ root = ROOT, output = process.stdout } = {}) {

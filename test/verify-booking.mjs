@@ -44,6 +44,16 @@ test('空席再確認の遅い応答と画面移動の保護を一括検査か�
   assert.ok(BOOKING_CHECKS.includes('test/booking-calendar-refresh.mjs'));
 });
 
+test('公開読取の範囲・送信元・旧要求の互換性を一括検査から外さない', async () => {
+  for (const file of ['test/public-read-client.mjs', 'test/public-read-transport.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(file), file);
+  }
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  for (const pattern of ['assets/js/public-read.js', 'test/public-read-*.mjs']) {
+    assert.equal(workflow.split("- '" + pattern + "'").length - 1, 2);
+  }
+});
+
 test('予約確認の本人照合と狭い読込を一括検査から外さない', () => {
   for (const path of ['test/booking-lookup-reads.mjs', 'test/reservation-lookup.mjs', 'test/request-dispatch.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path));

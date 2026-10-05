@@ -3,6 +3,7 @@ const PUBLIC_READ_FRAME_MAX_DEPTH = 8;
 async function readPublicEndpoint(payload, signal) {
   const valid = payload && ['menu', 'availability'].includes(payload.type)
     && Object.keys(payload).every(key => ['type', 'booking', 'initialAvailability'].includes(key))
+    && (!Object.prototype.hasOwnProperty.call(payload, 'initialAvailability') || typeof payload.initialAvailability === 'boolean')
     && (payload.type !== 'menu' || payload.booking === true);
   if (!valid) throw new Error('公開の読取要求を確認できません。');
   if (signal && signal.aborted) throw new DOMException('読取を中止しました。', 'AbortError');
@@ -19,6 +20,7 @@ async function readPublicEndpoint(payload, signal) {
       const url = new URL(SALON.reservationEndpoint);
       url.search = new URLSearchParams({ transport: 'frame', type: payload.type,
         requestId, origin: location.origin });
+      if (payload.type === 'menu') url.searchParams.set('initialAvailability', String(payload.initialAvailability === true));
       frame.src = url.href;
       frame.hidden = true;
       frame.title = '最新の予約条件を確認';

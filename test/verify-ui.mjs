@@ -76,13 +76,17 @@ test('遅い空席再確認が現在の画面・日時・入力を壊さない�
   assert.ok(UI_CHECKS.includes('test/booking-calendar-refresh-browser.mjs'));
 });
 
+test('公開読取の範囲と新規予約の空席確認を画面検査から外さない', () => {
+  assert.ok(UI_CHECKS.includes('test/public-read-menu-browser.mjs'));
+});
+
 test('保存バーが休業メモのキーボード操作を隠さないことを画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/admin-savebar-focus.mjs'));
 });
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 28);
+    assert.equal(UI_CHECKS.length, 29);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

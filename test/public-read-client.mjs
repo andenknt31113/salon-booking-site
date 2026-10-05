@@ -74,6 +74,49 @@ test('Googleの多重フレームでも、自分で作ったフレーム配下�
   assert.equal(app.requests.length, 0);
 });
 
+for (const initialAvailability of [true, false, undefined]) {
+  test(`メニューの空席取得指定を読取URLへ引き継ぐ：${initialAvailability}`, async () => {
+    const app = fixture();
+    const payload = { type: 'menu', booking: true,
+      ...(initialAvailability === undefined ? {} : { initialAvailability }) };
+    const pending = app.read(payload);
+    const query = new URL(app.frames[0].src).searchParams;
+    assert.equal(query.get('initialAvailability'), String(initialAvailability === true));
+    app.send();
+    assert.equal((await pending).ok, true);
+    assert.equal(app.requests.length, 0);
+  });
+}
+
+test('空席だけの読取URLにメニュー用の指定を追加しない', async () => {
+  const app = fixture();
+  const pending = app.read();
+  assert.equal(new URL(app.frames[0].src).searchParams.has('initialAvailability'), false);
+  app.send();
+  await pending;
+});
+
+for (const initialAvailability of [true, false]) {
+  test(`メニューのフレームが止まってもPOSTで空席取得指定を変えない：${initialAvailability}`, async () => {
+    const app = fixture();
+    const payload = { type: 'menu', booking: true, initialAvailability };
+    const response = await app.read(payload);
+    assert.equal((await response.json()).fallback, true);
+    assert.deepEqual(JSON.parse(app.requests[0].options.body), payload);
+    assert.equal(app.requests.length, 1);
+    assert.equal(app.frames[0].removed, true);
+  });
+}
+
+test('空席取得の指定はbooleanだけを許可し、不正な指定をURLやPOSTへ送らない', async () => {
+  for (const initialAvailability of ['false', '', null, 0, 1, [], {}]) {
+    const app = fixture();
+    await assert.rejects(app.read({ type: 'menu', booking: true, initialAvailability }));
+    assert.equal(app.frames.length, 0);
+    assert.equal(app.requests.length, 0);
+  }
+});
+
 test('HTMLが止まった場合だけ従来の読取へ戻り、停止したフレームは片付ける', async () => {
   const app = fixture();
   const response = await app.read();
