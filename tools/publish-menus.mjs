@@ -1,15 +1,16 @@
 import { copyFile, mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { publicHtml } from './public-content.mjs';
+import { publicationSite, parsePublishedMenus, serializePublishedMenus } from './publication-site.mjs';
 
 const OUTPUT = new URL('../assets/js/published-menus.js', import.meta.url);
 const TIMEOUT_MS = 15000;
 const argumentsList = process.argv.slice(2);
 const mode = argumentsList[0];
-if (!['--check', '--write', '--check-local', '--write-local'].includes(mode) || argumentsList.length !== 1) {
-  throw new Error('--check / --write、外部へ接続しない場合は --check-local / --write-local を指定してください。');
+if (!['--check', '--write', '--check-local', '--write-local', '--check-site', '--write-site'].includes(mode) || argumentsList.length !== 1) {
+  throw new Error('--check / --write、店舗情報・写真も含む場合は --check-site / --write-site、外部へ接続しない場合は --check-local / --write-local を指定してください。');
 }
-async function loadCatalog() {
+async function loadCatalog(publication = false) {
   const endpoint = process.env.RESERVATION_ENDPOINT || (await readFile(new URL('../assets/js/data.js', import.meta.url), 'utf8'))
     .match(/reservationEndpoint:\s*'([^']*)'/)?.[1];
   if (!endpoint) throw new Error('店舗設定またはRESERVATION_ENDPOINTに接続先を指定してください。');
@@ -20,7 +21,7 @@ async function loadCatalog() {
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   let response = await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ type: 'menu', booking: true }), redirect: 'manual',
+    body: JSON.stringify(publication ? { type: 'menu', publication: true } : { type: 'menu', booking: true }), redirect: 'manual',
     credentials: 'omit', cache: 'no-store', signal
   });
   if ([302, 303].includes(response.status)) {
@@ -43,6 +44,10 @@ async function loadCatalog() {
   const data = await response.json();
   if (!data || data.ok !== true || !Object.hasOwn(data, 'categories') || !Object.hasOwn(data, 'coupons')) {
     throw new Error('メニュー応答が不正です。公開ファイルは変更しません。');
+  }
+  if (publication && (data.publicationReady !== true || !Array.isArray(data.categories)
+      || !Array.isArray(data.coupons) || data.error || data.unknown || data.rejected)) {
+    throw new Error('店舗情報・写真の公開用応答を確認できません。');
   }
   const list = value => {
     if (value === null) return [];
@@ -71,10 +76,19 @@ async function loadCatalog() {
     }),
     coupons: list(data.coupons).map(value => item(value, true))
   };
-  return 'const PUBLISHED_MENUS = ' + JSON.stringify(published, null, 2).replaceAll('<', '\\u003c') + ';\n';
+  if (publication) {
+    published.site = publicationSite(data);
+  }
+  return serializePublishedMenus(published);
 }
 const previous = await readFile(OUTPUT, 'utf8');
-const next = mode.endsWith('-local') ? previous : await loadCatalog();
+let next = mode.endsWith('-local') ? previous : await loadCatalog(mode.endsWith('-site'));
+const previousData = parsePublishedMenus(previous);
+if (!mode.endsWith('-site') && !mode.endsWith('-local') && previousData && Object.hasOwn(previousData, 'site')) {
+  const updated = parsePublishedMenus(next);
+  updated.site = publicationSite(previousData.site);
+  next = serializePublishedMenus(updated);
+}
 const files = [{ name: 'assets/js/published-menus.js', previous, next }, ...await publicHtml(next)];
 const changes = files.filter(file => file.previous !== file.next);
 if (!changes.length) {

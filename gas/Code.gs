@@ -1299,6 +1299,37 @@ function verifyReservationMenus_(ss, data) {
 function doMenu_(request, timing) {
   const started = Date.now();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (request && request.publication === true) {
+    if (request.initialAvailability === true) {
+      throw userFacingError_('公開内容の取得に空席確認を混ぜることはできません。');
+    }
+    const menus = readPublicationSnapshot_(ss, MENU_SHEET, MENU_HEADERS);
+    const coupons = readPublicationSnapshot_(ss, COUPON_SHEET, COUPON_HEADERS);
+    const styles = readPublicationSnapshot_(ss, STYLE_SHEET, STYLE_HEADERS);
+    const settings = readPublicationSnapshot_(ss, SETTING_SHEET, ['項目', '内容']);
+    [menus, coupons].forEach(snapshot => {
+      const nameColumn = snapshot.head.indexOf('メニュー名');
+      const shownColumn = snapshot.head.indexOf('表示');
+      const minutesColumn = snapshot.head.indexOf('所要(分)');
+      if (snapshot.rows.some(row => String(row[nameColumn] || '').trim() && isShown_(row[shownColumn])
+          && parseBookableMinutes_(row[minutesColumn]) === null)) {
+        throw userFacingError_('公開メニューの所要時間を確認できません。公開ファイルは変更しないでください。');
+      }
+    });
+    const keyColumn = settings.head.indexOf('項目');
+    const valueColumn = settings.head.indexOf('内容');
+    if (PUBLIC_SETTING_KEYS.some(key => settings.rows.filter(row => String(row[keyColumn]).trim() === key).length !== 1)) {
+      throw userFacingError_('公開用の店舗設定を確認できません。公開ファイルは変更しないでください。');
+    }
+    const result = { ok: true, publicationReady: true,
+      categories: readMenuSheet_(ss, menus) || [], coupons: readCouponSheet_(ss, coupons) || [],
+      styles: readStyleSheet_(ss, styles) || [],
+      settings: publicSettings_(readSettings_(ss, { rows: settings.rows
+        .filter(row => PUBLIC_SETTING_KEYS.includes(String(row[keyColumn]).trim()))
+        .map(row => [row[keyColumn], row[valueColumn]]) })) };
+    if (timing) timing.catalogMs = Date.now() - started;
+    return result;
+  }
   const result = {
     ok: true,
     categories: readMenuSheet_(ss) || [],
@@ -1317,6 +1348,16 @@ function doMenu_(request, timing) {
   }
   if (timing) timing.catalogMs = Date.now() - started;
   return result;
+}
+
+function readPublicationSnapshot_(ss, name, headers) {
+  const sheet = ss.getSheetByName(name);
+  const snapshot = readSheetSnapshot_(sheet, []);
+  if (!sheet || headers.some(header => !snapshot.head.includes(header))
+      || snapshot.head.some((header, index) => header && snapshot.head.indexOf(header) !== index)) {
+    throw userFacingError_('公開内容のシートを確認できません。公開ファイルは変更しないでください。');
+  }
+  return snapshot;
 }
 
 /* 「休業日」シートに書いた日付を、予約できない日としてサイトに渡します。
@@ -1366,9 +1407,8 @@ function hitsClosed_(sheet, dateKey, time, minutes) {
   });
 }
 
-function readMenuSheet_(ss) {
-  const sheet = ss.getSheetByName(MENU_SHEET);
-  const snapshot = readSheetSnapshot_(sheet, MENU_HEADERS);
+function readMenuSheet_(ss, suppliedSnapshot) {
+  const snapshot = suppliedSnapshot || readSheetSnapshot_(ss.getSheetByName(MENU_SHEET), MENU_HEADERS);
   if (!snapshot.rows.length) return null;
 
   const head = snapshot.head;
@@ -1404,9 +1444,8 @@ function readMenuSheet_(ss) {
   return groups.length ? groups : null;
 }
 
-function readCouponSheet_(ss) {
-  const sheet = ss.getSheetByName(COUPON_SHEET);
-  const snapshot = readSheetSnapshot_(sheet, COUPON_HEADERS);
+function readCouponSheet_(ss, suppliedSnapshot) {
+  const snapshot = suppliedSnapshot || readSheetSnapshot_(ss.getSheetByName(COUPON_SHEET), COUPON_HEADERS);
   if (!snapshot.rows.length) return null;
 
   const head = snapshot.head;
@@ -1446,12 +1485,12 @@ function readCouponSheet_(ss) {
 
 /* 「スタイル」シート。ヘアカタログと店内写真をここで差し替えます。
    分類はギャラリーの絞り込みタブになります（ショート／カラー／店内 など）。 */
-function readStyleSheet_(ss) {
-  const sheet = ss.getSheetByName(STYLE_SHEET);
-  if (!sheet || sheet.getLastRow() < 2) return null;
+function readStyleSheet_(ss, suppliedSnapshot) {
+  const sheet = suppliedSnapshot ? null : ss.getSheetByName(STYLE_SHEET);
+  if (suppliedSnapshot ? !suppliedSnapshot.rows.length : !sheet || sheet.getLastRow() < 2) return null;
 
-  const head = sheetHeader_(sheet, STYLE_HEADERS);
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  const head = suppliedSnapshot ? suppliedSnapshot.head : sheetHeader_(sheet, STYLE_HEADERS);
+  const rows = suppliedSnapshot ? suppliedSnapshot.rows : sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
   const col = n => { const i = head.indexOf(n); return i >= 0 ? i : STYLE_HEADERS.indexOf(n); };
   const out = [];
 

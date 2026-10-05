@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { test } from 'node:test';
+import { publicationSite, serializePublishedMenus } from '../tools/publication-site.mjs';
 
 const SOURCE = readFileSync(new URL('../tools/publish-menus.mjs', import.meta.url), 'utf8');
-const LOAD = SOURCE.match(/async function loadCatalog\(\) {[\s\S]*?\n}\n/)[0]
+const LOAD = SOURCE.match(/async function loadCatalog\([^)]*\) {[\s\S]*?\n}\n/)[0]
   .replaceAll('import.meta.url', 'TOOL_URL');
 const ENDPOINT = 'https://script.google.com/macros/s/fixture/exec';
 const RESULT = 'https://script.googleusercontent.com/macros/echo?fixture=result';
@@ -13,7 +14,7 @@ const DATA = { ok: true, categories: [], coupons: [] };
 function fixture(responses, endpoint = ENDPOINT) {
   const requests = [];
   const context = vm.createContext({ URL, JSON, Set, Object, Number, Error,
-    TOOL_URL: new URL('../tools/publish-menus.mjs', import.meta.url),
+    TOOL_URL: new URL('../tools/publish-menus.mjs', import.meta.url), publicationSite, serializePublishedMenus,
     process: { env: { RESERVATION_ENDPOINT: endpoint } },
     AbortSignal: { timeout: () => ({ fixture: true }) },
     fetch: async (url, options) => {

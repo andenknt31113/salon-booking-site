@@ -64,13 +64,17 @@ test('Google管理bridgeの日時変更で結果照合と再送防止を画面�
   assert.ok(UI_CHECKS.includes('test/admin-change-receipt-browser.mjs'));
 });
 
+test('公開店舗情報・写真の初期反映と空一覧の保持を画面検査から外さない', () => {
+  assert.ok(UI_CHECKS.includes('test/site-publication-browser.mjs'));
+});
+
 test('保存バーが休業メモのキーボード操作を隠さないことを画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/admin-savebar-focus.mjs'));
 });
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 25);
+    assert.equal(UI_CHECKS.length, 26);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

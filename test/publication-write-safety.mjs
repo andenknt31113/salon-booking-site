@@ -12,7 +12,7 @@ import vm from 'node:vm';
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
   'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js',
-  'tools/public-content.mjs', 'tools/publish-menus.mjs'];
+  'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
 const HTML_FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html'];
 const FAULT_MODULE = `
 import fileSystem from 'node:fs/promises';

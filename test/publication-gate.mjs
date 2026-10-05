@@ -9,7 +9,7 @@ import { test } from 'node:test';
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
   'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js',
-  'tools/public-content.mjs', 'tools/publish-menus.mjs'];
+  'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
 const GENERATED_FILES = ['assets/js/published-menus.js', 'index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html'];
 
 async function withPublication(run) {

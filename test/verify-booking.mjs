@@ -47,6 +47,12 @@ test('日時変更の結果不明・保存内容の照合・再送防止を一�
   assert.ok(BOOKING_CHECKS.includes('test/admin-change-receipt.mjs'));
 });
 
+test('公開する店舗情報・写真の取得と静的同期を一括検査から外さない', () => {
+  for (const path of ['test/site-publication-backend.mjs', 'test/site-publication.mjs', 'test/site-publication-flow.mjs']) {
+    assert.ok(BOOKING_CHECKS.includes(path), path);
+  }
+});
+
 test('本人照合の失敗から予約の存在・状態を明かさない検査を一括検査から外さない', () => {
   assert.ok(BOOKING_CHECKS.includes('test/booking-identity-privacy.mjs'));
 });

@@ -1644,6 +1644,10 @@ if (typeof PUBLISHED_MENUS !== 'undefined' && PUBLISHED_MENUS) {
     ...category, items: category.items.map(normalizeItem)
   }));
   SALON.coupons = PUBLISHED_MENUS.coupons.map(normalizeItem);
+  if (PUBLISHED_MENUS.site) {
+    applySettings(PUBLISHED_MENUS.site.settings);
+    SALON.styles = PUBLISHED_MENUS.site.styles.map(style => ({ ...style, image: driveImageUrl(style.image) }));
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

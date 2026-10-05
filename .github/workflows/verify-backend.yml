@@ -6,6 +6,10 @@ on:
     paths:
       - 'gas/**'
       - 'tools/verify-booking.mjs'
+      - 'tools/publication-site.mjs'
+      - 'tools/publish-menus.mjs'
+      - 'tools/public-content.mjs'
+      - 'test/site-publication*.mjs'
       - 'tools/verify-local.mjs'
       - 'tools/verify-ui.mjs'
       - 'test/verify-booking.mjs'
@@ -73,6 +77,10 @@ on:
     paths:
       - 'gas/**'
       - 'tools/verify-booking.mjs'
+      - 'tools/publication-site.mjs'
+      - 'tools/publish-menus.mjs'
+      - 'tools/public-content.mjs'
+      - 'test/site-publication*.mjs'
       - 'tools/verify-local.mjs'
       - 'tools/verify-ui.mjs'
       - 'test/verify-booking.mjs'
