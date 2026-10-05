@@ -323,7 +323,7 @@ for (const payload of [selected(), selected([]), { reservationCodes: ['LM-SELECT
   });
 }
 
-test('指定なしの全量・briefPast・startup・編集・通知の固定契約を保持する', () => {
+test('指定なしの返却契約を保持し、配送状態の重複読込だけを減らす', () => {
   const records = [booking(), booking({ 予約番号: 'LM-FUTURE', 来店日: FUTURE }),
     booking({ 予約番号: 'LM-CANCELLED', 状態: 'キャンセル済み' })];
   for (const deliveryIndices of [[], [0]]) {
@@ -333,15 +333,22 @@ test('指定なしの全量・briefPast・startup・編集・通知の固定契�
       const app = fixture({ records, deliveryIndices });
       const actual = app.send(payload);
       if (actual.capabilities) assert.equal(actual.capabilities.phoneCatalog, true);
+      const notificationActive = deliveryIndices.length > 0 && !payload.editorTarget;
+      assert.deepEqual(app.reads.filter(read => read.name === '予約メール配送'), notificationActive ? [{
+        name: '予約メール配送', row: 1, column: 1, height: deliveryIndices.length + 1,
+        width: app.sheets.get('予約メール配送').cells[0].length
+      }] : []);
+      const legacyContractReads = app.reads.flatMap(read => read.name === '予約メール配送'
+        ? [{ ...read, height: 1 }, read] : [read]);
       const unchangedRead = read => read.name !== '設定' && !(read.name === '予約一覧' && read.height === 1);
       assertAdminContract('history:' + JSON.stringify({ deliveryIndices, payload }), {
-        response: actual, reads: app.reads.filter(unchangedRead),
+        response: actual, reads: legacyContractReads.filter(unchangedRead),
         otherAccess: app.accesses.filter(name => !['spreadsheet', '予約一覧'].includes(name)).toSorted(),
         spreadsheetAccess: app.accesses.filter(name => name === 'spreadsheet').length,
         ledgerAccess: app.accesses.filter(name => name === '予約一覧').length
       });
       const full = !payload.reservationsOnly && !payload.notificationsOnly && !payload.editorTarget;
-      const deliveryReads = deliveryIndices.length ? 2 : 0;
+      const deliveryReads = deliveryIndices.length ? 1 : 0;
       const expectedReads = full ? (payload.startupOnly ? 5 : 7) + deliveryReads
         : payload.editorTarget ? 1 : (payload.notificationsOnly ? 1 : 2) + deliveryReads;
       assert.equal(app.reads.length, expectedReads);

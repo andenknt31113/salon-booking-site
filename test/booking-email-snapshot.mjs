@@ -16,6 +16,7 @@ function fixture({ native = true } = {}) {
   let held = false;
   let failing = false;
   let afterHeader;
+  let beforeSnapshot;
   const properties = new Map([['BOOKING_EMAIL_QUEUE_ENABLED', 'true']]);
   const sheets = new Map();
   const spreadsheet = { getSheetByName: name => sheets.get(name) || null };
@@ -30,6 +31,11 @@ function fixture({ native = true } = {}) {
       getValues() {
         record(name, 'getValues');
         if (failing && name === '予約メール配送') throw new Error('架空の配送読込障害');
+        if (name === '予約メール配送' && row === 1 && height > 1 && beforeSnapshot) {
+          const action = beforeSnapshot;
+          beforeSnapshot = null;
+          action(cells);
+        }
         const values = Array.from({ length: height }, (_unused, rowIndex) => Array.from({ length: columns }, (_cell, columnIndex) =>
           cells[row - 1 + rowIndex]?.[column - 1 + columnIndex] ?? ''));
         if (name === '予約メール配送' && row === 1 && height === 1 && afterHeader) {
@@ -82,10 +88,11 @@ function fixture({ native = true } = {}) {
     return [randomUUID(), context.bookingEmailSignature_(bookingValues, bookingHeaders), JSON.stringify(job)];
   };
   const lock = operation => context.withLedgerLock_(operation);
-  return { context, booking, queue, calls, writes, sent, jobRow, held: () => held,
+  return { context, booking, queue, calls, writes, sent, jobRow, properties, sheets, held: () => held,
     fail: () => { failing = true; }, afterHeader: action => { afterHeader = action; },
+    beforeSnapshot: action => { beforeSnapshot = action; },
     read: () => lock(() => Array.from(context.readBookingEmailJobs_(queue), record => JSON.parse(JSON.stringify(record)))),
-    summary: () => lock(() => JSON.parse(JSON.stringify(context.bookingEmailSummary_(booking)))),
+    summary: (rows, headers) => lock(() => JSON.parse(JSON.stringify(context.bookingEmailSummary_(booking, rows, headers)))),
     claim: id => context.claimBookingEmail_(BOOKING_CODE, id, 'shop') };
 }
 
@@ -139,14 +146,138 @@ for (const native of [true, false]) {
   }
 
   for (const operation of ['summary', 'claim']) {
-    test(`${mode}：先行する見出し確認の直後に変わった列を${operation}で拒否する`, () => {
+    test(`${mode}：配送記録を取得する直前に変わった列を${operation}で拒否する`, () => {
       const app = fixture({ native });
       const row = app.jobRow();
       app.queue.cells.push(row);
-      app.afterHeader(cells => { cells[0][1] = '通知ID'; });
+      app.beforeSnapshot(cells => { cells[0][1] = '通知ID'; });
       assert.throws(() => operation === 'summary' ? app.summary() : app.claim(row[0]), /メール配送の記録を確認できません/);
       assert.equal(app.held(), false);
       assert.equal(JSON.parse(app.queue.cells[1][2]).messages.shop.status, '配送待ち');
+      assert.deepEqual(app.writes, []);
+      assert.deepEqual(app.sent, []);
+    });
+  }
+
+  test(`${mode}：配送の書込経路は先行する見出し確認の直後の列変更も拒否する`, () => {
+    const app = fixture({ native });
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    app.afterHeader(cells => { cells[0][1] = '通知ID'; });
+    assert.throws(() => app.claim(row[0]), /メール配送の記録を確認できません/);
+    assert.equal(app.held(), false);
+    assert.equal(JSON.parse(app.queue.cells[1][2]).messages.shop.status, '配送待ち');
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+
+  test(`${mode}：管理の配送状態は見出しと本文を一度だけ読み、渡された予約を再取得しない`, () => {
+    const app = fixture({ native });
+    const row = app.jobRow('送信処理受付');
+    app.queue.cells.push(row);
+    const originalCells = structuredClone(app.queue.cells);
+    const originalProperties = Array.from(app.properties);
+    const result = app.summary(app.booking.cells.slice(1), app.booking.cells[0]);
+    assert.equal(result[BOOKING_CODE].id, row[0]);
+    assert.equal(result[BOOKING_CODE].row, 2);
+    assert.equal(result[BOOKING_CODE].raw, row[2]);
+    assert.equal(result[BOOKING_CODE].signature, row[1]);
+    assert.equal(result[BOOKING_CODE].job.messages.shop.status, '送信処理受付');
+    assert.deepEqual(app.calls, native
+      ? ['予約メール配送:getDataRange', '予約メール配送:getValues']
+      : ['予約メール配送:getLastRow', '予約メール配送:getLastColumn', '予約メール配送:getRange', '予約メール配送:getValues']);
+    assert.deepEqual(app.queue.cells, originalCells);
+    assert.deepEqual(Array.from(app.properties), originalProperties);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+
+  test(`${mode}：予約の取得方法を変えても管理の配送状態と最新の一致依頼は同じ`, () => {
+    const app = fixture({ native });
+    const first = app.jobRow();
+    const last = app.jobRow('送信結果不明');
+    app.queue.cells.push(first, last);
+    const full = app.summary();
+    app.calls.length = 0;
+    const selected = app.summary(app.booking.cells.slice(1), app.booking.cells[0]);
+    assert.deepEqual(selected, full);
+    assert.equal(selected[BOOKING_CODE].id, last[0]);
+    assert.equal(selected[BOOKING_CODE].row, 3);
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 1);
+    assert.equal(app.calls.some(call => call.startsWith('予約一覧:')), false);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+
+  test(`${mode}：見出しだけの配送記録も一回の取得で空の管理状態を返す`, () => {
+    const app = fixture({ native });
+    assert.deepEqual(app.summary(app.booking.cells.slice(1), app.booking.cells[0]), {});
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 1);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+
+  test(`${mode}：管理の状態確認も要求ごとに読み直し、古い一致や配送状態を使わない`, () => {
+    const app = fixture({ native });
+    app.queue.cells.push(app.jobRow());
+    assert.equal(app.summary()[BOOKING_CODE].job.messages.shop.status, '配送待ち');
+    app.queue.cells[1] = app.jobRow('送信結果不明');
+    assert.equal(app.summary()[BOOKING_CODE].job.messages.shop.status, '送信結果不明');
+    app.booking.cells[1][app.booking.cells[0].indexOf('状態')] = 'キャンセル';
+    assert.deepEqual(app.summary(), {});
+    app.properties.set('BOOKING_EMAIL_QUEUE_ENABLED', 'false');
+    const reads = app.calls.length;
+    assert.equal(app.summary(), null);
+    assert.equal(app.calls.length, reads);
+    assert.equal(app.held(), false);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+  });
+
+  for (const [label, corrupt] of [
+    ['シート欠落', app => { app.sheets.delete('予約メール配送'); }],
+    ['見出し削除', app => { app.queue.cells.length = 0; }],
+    ['見出し空白', app => { app.queue.cells[0] = ['', '', '']; }],
+    ['見出し入替', app => { app.queue.cells[0] = ['予約照合', '通知ID', '配送内容']; }],
+    ['見出し欠落', app => { app.queue.cells[0][1] = ''; }],
+    ['見出し重複', app => { app.queue.cells[0][1] = '通知ID'; }],
+    ['見出しだけの追加列', app => { app.queue.cells[0].push('独自列'); }],
+    ['本文だけの追加列', app => { app.queue.cells[1].push('残す'); }],
+    ['壊れたJSON', app => { app.queue.cells[1][2] = '配送JSON不正'; }],
+    ['重複ID', app => { app.queue.cells.push(app.queue.cells[1].slice()); }],
+    ['読込障害', app => { app.fail(); }]
+  ]) {
+    test(`${mode}：${label}を管理の配送成功や正常な空状態に置き換えない`, () => {
+      const app = fixture({ native });
+      app.queue.cells.push(app.jobRow());
+      assert.equal(Object.keys(app.summary()).length, 1);
+      corrupt(app);
+      const originalCells = structuredClone(app.queue.cells);
+      const originalProperties = Array.from(app.properties);
+      assert.throws(app.summary);
+      assert.deepEqual(app.queue.cells, originalCells);
+      assert.deepEqual(Array.from(app.properties), originalProperties);
+      assert.equal(app.held(), false);
+      assert.deepEqual(app.writes, []);
+      assert.deepEqual(app.sent, []);
+    });
+  }
+
+  for (const [label, corrupt] of [
+    ['一致しない依頼の壊れたJSON', app => { app.queue.cells[1][2] = '配送JSON不正'; }],
+    ['一致しない依頼の重複ID', app => { app.queue.cells.push(app.queue.cells[1].slice()); }]
+  ]) {
+    test(`${mode}：${label}も確認し、対象外という理由で正常な空状態にしない`, () => {
+      const app = fixture({ native });
+      app.queue.cells.push(app.jobRow());
+      app.booking.cells[1][app.booking.cells[0].indexOf('状態')] = 'キャンセル';
+      assert.deepEqual(app.summary(), {});
+      corrupt(app);
+      assert.throws(app.summary, /メール配送の記録を確認できません/);
+      assert.equal(app.held(), false);
       assert.deepEqual(app.writes, []);
       assert.deepEqual(app.sent, []);
     });

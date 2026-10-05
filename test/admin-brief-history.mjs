@@ -169,7 +169,8 @@ for (const delivery of [false, true]) {
     assert.equal(app.reads.filter(read => read.name === '設定').length, 1);
     assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 0,
       '完成した見出しは全行の取得から確認し、配送表示用にも読み直さない');
-    assert.equal(app.reads.length, delivery ? 7 : 5);
+    assert.equal(app.reads.length, delivery ? 6 : 5);
+    assert.equal(app.reads.filter(read => read.name === '予約メール配送').length, delivery ? 1 : 0);
     assert.equal(result.reservations.length, 1);
     assertPending(result.reservations[0]);
     if (delivery) assert.match(result.reservations[0].customerMailStatus, /送信結果不明/);

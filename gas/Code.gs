@@ -3442,7 +3442,7 @@ function enableBookingEmailQueue() {
 
 function bookingEmailSummary_(sheet, reservationRows, reservationHeaders) {
   if (PropertiesService.getScriptProperties().getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return null;
-  const queue = bookingEmailSheet_(sheet.getParent());
+  const queue = sheet.getParent().getSheetByName(BOOKING_EMAIL_SHEET);
   return currentBookingEmailJobs_(sheet, queue, reservationRows, reservationHeaders);
 }
 
