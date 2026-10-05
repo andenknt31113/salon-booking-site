@@ -80,6 +80,37 @@ test('要求ごとに新しい値・使用範囲・競合印を取得し、前�
   assert.equal(app.read().stamp, '0');
 });
 
+for (const native of [true, false]) {
+  test(`${native ? 'native' : 'fallback'}：日付セルと同じISO文字列を別の競合印にし、同じ日時の再取得は維持する`, () => {
+    const date = new Date('2030-01-04T15:00:00Z');
+    const app = fixture([['項目', '内容'], ['日時', date]], native);
+    const first = app.read();
+    app.replace([['項目', '内容'], ['日時', new Date(date.getTime())]]);
+    assert.equal(app.read().stamp, first.stamp);
+    app.replace([['項目', '内容'], ['日時', date.toISOString()]]);
+    assert.notEqual(app.read().stamp, first.stamp);
+    app.replace([['項目', '内容'], ['日時', new Date(date.getTime() + 1)]]);
+    assert.notEqual(app.read().stamp, first.stamp);
+  });
+
+  test(`${native ? 'native' : 'fallback'}：通常の文字・数値・真偽値の競合印は以前の印と同じにする`, () => {
+    const cells = [['項目', '内容'], ['空欄', ''], ['営業開始', '09:00'],
+      ['料金', 4000], ['表示', true], ['表示なし', false], ['文字', '["date","1893778800000"]']];
+    const app = fixture(cells, native);
+    const legacy = createHash('md5').update(JSON.stringify(cells)).digest('hex').slice(0, 12);
+    assert.equal(app.read().stamp, legacy);
+  });
+}
+
+for (const [label, value] of [['NaN', NaN], ['Infinity', Infinity], ['-Infinity', -Infinity],
+  ['undefined', undefined], ['不正な日付', new Date(NaN)]]) {
+  test(`JSONではnullになる${label}を本物のnullと同じ印にしない`, () => {
+    const app = fixture();
+    assert.notEqual(app.context.stampValues_([['項目', '内容'], ['値', value]]),
+      app.context.stampValues_([['項目', '内容'], ['値', null]]));
+  });
+}
+
 test('使用範囲の読込が失敗したら旧結果や空一覧に置き換えずロックを解放する', () => {
   const app = fixture([['項目', '内容'], ['営業開始', '09:00']]);
   app.read();

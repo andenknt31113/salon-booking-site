@@ -2514,14 +2514,8 @@ function readAdminReservations_(ss, reservationCodes, refresh) {
   let refreshVersion;
   if (refresh) {
     const mailStates = summary ? applyBookingEmailSummary_(Object.keys(summary).map(code => ({ code })), summary, evaluatedAt) : null;
-    const typedRows = rows => rows.map(row => row.map(value => {
-      if (value instanceof Date) return ['date', String(value.getTime())];
-      if (value === undefined) return ['undefined'];
-      if (typeof value === 'number' && !Number.isFinite(value)) return ['number', String(value)];
-      return value;
-    }));
-    const versionSource = JSON.stringify([ADMIN_RESERVATION_VERSION_FORMAT, headers, typedRows(reservationRows),
-      closedSnapshot.head, typedRows(closedSnapshot.rows), mailStates, briefDay]);
+    const versionSource = JSON.stringify([ADMIN_RESERVATION_VERSION_FORMAT, headers, typedSheetRows_(reservationRows),
+      closedSnapshot.head, typedSheetRows_(closedSnapshot.rows), mailStates, briefDay]);
     const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, versionSource, Utilities.Charset.UTF_8);
     refreshVersion = bytes.map(byte => ((byte & 0xFF) + 0x100).toString(16).slice(1)).join('');
     if (refresh.ifNoneMatch === refreshVersion) return { ok: true, unchanged: true, refreshVersion };
@@ -2599,8 +2593,17 @@ function sheetStamp_(ss, name) {
   return readSheetSnapshot_(ss.getSheetByName(name), [], true).stamp;
 }
 
+function typedSheetRows_(rows) {
+  return rows.map(row => row.map(value => {
+    if (value instanceof Date) return ['date', String(value.getTime())];
+    if (value === undefined) return ['undefined'];
+    if (typeof value === 'number' && !Number.isFinite(value)) return ['number', String(value)];
+    return value;
+  }));
+}
+
 function stampValues_(values) {
-  const text = JSON.stringify(values);
+  const text = JSON.stringify(typedSheetRows_(values));
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text, Utilities.Charset.UTF_8);
   return bytes.map(function (b) { return ((b & 0xFF) + 0x100).toString(16).slice(1); }).join('').slice(0, 12);
 }

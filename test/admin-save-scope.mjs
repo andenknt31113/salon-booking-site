@@ -26,6 +26,13 @@ function fixture({ native = true, google = true } = {}) {
       releaseLock() { assert.equal(held, true); held = false; } }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: body => ({ setMimeType: () => body }) },
     Utilities: { DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
+      formatDate(date, timezone, pattern) {
+        assert.equal(timezone, 'Asia/Tokyo');
+        const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString();
+        if (pattern === 'yyyy-MM-dd') return shifted.slice(0, 10);
+        assert.equal(pattern, 'HH:mm');
+        return shifted.slice(11, 16);
+      },
       computeDigest: (algorithm, value, charset) => Array.from(createHash(algorithm).update(value, charset).digest()) }
   });
   vm.runInContext(SOURCE, context);
@@ -149,3 +156,60 @@ test('対象だけの印を要求しても競合・入力・認証の保護を�
   assert.equal(result.authDenied, true);
   assert.deepEqual(app.effects, []);
 });
+
+const CLOSED_DATE = new Date('2030-01-04T15:00:00Z');
+
+for (const native of [true, false]) {
+  for (const google of [true, false]) {
+    const label = `${native ? 'native' : 'fallback'}・${google ? 'Google' : '既存API'}`;
+    for (const target of ['closed', 'settings']) {
+      for (const dateToText of [true, false]) {
+        test(`${label}・${target}：同じJSONになる日付セル・ISO文字列への変更も競合として断り、別端末の内容を消さない：${dateToText}`, () => {
+          const app = fixture({ native, google });
+          const sheet = app.sheets.get(app.targets[target]);
+          const value = dateToText ? CLOSED_DATE : CLOSED_DATE.toISOString();
+          const initial = target === 'closed' ? { 休業日: value, 開始: '', 終了: '', メモ: '他端末の内容' }
+            : { 項目: '営業開始', 内容: value };
+          sheet.cells.push(Array.from(sheet.cells[0], header => initial[header] ?? ''));
+          const column = sheet.cells[0].indexOf(target === 'closed' ? '休業日' : '内容');
+          const spreadsheet = { getSheetByName: () => sheet };
+          const stamp = app.context.stampValues_(sheet.cells);
+          const display = () => app.context.withLedgerLock_(() => target === 'closed'
+            ? app.context.readSheetRows_(spreadsheet, app.targets[target], sheet.cells[0])[0]['休業日']
+            : app.context.readSettings_(spreadsheet)['営業開始']);
+          const beforeValue = display();
+          sheet.cells[1][column] = dateToText ? CLOSED_DATE.toISOString() : new Date(CLOSED_DATE.getTime());
+          assert.notEqual(display(), beforeValue, 'セル型の変更は表示する内容も変える');
+          const changed = structuredClone(sheet.cells);
+          const result = app.send(target, { stampScope: 'target', stamp });
+          assert.equal(result.ok, false);
+          assert.equal(result.stale, true);
+          assert.match(result.error, /変更されています/);
+          assert.deepEqual(sheet.cells, changed);
+          assert.equal(app.effects.some(event => ['write', 'flush', 'formulas'].includes(event.operation)), false);
+        });
+      }
+    }
+
+    test(`${label}：古い日付セルの印は上書きせず、新しく取得した印なら保存して再保存できる`, () => {
+      const app = fixture({ native, google });
+      const sheet = app.sheets.get(app.targets.closed);
+      sheet.cells.push(Array.from(sheet.cells[0], header => ({
+        休業日: CLOSED_DATE, 開始: '', 終了: '', メモ: '日付セルの休業'
+      })[header] ?? ''));
+      const legacyStamp = createHash('md5').update(JSON.stringify(sheet.cells)).digest('hex').slice(0, 12);
+      const before = structuredClone(sheet.cells);
+      const outdated = app.send('closed', { stampScope: 'target', stamp: legacyStamp });
+      assert.equal(outdated.ok, false);
+      assert.equal(outdated.stale, true);
+      assert.deepEqual(sheet.cells, before);
+      assert.equal(app.effects.some(event => event.operation === 'write'), false);
+      const latestStamp = app.context.withLedgerLock_(() => app.context.sheetStamp_(
+        { getSheetByName: () => sheet }, app.targets.closed));
+      const saved = app.send('closed', { stampScope: 'target', stamp: latestStamp });
+      assert.equal(saved.ok, true);
+      assert.match(saved.stamps.closed, /^[a-f0-9]{12}$/);
+      assert.equal(app.send('closed', { stampScope: 'target', stamp: saved.stamps.closed }).ok, true);
+    });
+  }
+}

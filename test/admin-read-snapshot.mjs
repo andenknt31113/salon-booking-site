@@ -479,7 +479,7 @@ test('空シート・旧形式の短い列・空の見出しでも更新印の�
   assert.equal(result.menus[0].メニュー名, '旧形式');
 });
 
-test('日付・時刻のセル型を管理画面向けに整え、独自列込みの更新印は生値で作る', () => {
+test('日付・時刻の表示を整え、更新印には元のセル型と独自列も含める', () => {
   const app = fixture();
   const cells = app.sheets.get('休業日').cells;
   cells[1][0] = new Date('2030-01-06T00:00:00+09:00');
@@ -491,7 +491,9 @@ test('日付・時刻のセル型を管理画面向けに整え、独自列込�
   assert.equal(result.closedDates[0].休業日, '2030-01-06');
   assert.equal(result.closedDates[0].開始, '14:00');
   assert.equal(result.closedDates[0].終了, '16:00');
-  assert.equal(result.stamps.closed, digest(cells));
+  const typedCells = cells.map(row => row.map(value => value instanceof Date ? ['date', String(value.getTime())] : value));
+  assert.equal(result.stamps.closed, digest(typedCells));
+  assert.notEqual(result.stamps.closed, digest(cells), '日付セルをISO文字列と同じ印にしない');
 });
 
 for (const [failure, payload] of [['メニュー', {}], ['設定', {}], ['予約一覧', { notificationsOnly: true }],
