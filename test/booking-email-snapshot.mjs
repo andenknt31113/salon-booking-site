@@ -42,7 +42,7 @@ function fixture({ native = true, realSheet = false } = {}) {
         }
         const values = Array.from({ length: height }, (_unused, rowIndex) => Array.from({ length: columns }, (_cell, columnIndex) =>
           cells[row - 1 + rowIndex]?.[column - 1 + columnIndex] ?? ''));
-        if (name === '予約メール配送' && row === 1 && height === 1 && afterHeader) {
+        if (name === '予約メール配送' && row === 1 && afterHeader) {
           const action = afterHeader;
           afterHeader = null;
           action(cells);
@@ -402,7 +402,7 @@ for (const native of [true, false]) {
     assert.equal(delivery.id, row[0]);
     assert.equal(bookingReads(app), 1);
     assert.equal(JSON.parse(app.queue.cells[1][2]).messages.shop.status, '配送処理中');
-    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 6);
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 5);
     assert.deepEqual(app.booking.cells, original);
     assert.equal(app.held(), false);
     assert.deepEqual(app.sent, []);
@@ -414,6 +414,8 @@ for (const native of [true, false]) {
     const original = structuredClone(app.booking.cells);
     assert.deepEqual(JSON.parse(JSON.stringify(app.context.deliverBookingEmails())), { processed: 2 });
     assert.equal(bookingReads(app), 3);
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 21,
+      '候補・二回の確保・二回の完了は各一回の配送snapshotと既存の保存確認を使う');
     assert.deepEqual(app.sent.map(message => message[0]), ['shop@example.test', 'customer@example.test']);
     const messages = JSON.parse(app.queue.cells[1][2]).messages;
     assert.equal(messages.shop.status, '送信処理受付');
@@ -426,6 +428,7 @@ for (const native of [true, false]) {
     const app = realFixture();
     assert.equal(app.context.deliverBookingEmails().processed, 0);
     assert.equal(bookingReads(app), 1);
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 1);
     const reads = app.calls.length;
     assert.equal(app.context.deliverBookingEmails().idle, true);
     assert.equal(app.calls.length, reads);
@@ -448,6 +451,39 @@ for (const native of [true, false]) {
     assert.equal(app.claim(row[0]).id, row[0]);
     assert.equal(bookingReads(app), 1);
     assert.deepEqual(app.booking.cells, original);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：配送IDが変わった場合も一回の最新取得で中止し、状態を保存しない`, () => {
+    const app = realFixture();
+    const current = app.jobRow();
+    app.queue.cells.push(current);
+    const before = structuredClone(app.queue.cells);
+    assert.equal(app.claim(randomUUID()), null);
+    assert.equal(bookingReads(app), 1);
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 1);
+    assert.deepEqual(app.queue.cells, before);
+    assert.deepEqual(app.writes, []);
+    assert.deepEqual(app.sent, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${mode}：配送完了は全記録を一回取得し、確保の照合と書込前後の確認を残す`, () => {
+    const app = realFixture();
+    const row = app.jobRow();
+    app.queue.cells.push(row);
+    const delivery = app.claim(row[0]);
+    const booking = structuredClone(app.booking.cells);
+    app.calls.length = 0;
+    app.context.finishBookingEmail_(delivery, '送信処理受付');
+    assert.equal(app.calls.filter(call => call === '予約メール配送:getValues').length, 5);
+    assert.equal(bookingReads(app), 0);
+    const messages = JSON.parse(app.queue.cells[1][2]).messages;
+    assert.equal(messages.shop.status, '送信処理受付');
+    assert.equal(messages.shop.claim, delivery.claim);
+    assert.equal(messages.customer.status, '配送待ち');
+    assert.deepEqual(app.booking.cells, booking);
     assert.deepEqual(app.sent, []);
     assert.equal(app.held(), false);
   });

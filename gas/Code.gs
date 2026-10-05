@@ -3415,7 +3415,7 @@ function claimBookingEmail_(code, id, channel) {
     if (PropertiesService.getScriptProperties().getProperty(BOOKING_EMAIL_ENABLED) !== 'true') return null;
     const reservationContext = {};
     const sheet = getSheet_(reservationContext);
-    const queue = bookingEmailSheet_(sheet.getParent());
+    const queue = sheet.getParent().getSheetByName(BOOKING_EMAIL_SHEET);
     const snapshot = reservationContext.snapshot;
     const record = currentBookingEmailJobs_(sheet, queue, snapshot && snapshot.rows, snapshot && snapshot.head)[code];
     if (!record || record.id !== id) return null;
@@ -3437,7 +3437,7 @@ function claimBookingEmail_(code, id, channel) {
 
 function finishBookingEmail_(delivery, status) {
   withLedgerLock_(function () {
-    const queue = bookingEmailSheet_(SpreadsheetApp.getActiveSpreadsheet());
+    const queue = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BOOKING_EMAIL_SHEET);
     const record = readBookingEmailJobs_(queue).find(function (candidate) { return candidate.id === delivery.id; });
     if (!record) throw userFacingError_(BOOKING_EMAIL_ERROR);
     const message = record.job.messages[delivery.channel];
@@ -3465,7 +3465,7 @@ function deliverBookingEmails() {
   const candidates = withLedgerLock_(function () {
     const reservationContext = {};
     const sheet = getSheet_(reservationContext);
-    const queue = bookingEmailSheet_(sheet.getParent());
+    const queue = sheet.getParent().getSheetByName(BOOKING_EMAIL_SHEET);
     const snapshot = reservationContext.snapshot;
     const latest = currentBookingEmailJobs_(sheet, queue, snapshot && snapshot.rows, snapshot && snapshot.head);
     const props = PropertiesService.getScriptProperties();
