@@ -450,7 +450,9 @@ function doPost(e) {
       if (data.type === 'cancel')       return doCancel_(getSheet_(), data);
       if (data.type === 'change')       return doChange_(getSheet_(), data);
       if (data.type === 'review')       return doReview_(getSheet_(), data);
-      return doReserve_(getSheet_(), data, true);
+      const reservationContext = {};
+      const reservationSheet = getSheet_(reservationContext);
+      return doReserve_(reservationSheet, data, true, reservationContext.snapshot);
     }, timing, authorize);
     if (timing) result.timing = Object.assign(timing, { totalMs: Date.now() - started });
     return json_(result);
@@ -917,7 +919,7 @@ function doGet(event) {
 /* ============================================================
    予約の追記
    ============================================================ */
-function doReserve_(sheet, d, verifyCatalog) {
+function doReserve_(sheet, d, verifyCatalog, reservationSnapshot) {
   const c = d.customer || {};
 
   /* 準備中のあいだは受けません。帯に「ご予約はまだお受けしていません」と
@@ -930,7 +932,7 @@ function doReserve_(sheet, d, verifyCatalog) {
   }
   if (draftMode_(settings)) return { ok: false, draft: true, error: draftMessage_(settings) };
 
-  const reservationSnapshot = readSheetSnapshot_(sheet, HEADERS);
+  reservationSnapshot = reservationSnapshot || readSheetSnapshot_(sheet, HEADERS);
   if (typeof d.code !== 'string' || !/^[A-Za-z0-9-]{1,20}$/.test(d.code)
       || !codeKey_(d.code)) d.code = issueCode_(sheet, reservationSnapshot);
 
@@ -3127,7 +3129,7 @@ function appendVerifiedBooking_(sheet, values, headers, errorMessage) {
 /* ============================================================
    補助
    ============================================================ */
-function getSheet_() {
+function getSheet_(reservationContext) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
 
@@ -3142,6 +3144,14 @@ function getSheet_() {
        見出しが無いと rowFor_ の書き先が消え、記録したつもりのものが
        どこにも残りません。右端に足すだけなので、店の人が足した列も、
        いま入っている値も動きません。 */
+    if (reservationContext) {
+      const snapshot = readSheetSnapshot_(sheet, []);
+      if (HEADERS.every(header => snapshot.head.includes(header))) {
+        if (!validBookingHeaders_(snapshot.head, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
+        reservationContext.snapshot = snapshot;
+        return sheet;
+      }
+    }
     ensureHeaders_(ss, SHEET_NAME, HEADERS);
   }
   return sheet;

@@ -13,7 +13,7 @@ const PREVIOUS = { 予約番号: 'LM-BEFORE', 来店日: '2030-01-06', 開始: '
   '所要(分)': 60, 担当ID: 'st01', 状態: '予約確定', 電話番号: '00000000000', 独自列: '維持する' };
 
 function fixture({ queue = false, records = [PREVIOUS], headers: initialHeaders,
-  failure = '', random = Math.random } = {}) {
+  failure = '', random = Math.random, native = false, createLedger = false } = {}) {
   let held = false;
   let appended = false;
   const calls = [];
@@ -48,15 +48,26 @@ function fixture({ queue = false, records = [PREVIOUS], headers: initialHeaders,
         return range;
       }, appendRow(values) {
         assertHeld();
-        effects.push(name === '予約一覧' ? 'booking' : 'queue');
-        if (name === '予約一覧') appended = true;
+        const initializing = name === '予約一覧' && cells.length === 0;
+        effects.push(initializing ? 'header' : name === '予約一覧' ? 'booking' : 'queue');
+        if (name === '予約一覧' && !initializing) appended = true;
         cells.push(Array.from(values));
       }, setFrozenRows() {}, setColumnWidth() {} };
+    if (native) sheet.getDataRange = () => sheet.getRange(1, 1,
+      Math.max(1, cells.length), Math.max(1, ...cells.map(row => row.length)));
     sheets.set(name, sheet);
     return sheet;
   };
   const spreadsheet = { getSheetByName(name) { assertHeld(); return sheets.get(name) || null; },
-    insertSheet() { throw new Error('不要なシート作成'); } };
+    insertSheet(name) {
+      assertHeld();
+      assert.equal(createLedger, true, '不要なシート作成');
+      assert.equal(name, '予約一覧');
+      effects.push('create');
+      const created = makeSheet(name, []);
+      created.cells.length = 0;
+      return created;
+    } };
   const context = vm.createContext({ Date, Math: Object.create(Math),
     console: { error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties.get(key) ?? null,
@@ -95,16 +106,16 @@ function fixture({ queue = false, records = [PREVIOUS], headers: initialHeaders,
 }
 
 for (const queue of [false, true]) {
-  test(`新規予約は台帳の見出し検査・一括読込・保存読戻しの3取得にまとめる（後送${queue ? 'あり' : 'なし'}）`, () => {
+  test(`新規予約は見出しと予約の一括取得・保存読戻しの2取得にまとめる（後送${queue ? 'あり' : 'なし'}）`, () => {
     const app = fixture({ queue });
     assert.equal(app.send().ok, true);
     const reads = app.calls.filter(call => call.name === '予約一覧' && call.method === 'values');
-    assert.equal(reads.length, 3);
+    assert.equal(reads.length, 2);
     assert.equal(reads[0].row, 1);
-    assert.equal(reads[1].row, 1);
-    assert.equal(reads[1].numRows, 2);
-    assert.equal(reads[2].row, 3);
-    assert.equal(reads[2].appended, true);
+    assert.equal(reads[0].numRows, 2);
+    assert.equal(reads[0].appended, false);
+    assert.equal(reads[1].row, 3);
+    assert.equal(reads[1].appended, true);
     assert.ok(app.effects.indexOf('flush') > -1);
     assert.equal(app.ledger.cells[1][app.headers.indexOf('独自列')], '維持する');
     assert.equal(app.ledger.cells[2][app.headers.indexOf('開始')], REQUEST.time);
@@ -121,7 +132,7 @@ test('同じ番号の再送は一括読込から照合し、料金変更後も�
   assert.equal(app.send().duplicate, true);
   assert.equal(app.ledger.cells.length, 3);
   assert.equal(app.effects.filter(effect => effect === 'queue').length, 1);
-  assert.equal(app.calls.filter(call => call.name === '予約一覧' && call.method === 'values').length, 2);
+  assert.equal(app.calls.filter(call => call.name === '予約一覧' && call.method === 'values').length, 1);
   assert.equal(app.calls.some(call => call.name === 'メニュー'), false);
   assert.equal(app.held(), false);
 });
@@ -153,7 +164,7 @@ test('予約番号の重複・取消済み番号・同じ番号の内容変更�
 test('番号の発行に失敗しても同じ一括読込を使い、台帳を50回読み直さない', () => {
   const app = fixture({ records: [{ ...PREVIOUS, 予約番号: 'LM-AAAAA' }], random: () => 0 });
   assert.match(app.send({ code: '' }).error, /予約番号を発行/);
-  assert.equal(app.calls.filter(call => call.name === '予約一覧' && call.method === 'values').length, 2);
+  assert.equal(app.calls.filter(call => call.name === '予約一覧' && call.method === 'values').length, 1);
   assert.deepEqual(app.effects, []);
   assert.equal(app.held(), false);
 });
@@ -215,3 +226,75 @@ test('全て空の行と日付不明の取消済み予約は新規予約を妨�
   assert.equal(app.effects.filter(effect => effect === 'booking').length, 1);
   assert.equal(app.held(), false);
 });
+
+const HISTORY_COUNT = 5000;
+
+for (const native of [true, false]) {
+  for (const queue of [true, false]) {
+    test(`${native ? 'native' : 'fallback'}・後送${queue}：5000件でも同じsnapshotで見出し・番号・重複を検査し、保存後だけ読み戻す`, () => {
+      const records = Array.from({ length: HISTORY_COUNT }, (_unused, index) => ({ ...PREVIOUS,
+        予約番号: `LM-HISTORY-${index}`, 来店日: '2029-12-31' }));
+      const app = fixture({ native, queue, records });
+      const before = structuredClone(app.ledger.cells);
+      const result = app.send({ reservationSnapshot: { head: [], rows: [] } });
+      assert.equal(result.ok, true);
+      assert.equal(app.ledger.cells.length, HISTORY_COUNT + 2);
+      assert.deepEqual(app.ledger.cells.slice(0, -1), before, '過去履歴・独自列を省略も変更もしない');
+      const reads = app.calls.filter(call => call.name === '予約一覧' && call.method === 'values');
+      assert.equal(reads.length, 2);
+      assert.deepEqual(reads.map(read => [read.row, read.numRows, read.appended]),
+        [[1, HISTORY_COUNT + 1, false], [HISTORY_COUNT + 2, 1, true]]);
+      assert.equal(app.effects.filter(effect => effect === 'booking').length, 1);
+      assert.equal(app.effects.includes('mail'), !queue);
+      assert.equal(app.held(), false);
+      app.calls.length = 0;
+      const blocked = app.send({ code: 'LM-BLOCKED', reservationContext: { snapshot: { head: [], rows: [] } } });
+      assert.equal(blocked.taken, true, '要求から渡されたsnapshotで空席確認を省略しない');
+      assert.equal(app.calls.filter(call => call.name === '予約一覧' && call.method === 'values').length, 1);
+      assert.equal(app.ledger.cells.length, HISTORY_COUNT + 2);
+      assert.equal(app.held(), false);
+    });
+  }
+
+  test(`${native ? 'native' : 'fallback'}：完全な見出しでも重複列は拒否し、古い不正な列を補完で隠さない`, () => {
+    const app = fixture({ native });
+    app.ledger.cells.forEach((row, index) => row.push(index ? '独自の不正値' : '開始'));
+    const before = structuredClone(app.ledger.cells);
+    const result = app.send();
+    assert.equal(result.ok, false);
+    assert.match(result.error, /予約台帳.*見出し/);
+    assert.deepEqual(app.ledger.cells, before);
+    assert.deepEqual(app.effects, []);
+    assert.equal(app.held(), false);
+  });
+
+  test(`${native ? 'native' : 'fallback'}：準備中の拒否と、読み取りが失敗した場合の未保存を保持する`, () => {
+    const app = fixture({ native });
+    const settings = app.sheets.get('設定');
+    settings.cells.find(row => row[0] === '準備中の帯')[1] = '出す';
+    assert.equal(app.send().draft, true);
+    assert.deepEqual(app.effects, []);
+    const failing = fixture({ native, failure: 'snapshot' });
+    assert.equal(failing.send().ok, false);
+    assert.deepEqual(failing.effects, []);
+    assert.equal(app.held(), false);
+    assert.equal(failing.held(), false);
+  });
+
+  for (const missing of [false, true]) {
+    test(`${native ? 'native' : 'fallback'}：空台帳／欠落台帳の従来の初期化を勝手に取り除かない：${missing}`, () => {
+      const app = fixture({ native, createLedger: true });
+      if (missing) app.sheets.delete('予約一覧');
+      else app.ledger.cells.length = 0;
+      assert.equal(app.send().ok, true);
+      const ledger = app.sheets.get('予約一覧');
+      assert.equal(ledger.cells.length, 2);
+      assert.deepEqual(ledger.cells[0], Array.from(vm.runInContext('HEADERS', app.context)));
+      assert.equal(ledger.cells[1][ledger.cells[0].indexOf('予約番号')], REQUEST.code);
+      assert.equal(app.effects.filter(effect => effect === 'header').length, 1);
+      assert.equal(app.effects.filter(effect => effect === 'create').length, missing ? 1 : 0);
+      assert.equal(app.effects.filter(effect => effect === 'booking').length, 1);
+      assert.equal(app.held(), false);
+    });
+  }
+}
