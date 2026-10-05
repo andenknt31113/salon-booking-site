@@ -4,9 +4,11 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const ADMIN_SOURCE = readFileSync(process.env.ADMIN_SOURCE || new URL('../assets/js/admin.js', import.meta.url), 'utf8');
+const DATA_SOURCE = readFileSync(new URL('../assets/js/admin-data.js', import.meta.url), 'utf8');
 const NOTIFICATIONS_SOURCE = readFileSync(process.env.NOTIFICATIONS_SOURCE || new URL('../assets/js/admin-notifications.js', import.meta.url), 'utf8');
 const BOOKING = { code: 'LM-RACE', name: '架空の通知試験', date: '2030-01-05', time: '10:00',
-  endTime: '11:00', status: '予約確定', note: '保存済みのメモ',
+  endTime: '11:00', status: '予約確定', note: '保存済みのメモ', tel: '00000000000', price: 4000,
+  menu: '試験カット', staffName: '試験担当', email: '', visit: '', source: '', request: '',
   shopMailStatus: '新規予約：配送待ち', customerMailStatus: '新規予約：配送待ち' };
 
 function fixture() {
@@ -14,6 +16,8 @@ function fixture() {
   const timers = new Map();
   let sequence = 0;
   const requests = [];
+  const phoneRequestId = 'phone-notification-fixture-0001';
+  const stored = new Map([['fixture-phone', phoneRequestId]]);
   const getElement = selector => {
     if (!elements.has(selector)) elements.set(selector, {
       hidden: true, textContent: '', innerHTML: '', outerHTML: '', disabled: false, value: '',
@@ -28,10 +32,14 @@ function fixture() {
     document: { hidden: false, addEventListener() {} }, window: { addEventListener() {} },
     setTimeout: callback => { timers.set(++sequence, callback); return sequence; },
     clearTimeout: identifier => timers.delete(identifier),
-    adminData: { reservations: [{ ...BOOKING }] }, activeChange: null,
-    phonePayload: null, phoneRequestId: '', phoneUncertain: false, phoneConflict: false,
+    adminData: { reservations: [{ ...BOOKING }], capabilities: { phoneRequestIds: true } }, activeChange: null,
+    phonePayload: null, phoneRequestId, phoneUncertain: false, phoneConflict: false,
     phonePriceNeedsInput: false, showPast: false,
-    hasUnsavedReservationNotes: () => false, toKey: () => '2030-01-01',
+    hasUnsavedReservationNotes: () => false,
+    toKey: date => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-'),
+    toMinutes: time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5)),
+    supportsPhoneRetry: () => true, phoneRequestKey: () => 'fixture-phone',
+    localStorage: { getItem: key => stored.get(key) ?? null, removeItem: key => stored.delete(key) },
     formatDateJa: date => date, phoneResultState: row => row.status,
     renderStats() {}, onFilterChange() {}, renderCustomers() {}, renderNumbers() {},
     focusBooking() {}, renderReservations() {}, renderAdminCalendar() {},
@@ -41,13 +49,14 @@ function fixture() {
     }
   });
   const names = ['mailNeedsAttention', 'renderMailAlert', 'mailStatusHtml', 'applyMailStatusUpdate',
-    'showReservationFreshness', 'showChangedReservation', 'finishPhoneBooking'];
+    'showReservationFreshness', 'showChangedReservation', 'validReservationRefresh',
+    'validAdminChangeResponse', 'validPhoneResponse', 'validPhoneBookingResult', 'finishPhoneBooking'];
   const functions = names.map(name => {
     const match = ADMIN_SOURCE.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'));
     assert.ok(match, `${name} の実装が必要`);
     return match[0];
   }).join('\n');
-  vm.runInContext('const MAIL_STATUS_MAX_LENGTH = 200;\n' + functions + '\n' + NOTIFICATIONS_SOURCE
+  vm.runInContext(DATA_SOURCE + '\nconst MAIL_STATUS_MAX_LENGTH = 200;\n' + functions + '\n' + NOTIFICATIONS_SOURCE
     + '\nthis.notifications = AdminNotifications;', context);
   context.notifications.start(context.adminData.reservations);
   return { context, api: context.notifications, getElement, timers, requests,
@@ -155,7 +164,8 @@ for (const existing of [false, true]) {
     const app = fixture();
     const read = app.begin();
     const phone = { ...completed(BOOKING), code: existing ? BOOKING.code : 'LM-PHONE', visit: '電話・来店' };
-    app.context.finishPhoneBooking({ ok: true, code: phone.code, reservation: phone, duplicate: existing });
+    app.context.finishPhoneBooking({ ok: true, requestId: app.context.phoneRequestId,
+      code: phone.code, endTime: phone.endTime, reservation: phone, duplicate: existing });
     read.resolve({ ok: true, mailStatuses: true, reservations: [{ ...BOOKING }] });
     await read.pending;
     assert.equal(app.context.adminData.reservations.find(row => row.code === phone.code).shopMailStatus, '新規予約：送信処理受付');
