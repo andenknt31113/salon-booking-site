@@ -40,6 +40,10 @@ test('条件付き予定更新の台帳検査と画面の保持を恒久検査�
   assert.equal(workflow.split("- 'test/admin-conditional-refresh*.mjs'").length - 1, 2);
 });
 
+test('空席再確認の遅い応答と画面移動の保護を一括検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/booking-calendar-refresh.mjs'));
+});
+
 test('予約確認の本人照合と狭い読込を一括検査から外さない', () => {
   for (const path of ['test/booking-lookup-reads.mjs', 'test/reservation-lookup.mjs', 'test/request-dispatch.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path));

@@ -1535,11 +1535,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const refreshCalendar = async () => {
     if (state.step !== 3 || document.hidden) return;
     if (!Catalog.loaded || (SALON.reservationEndpoint && Catalog.source !== 'sheet')) return;
-    const had = state.date && state.time
-      ? { date: state.date, time: state.time } : null;
     showCalendarLoading(true);
     await Remote.load(true);
     showCalendarLoading(false);
+    if (state.step !== 3 || document.hidden) return;
+    const had = state.date && state.time
+      ? { date: state.date, time: state.time } : null;
     const info = had ? Availability.slotInfo(had.date, had.time, state.staffId, totalMinutes()) : null;
     if (info && !info.available) {
       state.time = null;

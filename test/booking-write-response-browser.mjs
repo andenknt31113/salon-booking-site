@@ -53,6 +53,7 @@ async function withPage(run, response) {
     await page.waitForFunction(() => Catalog.loaded && Remote.loaded);
     await page.locator('#coupon-choices .selectable').first().click();
     await page.locator('#step-cta button').click();
+    await page.locator('#cal-next').click();
     await page.locator('#cal-body .slot:not(:disabled)').first().click();
     await page.locator('#step-cta button').click();
     await page.locator('#f-name').fill('応答確認 試験');
