@@ -3684,8 +3684,14 @@ function warnBeforeLeaving(event) {
   event.returnValue = '';
 }
 
+function initializeReservationDate() {
+  const date = $('#filter-date');
+  if (!date.value) date.value = toKey(new Date());
+}
+
 /* ---------- 起動 ---------- */
 document.addEventListener('DOMContentLoaded', () => {
+  initializeReservationDate();
   window.addEventListener('beforeunload', warnBeforeLeaving);
   const savebarObserver = new ResizeObserver(entries => {
     entries.forEach(({ target }) => {

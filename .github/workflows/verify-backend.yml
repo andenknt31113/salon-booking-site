@@ -20,6 +20,7 @@ on:
       - 'test/verify-ui.mjs'
       - 'test/google-admin-fixture.mjs'
       - 'test/google-admin-fixture-contract.mjs'
+      - 'test/admin-initial-date*.mjs'
       - 'test/admin-reservation-refresh-ui.mjs'
       - 'test/admin-editor-loading-ui.mjs'
       - 'test/admin-cancel-conflict-ui.mjs'
@@ -112,6 +113,7 @@ on:
       - 'test/verify-ui.mjs'
       - 'test/google-admin-fixture.mjs'
       - 'test/google-admin-fixture-contract.mjs'
+      - 'test/admin-initial-date*.mjs'
       - 'test/admin-reservation-refresh-ui.mjs'
       - 'test/admin-editor-loading-ui.mjs'
       - 'test/admin-cancel-conflict-ui.mjs'
@@ -202,7 +204,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
-      - run: node --test test/verify-booking.mjs test/verify-ui.mjs test/hermetic-admin-contracts.mjs test/google-admin-fixture-contract.mjs
+      - run: node --test test/verify-booking.mjs test/verify-ui.mjs test/hermetic-admin-contracts.mjs test/google-admin-fixture-contract.mjs test/admin-initial-date.mjs
       - run: node tools/verify-booking.mjs
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/booking-email-snapshot.mjs test/gas-native-snapshot.mjs test/sheet-read-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs test/admin-menu-deferred.mjs test/admin-editor-loading.mjs

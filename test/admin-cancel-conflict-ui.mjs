@@ -29,7 +29,8 @@ for (const design of ['', '?design=a']) {
     const notices = [];
     const errors = [];
     try {
-      const booking = await post({ type: 'adminAdd', password, force: true, date: futureDate(), time: '10:00',
+      const date = futureDate();
+      const booking = await post({ type: 'adminAdd', password, force: true, date, time: '10:00',
         minutes: 60, name: '取消競合の試験客', tel: '00000000000' });
       assert.equal(booking.ok, true);
       const shell = await context.newPage();
@@ -44,6 +45,8 @@ for (const design of ['', '?design=a']) {
         return post(payload);
       } });
       const page = admin.frame;
+      await page.locator('#filter-date').fill(date);
+      await page.locator('#filter-date').dispatchEvent('change');
       const card = page.locator(`[data-code="${booking.code}"]`);
       await card.locator('[data-admin-cancel]').click();
       const dialog = page.getByRole('dialog');

@@ -106,12 +106,14 @@ for (const design of ['', '?design=a']) {
       let downloads = 0;
       shell.on('download', () => { downloads++; });
       shell.once('dialog', dialog => { failedCsvMessage = dialog.message(); dialog.dismiss(); });
+      await page.locator('#filter-reset').click();
       await page.locator('#export-csv').click();
       await waitUntil(() => detailAttempt === 1);
       finishDetails();
       await waitUntil(() => !!failedCsvMessage);
       assert.match(failedCsvMessage, /履歴.*確認できません.*もう一度/);
       assert.equal(downloads, 0, '詳細取得に失敗したCSVを空欄で出力しない');
+      await page.locator('#filter-today').click();
       assert.equal(await page.locator('#admin-rows [data-code]').count(), 1);
       await page.locator('#admin-tabs [data-pane="numbers"]').click();
       assert.equal(reads.length, 2, '数字に必要な全件の情報は最初からあり、重いメモは追加取得しない');
@@ -162,6 +164,7 @@ for (const design of ['', '?design=a']) {
         await shell.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR, `customer-profile-${design ? 'a' : 'original'}.png`), fullPage: false });
       }
       await page.locator('#admin-tabs [data-pane="reserve"]').click();
+      await page.locator('#filter-reset').click();
       const downloadEvent = shell.waitForEvent('download');
       await page.locator('#export-csv').click();
       await waitUntil(() => detailAttempt === 4);

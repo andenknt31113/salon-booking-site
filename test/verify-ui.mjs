@@ -52,6 +52,16 @@ test('日付移動・名簿検索・未保存入力の保護を画面検査か�
   assert.ok(UI_CHECKS.includes('test/admin-daily-usability.mjs'));
 });
 
+test('初回は今日を描画し、全履歴と手動の日付選択を残す画面検査を外さない', async () => {
+  assert.ok(UI_CHECKS.includes('test/admin-initial-date-browser.mjs'));
+  const source = await readFile(new URL('./admin-initial-date-browser.mjs', import.meta.url), 'utf8');
+  assert.match(source, /await openGoogleAdmin\(/);
+  assert.match(source, /admin\.assertIsolated\(\)/);
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /- run: node --test [^\n]*test\/admin-initial-date\.mjs/);
+  assert.equal(workflow.split("- 'test/admin-initial-date*.mjs'").length - 1, 2);
+});
+
 test('日常操作の画面試験を旧ログインへ戻さず、Google管理bridgeで検査する', async () => {
   const source = await readFile(new URL('./admin-daily-usability.mjs', import.meta.url), 'utf8');
   assert.match(source, /src="admin\.html\?google=1/);
@@ -147,7 +157,7 @@ test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 30);
+    assert.equal(UI_CHECKS.length, 31);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

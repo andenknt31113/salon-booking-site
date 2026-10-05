@@ -8,7 +8,7 @@ export const UI_CHECKS = Object.freeze([
   'booking-solo-flow-browser', 'booking-draft-recovery-ui', 'phone-unknown-result-ui',
   'admin-startup-data-browser', 'admin-logout-deadline-browser', 'admin-refresh-schema-browser', 'admin-reservation-refresh-ui',
   'admin-editor-loading-ui', 'admin-note-ack-browser', 'admin-cancel-conflict-ui',
-  'admin-customer-details-review-ui', 'admin-date-details-ui', 'admin-numbers-loading-ui',
+  'admin-customer-details-review-ui', 'admin-date-details-ui', 'admin-numbers-loading-ui', 'admin-initial-date-browser',
   'admin-notification-race-browser', 'customer-pagination-browser', 'admin-csv-safety-browser',
   'admin-publication-browser', 'admin-occupancy-intervals-ui', 'booking-email-queue-browser',
   'admin-brief-history-ui', 'admin-daily-usability', 'admin-savebar-focus', 'admin-save-ack-browser', 'mypage-lookup-sync',
