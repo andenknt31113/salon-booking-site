@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const engines = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -12,6 +15,9 @@ const CUSTOMER_COUNT = 250;
 const VISITS_PER_CUSTOMER = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const nextDate = new Date(Date.now() + 7 * DAY_MS).toISOString().slice(0, 10);
+const INSTRUMENTED_SOURCE = readFileSync(new URL('../assets/js/admin.js', import.meta.url), 'utf8')
+  + '\nconst originalCustomerBuild = buildCustomers; window.customerBuilds = 0;'
+  + '\nbuildCustomers = () => { window.customerBuilds++; return originalCustomerBuild(); };';
 
 for (const design of ['', '?design=a']) {
   test(`${design || '従来版'}の大きな名簿は選んだ人だけの履歴を作り、メモ・検索・予約移動を守る`, async () => {
@@ -22,16 +28,16 @@ for (const design of ['', '?design=a']) {
     server.on('request', createMockHandler({ port }));
     const base = `http://127.0.0.1:${port}`;
     const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) }).then(response => response.json());
-    const browser = await engines[process.env.TEST_BROWSER || 'chromium'].launch(
-      process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+    const engine = process.env.TEST_BROWSER || 'chromium';
+    const browser = await engines[engine].launch(
+      engine === 'chromium' && process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+    const shell = await browser.newPage({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo',
+      serviceWorkers: 'block' });
     const errors = [];
     let warning = '';
-    page.on('pageerror', error => errors.push(error.message));
-    page.on('dialog', async dialog => { warning = dialog.message(); await dialog.dismiss(); });
+    shell.on('pageerror', error => errors.push(error.message));
+    shell.on('dialog', async dialog => { warning = dialog.message(); await dialog.dismiss(); });
     try {
-      await page.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)
-        ? route.continue() : route.abort());
       const rows = Array.from({ length: CUSTOMER_COUNT * VISITS_PER_CUSTOMER }, (_, index) => {
         const customer = Math.floor(index / VISITS_PER_CUSTOMER);
         const visit = index % VISITS_PER_CUSTOMER;
@@ -47,25 +53,21 @@ for (const design of ['', '?design=a']) {
       assert.equal(booking.ok, true);
       firstVisit.code = booking.code;
       rows.push({ ...firstVisit, code: 'LM-ROSTER-NEXT', date: nextDate });
-      await page.route('**/exec', async route => {
-        const request = JSON.parse(route.request().postData() || '{}');
-        if (request.type !== 'adminData') return route.continue();
-        const response = await route.fetch();
-        const body = await response.json();
-        Object.assign(firstVisit, body.reservations.find(row => row.code === booking.code));
-        body.reservations = rows;
-        await route.fulfill({ response, body: JSON.stringify(body) });
-      });
-      await page.goto(base + '/admin.html' + design);
-      await page.evaluate(() => {
-        const build = buildCustomers;
-        window.customerBuilds = 0;
-        buildCustomers = () => { window.customerBuilds++; return build(); };
-      });
-      await page.locator('#passcode').fill(password);
-      await page.locator('#remember-me').setChecked(false);
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
+      const admin = await openGoogleAdmin({ shell, base, design, sourceOverride: INSTRUMENTED_SOURCE, request: async payload => {
+        const body = await post({ ...payload, password });
+        if (payload.type !== 'adminData') return body;
+        const stored = body.reservations?.find(row => row.code === booking.code);
+        if (stored) {
+          Object.assign(firstVisit, stored);
+          if (stored.detailsPending === undefined) delete firstVisit.detailsPending;
+        }
+        delete body.reservationsUnchanged;
+        body.reservations = Array.isArray(payload.reservationCodes)
+          ? rows.filter(row => payload.reservationCodes.includes(row.code)) : rows;
+        body.stamps = { ...body.stamps, reservations: createHash('sha256').update(JSON.stringify(rows)).digest('hex').slice(0, 12) };
+        return body;
+      } });
+      const page = admin.frame;
       assert.equal(await page.locator('.customer-record').count(), 0, '予定を開く時点では隠れた名簿を作らない');
       assert.equal(await page.evaluate(() => window.customerBuilds), 0, '予定表示のために顧客の全履歴を集計しない');
       await page.locator('#admin-tabs [data-pane="customers"]').click();
@@ -141,6 +143,10 @@ for (const design of ['', '?design=a']) {
       if (process.env.TEST_SCREENSHOT_DIR) await first.screenshot({ path: join(process.env.TEST_SCREENSHOT_DIR,
         `roster-detail-${process.env.TEST_BROWSER || 'chromium'}-${design ? 'a' : 'original'}.png`) });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      assert.ok(admin.operations.every(operation => ['adminData', 'adminNote'].includes(operation.type)),
+        '名簿の操作では詳細読込と明示したメモ保存以外を送信しない');
+      assert.equal(admin.operations.filter(operation => operation.type === 'adminNote').length, 1);
+      admin.assertIsolated();
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();
