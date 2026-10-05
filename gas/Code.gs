@@ -3243,9 +3243,11 @@ function stageBookingEmails_(sheet, values, headers, action, buildMessages) {
 
 function readBookingEmailJobs_(queue) {
   const ids = new Set();
-  const rows = queue.getLastRow() < 2 ? []
-    : queue.getRange(2, 1, queue.getLastRow() - 1, BOOKING_EMAIL_HEADERS.length).getValues();
-  return rows.map(function (values, index) {
+  const snapshot = readSheetSnapshot_(queue, []);
+  if (JSON.stringify(snapshot.head) !== JSON.stringify(BOOKING_EMAIL_HEADERS)) {
+    throw userFacingError_(BOOKING_EMAIL_ERROR);
+  }
+  return snapshot.rows.map(function (values, index) {
     try {
       const id = String(values[0]);
       const signature = JSON.parse(values[1]);
