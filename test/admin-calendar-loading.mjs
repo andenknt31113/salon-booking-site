@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { test } from 'node:test';
+import { assertAdminContract } from './admin-contract.mjs';
 
 const source = readFileSync(process.env.ADMIN_SOURCE || new URL('../assets/js/admin.js', import.meta.url), 'utf8');
-const previousSource = process.env.ADMIN_BASELINE_SOURCE ? readFileSync(process.env.ADMIN_BASELINE_SOURCE, 'utf8')
-  : execFileSync('git', ['show', '03afd50:assets/js/admin.js'], {
-    cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8'
-  });
 const common = readFileSync(new URL('../assets/js/common.js', import.meta.url), 'utf8');
 const extract = (code, name) => {
   const match = code.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'));
@@ -103,12 +98,9 @@ for (const offset of [-7, 0, 7]) {
     const before = structuredClone({ records, closed });
     const options = { records, closed, offset, holidays: [0] };
     const app = fixture(options);
-    const previous = fixture({ ...options, code: previousSource });
     app.context.renderAdminCalendar();
-    previous.context.renderAdminCalendar();
-    assert.equal(app.head.innerHTML, previous.head.innerHTML);
-    assert.equal(app.body.innerHTML, previous.body.innerHTML);
-    assert.equal(app.range.textContent, previous.range.textContent);
+    assertAdminContract('calendar:week:' + offset,
+      { head: app.head.innerHTML, body: app.body.innerHTML, range: app.range.textContent });
     assert.deepEqual({ records, closed }, before);
     assert.deepEqual(app.period, [[offset, 7]]);
   });
@@ -139,9 +131,7 @@ test('未読込・予定表なし・予約なし・時刻を読めない場合�
   }
   for (const options of [{ records: [] }, { records: null }, { times: [] }]) {
     const app = fixture(options);
-    const previous = fixture({ ...options, code: previousSource });
     app.context.renderAdminCalendar();
-    previous.context.renderAdminCalendar();
-    assert.equal(app.body.innerHTML, previous.body.innerHTML);
+    assertAdminContract('calendar:empty:' + JSON.stringify(options), app.body.innerHTML);
   }
 });

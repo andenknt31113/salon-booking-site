@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "references": {
+    "calendar": "03afd50:assets/js/admin.js",
+    "closed": "72beb3d:assets/js/admin.js",
+    "history": "0b9b9dd:gas/Code.gs"
+  },
+  "fingerprints": {
+    "calendar:week:-7": "0bf25882e061c80fde3514e9ed1647093ca9d6088de32bd10df4b2bb21e4d592",
+    "calendar:week:0": "aaf8114fabc78490a541bebb2c3d0ebb33a9b3b54e35d8e5ac5cac3a70d2360f",
+    "calendar:week:7": "0526f13b3d6e19db2f4147c2f33e7ed2d057fb9f1109c3c04eddd31965054282",
+    "calendar:empty:{\"records\":[]}": "422b9445b3e2f61b3e2a80886e04a7b2fde1934b97a05ee3553f7c2b2681c9c6",
+    "calendar:empty:{\"records\":null}": "422b9445b3e2f61b3e2a80886e04a7b2fde1934b97a05ee3553f7c2b2681c9c6",
+    "calendar:empty:{\"times\":[]}": "123174e7cee21627fb86db0e7db2d7081e32b15736da6778555ec900293b508c",
+    "closed:month:-1": "9aaf7cbb6857590ecf52796857b6466a5bc7e0560c97589b225122d769d8868b",
+    "closed:month:0": "2459ccf3b573fc08a479712d29290305becd3f26ab170742c0cf2ac068a32815",
+    "closed:month:1": "59f7fa49280339960ef56d19878c6cd0ccd5e1132b34b7788b3a0eccf8638506",
+    "closed:edge:{\"now\":\"2032-03-15T12:00:00+09:00\",\"offset\":-1,\"records\":[{\"date\":\"2032-02-29\",\"status\":\"予約確定\"}]}": "af677ea00bdd9c284471adcd70d87372f6438f727c5bbf0f3c414ed0004efb85",
+    "closed:edge:{\"now\":\"2030-12-15T12:00:00+09:00\",\"offset\":1}": "c8f594fe24cec69ebadfdc5c3b04bf42e92c65add4fd250444cfd52ecaa0fa82",
+    "closed:edge:{\"records\":null}": "342d1005ddd43b2f06fb226a7d44ff45c09e74127b0de0a5ad681d37a077086a",
+    "closed:edge:{\"records\":[]}": "342d1005ddd43b2f06fb226a7d44ff45c09e74127b0de0a5ad681d37a077086a",
+    "history:{\"deliveryIndices\":[],\"payload\":{}}": "d6ce9578492446bf566b2c348738472d54ba770b0019089c82b59877d95b6257",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"startupOnly\":true}}": "ee6e35931cf6316071eeacebe697d38b849e95f94246e5a85990c08e7a6ebb7e",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"startupOnly\":true,\"briefPast\":true}}": "8bf2ba3c9a6c3a2ed174ba174ce6e7dbceb5f1960607913cdf69d7abcb5c69dd",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"reservationsOnly\":true}}": "77a0f1f43a94d0968039585a6df00f7f88042b67ac6e2c872c7314837557f507",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"reservationsOnly\":true,\"briefPast\":true}}": "063555287acd774d9efdbcc9db279ab04be559019ce7d1dbd6b759d063c85b84",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"briefPast\":true}}": "d6ce9578492446bf566b2c348738472d54ba770b0019089c82b59877d95b6257",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"notificationsOnly\":true}}": "f4bb68f8ca2d88eec6919d44bd03306ffcc07b01e5d4978e38a91fe4384e6782",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"editorTarget\":\"styles\"}}": "6728a7f6d1e26761b44742c7091a3ac81ff425ca53fb0a0b5a74850daea1924a",
+    "history:{\"deliveryIndices\":[],\"payload\":{\"editorTarget\":\"reviews\"}}": "39d938efe1f5f30871eecac75fb846e23f836f9ee1dbf1a666066946731371da",
+    "history:{\"deliveryIndices\":[0],\"payload\":{}}": "62c02e4e58e55e647348956d3079ad48fd16e834374b2af302d92b6b500264cc",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"startupOnly\":true}}": "aca583d0b9bd87a0b56c10bf98f5abf14b9cac452cdc684b4b81515a58a3cfc4",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"startupOnly\":true,\"briefPast\":true}}": "9cab58a09908380be4a329b4e0f5618e71ef3e5089d8951dd4a56502ad0bab73",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"reservationsOnly\":true}}": "0bd66673b47a79ce651e48b8271c1e4196aad32b7742a23926cc2de5ea875bae",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"reservationsOnly\":true,\"briefPast\":true}}": "772291fdfd156475964ebc746a003d3c4a4ed79483d748a832142c5709eeb96e",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"briefPast\":true}}": "62c02e4e58e55e647348956d3079ad48fd16e834374b2af302d92b6b500264cc",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"notificationsOnly\":true}}": "62bf7ca0ff5043a0a0ab958d0a325759bcf814e0418b52e527b88dc8114c81d2",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"editorTarget\":\"styles\"}}": "6728a7f6d1e26761b44742c7091a3ac81ff425ca53fb0a0b5a74850daea1924a",
+    "history:{\"deliveryIndices\":[0],\"payload\":{\"editorTarget\":\"reviews\"}}": "39d938efe1f5f30871eecac75fb846e23f836f9ee1dbf1a666066946731371da",
+    "history:old-header:施術メモ": "08d2c889253b981cb270a44ddf223dd47acc3a57c66bec63a23432cec3cb32b4",
+    "history:old-header:ご要望": "67e0363b89f91fa17af9fd5bd5879a45695a7bef2a3aa64c8c2cfd644e49b5e2"
+  }
+}

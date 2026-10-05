@@ -1,18 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { test } from 'node:test';
+import { assertAdminContract } from './admin-contract.mjs';
 
 const SOURCE = readFileSync(process.env.GAS_SOURCE || new URL('../gas/Code.gs', import.meta.url), 'utf8');
-const BASELINE_REF = '0b9b9dd';
-const BASELINE_SOURCE = process.env.GAS_BASELINE_SOURCE
-  ? readFileSync(process.env.GAS_BASELINE_SOURCE, 'utf8')
-  : execFileSync('git', ['show', `${BASELINE_REF}:gas/Code.gs`], {
-    cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8'
-  });
 const NOW = '2026-10-02T15:00:00.000Z';
 const TODAY = '2026-10-03';
 const PAST = '2025-10-02';
@@ -191,11 +184,11 @@ test('selected scope: 250顧客5000予約から選択した1人20件だけをful
   assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === HISTORY.length + 1).length, 1);
 });
 
-test('旧HEADのselected scope失敗を保持し、現実装では20件に限定できる', () => {
+test('全量取得は5000件を保ち、選択取得は本人の20件に限定する', () => {
   const payload = selected(SELECTED_CODES);
-  const baseline = fixture({ records: HISTORY, source: BASELINE_SOURCE }).send(payload);
-  assert.equal(baseline.reservations.length, HISTORY.length);
-  assert.throws(() => assert.equal(baseline.reservations.length, BOOKINGS_PER_CUSTOMER), assert.AssertionError);
+  const full = fixture({ records: HISTORY }).send({ reservationsOnly: true });
+  assert.equal(full.reservations.length, HISTORY.length);
+  assert.notEqual(full.reservations.length, BOOKINGS_PER_CUSTOMER);
   assert.equal(fixture({ records: HISTORY }).send(payload).reservations.length, BOOKINGS_PER_CUSTOMER);
 });
 
@@ -330,7 +323,7 @@ for (const payload of [selected(), selected([]), { reservationCodes: ['LM-SELECT
   });
 }
 
-test('指定なしの全量・briefPast・startup・編集・通知の既存契約を旧HEADと照合する', () => {
+test('指定なしの全量・briefPast・startup・編集・通知の固定契約を保持する', () => {
   const records = [booking(), booking({ 予約番号: 'LM-FUTURE', 来店日: FUTURE }),
     booking({ 予約番号: 'LM-CANCELLED', 状態: 'キャンセル済み' })];
   for (const deliveryIndices of [[], [0]]) {
@@ -338,18 +331,15 @@ test('指定なしの全量・briefPast・startup・編集・通知の既存契�
       { reservationsOnly: true }, { reservationsOnly: true, briefPast: true }, { briefPast: true },
       { notificationsOnly: true }, { editorTarget: 'styles' }, { editorTarget: 'reviews' }]) {
       const app = fixture({ records, deliveryIndices });
-      const baseline = fixture({ records, deliveryIndices, source: BASELINE_SOURCE });
       const actual = app.send(payload);
-      const expected = baseline.send(payload);
-      if (expected.capabilities) {
-        assert.equal(actual.capabilities.phoneCatalog, true);
-        expected.capabilities.phoneCatalog = true;
-      }
-      assert.deepEqual(actual, expected);
+      if (actual.capabilities) assert.equal(actual.capabilities.phoneCatalog, true);
       const unchangedRead = read => read.name !== '設定' && !(read.name === '予約一覧' && read.height === 1);
-      const expectedReadsWithQueueHeader = baseline.reads.filter(unchangedRead).map(read =>
-        read.name === '予約メール配送' && read.row === 2 ? { ...read, row: 1, height: read.height + 1 } : read);
-      assert.deepEqual(app.reads.filter(unchangedRead), expectedReadsWithQueueHeader);
+      assertAdminContract('history:' + JSON.stringify({ deliveryIndices, payload }), {
+        response: actual, reads: app.reads.filter(unchangedRead),
+        otherAccess: app.accesses.filter(name => !['spreadsheet', '予約一覧'].includes(name)).toSorted(),
+        spreadsheetAccess: app.accesses.filter(name => name === 'spreadsheet').length,
+        ledgerAccess: app.accesses.filter(name => name === '予約一覧').length
+      });
       const full = !payload.reservationsOnly && !payload.notificationsOnly && !payload.editorTarget;
       const deliveryReads = deliveryIndices.length ? 2 : 0;
       const expectedReads = full ? (payload.startupOnly ? 5 : 7) + deliveryReads
@@ -357,21 +347,12 @@ test('指定なしの全量・briefPast・startup・編集・通知の既存契�
       assert.equal(app.reads.length, expectedReads);
       assert.equal(app.reads.filter(read => read.name === '設定').length, full ? 1 : 0);
       assert.equal(app.reads.filter(read => read.name === '予約一覧' && read.height === 1).length, 0);
-      for (const target of ['spreadsheet', '予約一覧']) {
-        assert.equal(app.accesses.filter(name => name === target).length,
-          baseline.accesses.filter(name => name === target).length - (full ? 1 : 0));
-      }
-      const otherAccess = name => !['spreadsheet', '予約一覧'].includes(name);
-      assert.deepEqual(app.accesses.filter(otherAccess).toSorted(), baseline.accesses.filter(otherAccess).toSorted());
     }
   }
   for (const header of ['施術メモ', 'ご要望']) {
     const app = fixture();
-    const baseline = fixture({ source: BASELINE_SOURCE });
-    for (const target of [app, baseline]) {
-      const headers = target.sheets.get('予約一覧').cells[0];
-      headers[headers.indexOf(header)] = '旧形式の独自列';
-    }
-    assert.deepEqual(app.send({ reservationsOnly: true }), baseline.send({ reservationsOnly: true }));
+    const headers = app.sheets.get('予約一覧').cells[0];
+    headers[headers.indexOf(header)] = '旧形式の独自列';
+    assertAdminContract('history:old-header:' + header, app.send({ reservationsOnly: true }));
   }
 });

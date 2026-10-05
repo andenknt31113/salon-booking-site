@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { test } from 'node:test';
+import { assertAdminContract } from './admin-contract.mjs';
 
 const source = readFileSync(process.env.ADMIN_SOURCE || new URL('../assets/js/admin.js', import.meta.url), 'utf8');
-const previousSource = process.env.ADMIN_BASELINE_SOURCE ? readFileSync(process.env.ADMIN_BASELINE_SOURCE, 'utf8')
-  : execFileSync('git', ['show', '72beb3d:assets/js/admin.js'], {
-    cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8'
-  });
 const common = readFileSync(new URL('../assets/js/common.js', import.meta.url), 'utf8');
 const functions = ['closedRowProblem', 'closedStateOf', 'liveCountOn', 'renderClosedCalendar', 'renderClosed'];
 const extract = (text, name) => {
@@ -79,11 +74,9 @@ for (const offset of [-1, 0, 1]) {
   test(`表示月${offset}の全HTML・休み方・予約件数が変更前と一致し、元データを変更しない`, () => {
     const before = structuredClone({ records, closed });
     const app = fixture({ records, closed, offset });
-    const previous = fixture({ code: previousSource, records, closed, offset });
     app.context.renderClosedCalendar();
-    previous.context.renderClosedCalendar();
-    assert.equal(app.calendar.innerHTML, previous.calendar.innerHTML);
-    assert.equal(app.title.textContent, previous.title.textContent);
+    assertAdminContract('closed:month:' + offset,
+      { calendar: app.calendar.innerHTML, title: app.title.textContent });
     assert.deepEqual({ records, closed }, before);
   });
 }
@@ -106,10 +99,8 @@ test('うるう年の2月末・年境界と予約配列なしでも従来の表�
   { now: '2030-12-15T12:00:00+09:00', offset: 1, records: undefined },
   { records: null }, { records: [] }]) {
     const app = fixture(options);
-    const previous = fixture({ ...options, code: previousSource });
     app.context.renderClosedCalendar();
-    previous.context.renderClosedCalendar();
-    assert.equal(app.calendar.innerHTML, previous.calendar.innerHTML);
+    assertAdminContract('closed:edge:' + JSON.stringify(options), app.calendar.innerHTML);
   }
 });
 

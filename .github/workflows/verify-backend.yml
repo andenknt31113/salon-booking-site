@@ -30,6 +30,9 @@ on:
       - 'test/reminder-recovery.mjs'
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
+      - 'test/admin-contract.mjs'
+      - 'test/hermetic-admin-contracts.mjs'
+      - 'test/fixtures/admin-contracts.json'
       - 'test/admin-read-snapshot.mjs'
       - 'test/admin-menu-deferred.mjs'
       - 'test/admin-editor-loading.mjs'
@@ -91,6 +94,9 @@ on:
       - 'test/reminder-recovery.mjs'
       - 'test/admin-brief-history.mjs'
       - 'test/admin-selected-history.mjs'
+      - 'test/admin-contract.mjs'
+      - 'test/hermetic-admin-contracts.mjs'
+      - 'test/fixtures/admin-contracts.json'
       - 'test/admin-read-snapshot.mjs'
       - 'test/admin-menu-deferred.mjs'
       - 'test/admin-editor-loading.mjs'
@@ -136,11 +142,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
-      - run: node --test test/verify-booking.mjs test/verify-ui.mjs
+      - run: node --test test/verify-booking.mjs test/verify-ui.mjs test/hermetic-admin-contracts.mjs
       - run: node tools/verify-booking.mjs
       - run: node --test test/admin-brief-history.mjs test/admin-selected-history.mjs test/admin-read-snapshot.mjs test/booking-email-queue.mjs test/booking-email-snapshot.mjs test/gas-native-snapshot.mjs test/sheet-read-snapshot.mjs
       - run: node --test test/admin-startup-data.mjs test/admin-startup-portal.mjs test/admin-menu-deferred.mjs test/admin-editor-loading.mjs
