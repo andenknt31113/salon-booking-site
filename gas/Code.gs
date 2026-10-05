@@ -2836,7 +2836,8 @@ function writeSheetRows_(ss, name, headers, rows) {
   const body = rows.map(row => headers.map(header => {
     const value = row[header];
     if (value === undefined || value === null) return '';
-    if (typeof value === 'string' || typeof value === 'boolean'
+    if (typeof value === 'string') return value.startsWith('=') ? "'" + value : value;
+    if (typeof value === 'boolean'
         || (typeof value === 'number' && Number.isFinite(value))
         || (value instanceof Date && Number.isFinite(value.getTime()))) return value;
     throw userFacingError_('保存する項目の形式を確認できません。元の内容は変更していません。');

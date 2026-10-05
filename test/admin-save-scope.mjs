@@ -9,7 +9,7 @@ const PASSWORD = process.env.MOCK_ADMIN_PASSWORD;
 assert.ok(PASSWORD, 'MOCK_ADMIN_PASSWORD が必要です');
 const TARGETS = ['menus', 'coupons', 'styles', 'reviews', 'closed', 'settings'];
 
-function fixture({ native = true, google = true } = {}) {
+function fixture({ native = true, google = true, sheetParsing = false } = {}) {
   let held = false;
   let fault;
   const effects = [];
@@ -45,7 +45,8 @@ function fixture({ native = true, google = true } = {}) {
       投稿日: '2030-01-01', 予約番号: 'LM-FIXTURE', 本文: '架空の元の言葉', 状態: '未承認'
     })[header] ?? ''));
     const name = targets[target];
-    const sheet = { cells, getLastRow: () => cells.length, getLastColumn: () => Math.max(...cells.map(row => row.length)),
+    const formulas = [];
+    const sheet = { cells, formulas, getLastRow: () => cells.length, getLastColumn: () => Math.max(...cells.map(row => row.length)),
       getRange(row, column, height = 1, width = 1) {
         return {
           getValues() {
@@ -53,12 +54,20 @@ function fixture({ native = true, google = true } = {}) {
             return Array.from({ length: height }, (_unused, rowOffset) =>
               Array.from({ length: width }, (_value, columnOffset) => cells[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ''));
           },
-          getFormulas() { signal({ name, operation: 'formulas' }); return Array.from({ length: height }, () => Array(width).fill('')); },
+          getFormulas() {
+            signal({ name, operation: 'formulas' });
+            return Array.from({ length: height }, (_unused, rowOffset) =>
+              Array.from({ length: width }, (_value, columnOffset) => formulas[row - 1 + rowOffset]?.[column - 1 + columnOffset] ?? ''));
+          },
           setValues(values) {
             signal({ name, operation: 'write' });
             values.forEach((line, rowOffset) => line.forEach((value, columnOffset) => {
               cells[row - 1 + rowOffset] ||= [];
-              cells[row - 1 + rowOffset][column - 1 + columnOffset] = value;
+              formulas[row - 1 + rowOffset] ||= [];
+              const formula = sheetParsing && typeof value === 'string' && value.startsWith('=');
+              formulas[row - 1 + rowOffset][column - 1 + columnOffset] = formula ? value : '';
+              cells[row - 1 + rowOffset][column - 1 + columnOffset] = formula ? '架空の数式結果'
+                : sheetParsing && typeof value === 'string' && value.startsWith("'=") ? value.slice(1) : value;
             }));
           }
         };
@@ -84,7 +93,7 @@ function fixture({ native = true, google = true } = {}) {
     assert.equal(held, false, '成功・失敗の応答後にロックを残さない');
     return result;
   };
-  return { context, effects, sheets, targets, send, setFault: callback => { fault = callback; } };
+  return { context, effects, sheets, targets, rows, send, setFault: callback => { fault = callback; } };
 }
 
 for (const native of [true, false]) {
@@ -155,6 +164,104 @@ test('対象だけの印を要求しても競合・入力・認証の保護を�
   assert.equal(result.ok, false);
   assert.equal(result.authDenied, true);
   assert.deepEqual(app.effects, []);
+});
+
+const LITERAL_TEXTS = ['=1+1', '=IMPORTXML("https://example.invalid/fixture","//title")',
+  '=そのままの文字\n次の行', '=' + '長い文'.repeat(500), ' =そのまま', '+そのまま', '-そのまま', '@そのまま',
+  "'普通の引用", '日本語の説明\n二行目'];
+
+for (const native of [true, false]) {
+  for (const google of [true, false]) {
+    const label = `${native ? 'native' : 'fallback'}・${google ? 'Google' : '既存API'}`;
+    for (const target of TARGETS) {
+      test(`${label}・${target}：文字を数式にせず、再保存しても空白・改行・長さと元の口コミを保つ`, () => {
+        for (const text of LITERAL_TEXTS) {
+          const app = fixture({ native, google, sheetParsing: true });
+          const sheet = app.sheets.get(app.targets[target]);
+          const field = { menus: 'メニュー名', coupons: 'メニュー名', styles: 'タイトル',
+            reviews: '本文', closed: 'メモ', settings: '内容' }[target];
+          const column = sheet.cells[0].indexOf(field);
+          assert.ok(column >= 0);
+          const rows = structuredClone(app.rows[target]);
+          if (target === 'settings') rows['紹介文'] = text;
+          else rows[0][field] = text;
+          if (target === 'reviews') {
+            sheet.cells[1][column] = text;
+            rows[0][field] = '店側から書き換えようとした言葉';
+          }
+          const before = new Map(Array.from(app.sheets, ([name, entry]) => [name, structuredClone(entry.cells)]));
+          const result = app.send(target, { rows, stampScope: 'target' });
+          assert.equal(result.ok, true);
+          const rowIndex = target === 'settings' ? sheet.cells.findIndex(row => row[0] === '紹介文') : 1;
+          assert.equal(sheet.cells[rowIndex][column], text);
+          assert.ok(sheet.formulas.flat().every(value => value === ''), '保存した文字から数式を作らない');
+          assert.deepEqual(Object.keys(result.stamps), [target]);
+          assert.ok(app.effects.filter(event => event.name).every(event => event.name === app.targets[target]));
+          for (const [name, cells] of before) if (name !== app.targets[target]) assert.deepEqual(app.sheets.get(name).cells, cells);
+          const again = app.send(target, { rows, stampScope: 'target', stamp: result.stamps[target] });
+          assert.equal(again.ok, true);
+          assert.equal(sheet.cells[rowIndex][column], text, '文字列の頭に保存用の引用符を積み重ねない');
+          assert.ok(sheet.formulas.flat().every(value => value === ''));
+        }
+      });
+    }
+
+    test(`${label}：数式風の文字でも競合・認証の拒否後は書き込まない`, () => {
+      for (const denied of ['stale', 'auth']) {
+        const app = fixture({ native, google, sheetParsing: true });
+        const before = Array.from(app.sheets, ([name, sheet]) => [name, structuredClone(sheet.cells)]);
+        if (denied === 'auth') {
+          if (google) app.context.verifyGoogleAdmin_ = () => { throw new Error('架空の本人確認拒否'); };
+          else app.context.PropertiesService.getScriptProperties().setProperty('ADMIN_GOOGLE_ONLY', 'true');
+        }
+        const result = app.send('settings', { rows: { 紹介文: '=1+1' }, stampScope: 'target',
+          ...(denied === 'stale' ? { stamp: '古い印' } : {}) });
+        assert.equal(result.ok, false);
+        assert.equal(app.effects.some(event => event.operation === 'write'), false);
+        for (const [name, cells] of before) assert.deepEqual(app.sheets.get(name).cells, cells);
+      }
+    });
+  }
+}
+
+test('一覧の書込で文字以外の型・別列の数式を保ち、途中失敗時は元の数式と文字へ戻す', () => {
+  for (const failing of [false, true]) {
+    const app = fixture({ sheetParsing: true });
+    const sheet = app.sheets.get(app.targets.styles);
+    sheet.cells[0].splice(1, 0, '店側の別列');
+    const original = { タイトル: '=元の文字', '店側の別列': '架空の数式結果',
+      画像: '架空の数式結果', 説明: '=元の説明', 表示: true };
+    sheet.cells.push(sheet.cells[0].map(header => original[header] ?? ''));
+    sheet.formulas[1] = sheet.cells[0].map(header => ['店側の別列', '画像'].includes(header) ? '=1+1' : '');
+    const beforeCells = structuredClone(sheet.cells);
+    const beforeFormulas = structuredClone(sheet.formulas);
+    let writes = 0;
+    if (failing) app.setFault(event => {
+      if (event.operation === 'write' && ++writes === 2) throw new Error('架空の途中書込失敗');
+    });
+    const savedDate = new Date('2030-01-04T15:00:00Z');
+    app.context.withLedgerLock_(() => {
+      if (failing) assert.throws(() => app.context.writeSheetRows_({ getSheetByName: () => sheet },
+        app.targets.styles, sheet.cells[0].filter(header => header !== '店側の別列'),
+        [{ タイトル: '=新しい文字', 画像: savedDate, 説明: 0, 表示: false }]), /元の内容に戻しました/);
+      else app.context.writeSheetRows_({ getSheetByName: () => sheet }, app.targets.styles,
+        sheet.cells[0].filter(header => header !== '店側の別列'),
+        [{ タイトル: '=新しい文字', 画像: savedDate, 説明: 0, 表示: false }]);
+    });
+    if (failing) {
+      assert.deepEqual(sheet.cells, beforeCells);
+      assert.deepEqual(sheet.formulas, beforeFormulas);
+    } else {
+      const values = Object.fromEntries(sheet.cells[0].map((header, index) => [header, sheet.cells[1][index]]));
+      assert.equal(values.タイトル, '=新しい文字');
+      assert.equal(values.画像, savedDate);
+      assert.equal(values.説明, 0);
+      assert.equal(values.表示, false);
+      assert.equal(values['店側の別列'], original['店側の別列']);
+      assert.equal(sheet.formulas[1][sheet.cells[0].indexOf('店側の別列')], '=1+1');
+      assert.equal(sheet.formulas[1][sheet.cells[0].indexOf('タイトル')], '');
+    }
+  }
 });
 
 const CLOSED_DATE = new Date('2030-01-04T15:00:00Z');
