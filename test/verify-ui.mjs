@@ -52,6 +52,14 @@ test('日付移動・名簿検索・未保存入力の保護を画面検査か�
   assert.ok(UI_CHECKS.includes('test/admin-daily-usability.mjs'));
 });
 
+test('日常操作の画面試験を旧ログインへ戻さず、Google管理bridgeで検査する', async () => {
+  const source = await readFile(new URL('./admin-daily-usability.mjs', import.meta.url), 'utf8');
+  assert.match(source, /src="admin\.html\?google=1/);
+  assert.match(source, /window\.authAdminRequest/);
+  assert.match(source, /googleAdminEmbedded/);
+  assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
 test('お客様の照会結果と端末上の予約表示の同期を画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/mypage-lookup-sync.mjs'));
 });
@@ -198,8 +206,12 @@ test('親の認証・別ソース・保存先を使わず、runtime指定と既�
     const source = 'const { verifyUI } = await import(process.argv[1]);'
       + 'process.env.NODE_OPTIONS = "--verify-ui-invalid-parent-option";'
       + 'process.exitCode = (await verifyUI({ root: process.argv[2] })).exitCode;';
+    const environment = { ...process.env };
+    for (const key of ['MOCK_ADMIN_PASSWORD', 'MOCK_ADMIN_TOKEN', 'PLAYWRIGHT', 'CHROMIUM', ...EXCLUDED_ENV]) {
+      delete environment[key];
+    }
     const result = await execute(process.execPath, [`--env-file=${envFile}`, '--input-type=module', '-e',
-      source, new URL('../tools/verify-ui.mjs', import.meta.url).href, root]);
+      source, new URL('../tools/verify-ui.mjs', import.meta.url).href, root], { env: environment });
     assert.match(result.stdout, new RegExp(`# pass ${UI_CHECKS.length}\\b`));
     assert.doesNotMatch(result.stdout + result.stderr, /\b[a-f0-9]{64}\b/);
     assert.equal(await readFile(envFile, 'utf8'), existing);

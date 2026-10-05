@@ -19,13 +19,30 @@ async function withAdmin(design, run) {
   handler = createMockHandler({ port });
   const base = `http://127.0.0.1:${port}`;
   const post = payload => fetch(base + '/exec', { method: 'POST', body: JSON.stringify(payload) }).then(response => response.json());
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 },
+    timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
   const errors = [];
   const blocked = [];
+  const directRequests = [];
+  const operations = [];
   await context.route('**/*', route => {
-    if (new URL(route.request().url()).origin === base) return route.continue();
-    blocked.push(route.request().method());
-    return route.abort();
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.origin !== base) {
+      blocked.push(request.method());
+      return route.abort();
+    }
+    if (url.pathname === '/exec') {
+      directRequests.push(request.method());
+      return route.abort();
+    }
+    if (url.pathname === '/fixture-shell.html') {
+      return route.fulfill({ contentType: 'text/html', body: '<!doctype html><meta name="viewport" content="width=device-width">'
+        + '<style>html,body{margin:0}iframe{display:block;width:100%;height:100vh;border:0}</style>'
+        + '<script>window.authAdminRequest = payload => window.fixtureAdminRequest(payload);</script>'
+        + `<iframe id="management" title="架空のGoogle管理" src="admin.html?google=1${design ? '&design=a' : ''}"></iframe>` });
+    }
+    return route.continue();
   });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
@@ -34,19 +51,25 @@ async function withAdmin(design, run) {
     const reservation = await post({ type: 'adminAdd', password, force: true, date: '2026-10-08',
       time: '10:00', minutes: 60, name: '使い勝手の試験客', tel: '09000000000', price: 4000 });
     assert.equal(reservation.ok, true);
-    await page.goto(base + '/admin.html' + design);
-    await page.locator('#passcode').fill(password);
-    await page.locator('#remember-me').uncheck();
-    await page.locator('#gate-btn').click();
-    await page.locator('#dashboard:not([hidden])').waitFor();
-    const writes = [];
-    page.on('request', request => {
-      if (request.url() !== base + '/exec' || request.method() !== 'POST') return;
-      const type = JSON.parse(request.postData()).type;
-      if (type !== 'adminData') writes.push(type);
+    await page.exposeFunction('fixtureAdminRequest', payload => {
+      assert.equal(Object.hasOwn(payload, 'password'), false, '旧パスワードを使わない');
+      assert.equal(Object.hasOwn(payload, 'token'), false, '旧合鍵を使わない');
+      operations.push(structuredClone(payload));
+      return post({ ...payload, password });
     });
-    await run(page, reservation.code);
-    assert.deepEqual(writes, [], '表示・入力だけでは台帳を更新しない');
+    await page.goto(base + '/fixture-shell.html');
+    const management = page.frameLocator('#management');
+    await management.locator('#dashboard:not([hidden])').waitFor();
+    const frame = await (await page.locator('#management').elementHandle()).contentFrame();
+    assert.ok(frame);
+    assert.equal(await management.locator('#gate').isVisible(), false, '旧ログインを操作しない');
+    assert.deepEqual(await frame.evaluate(() => ({ embedded: window.googleAdminEmbedded, password: adminPw, token: adminToken })),
+      { embedded: true, password: '', token: '' });
+    assert.deepEqual(operations[0], { type: 'adminData', startupOnly: true, briefPast: true, deferMenus: true });
+    await run(frame, reservation.code, page);
+    assert.ok(operations.length > 0);
+    assert.ok(operations.every(operation => operation.type === 'adminData'), '表示・入力だけでは台帳を更新しない');
+    assert.deepEqual(directRequests, [], '管理操作はGoogle管理bridgeだけを通す');
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
     assert.deepEqual(blocked, [], '本番を含む外部サービスへ通信しない');
   } finally {
@@ -125,7 +148,7 @@ for (const design of ['', '?design=a']) {
   });
 
   test(`名簿検索の解除・入力保護・画面幅 ${design || '従来版'}`, async () => {
-    await withAdmin(design, async page => {
+    await withAdmin(design, async (page, _bookingCode, viewportPage) => {
       await page.locator('#admin-tabs [data-pane="customers"]').click();
       await page.locator('#customer-search').fill('見つからない名前');
       assert.match(await page.locator('#customer-count').innerText(), /0件を表示/);
@@ -143,7 +166,7 @@ for (const design of ['', '?design=a']) {
       await page.locator('#customer-rows [data-note-input]').fill('');
       await page.locator('#admin-tabs [data-pane="reserve"]').click();
       for (const width of [320, 390, 768, 1280]) {
-        await page.setViewportSize({ width, height: 844 });
+        await viewportPage.setViewportSize({ width, height: 844 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${width}pxで横はみ出しなし`);
         const action = await page.locator('#add-booking').boundingBox();
         assert.ok(action.height >= 44, '主要操作は指で押せる大きさ');
