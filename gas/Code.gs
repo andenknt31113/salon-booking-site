@@ -3680,12 +3680,11 @@ function json_(obj) {
    次のことをまとめて行います。
 
    1. 予約台帳・単品メニュー・おすすめメニュー・スタイル・口コミ・休業日・設定 の7枚を作る
-   2. 管理ページのパスワードを決める（下の PASSWORD に書いた文字列）
+   2. 管理ログインの設定と、残っている準備を確認する
    3. 足りない設定があれば、実行ログに残りの手順を出す
 
-   実行前に、下の PASSWORD をお好きな文字列に変えてください。
-   実行が終わったら、この行は空 '' に戻して構いません
-   （パスワードはスクリプトプロパティに保存済みのため、消しても動きます）。
+   Google管理専用の構成では、パスワードの設定は行いません。
+   ログの案内に従い、admin-google.htmlでログインと台帳の読込を確認してください。
    ============================================================ */
 const PASSWORD = '';   // 例）'zer01-2026' のように決めてください
 
@@ -3697,9 +3696,21 @@ function はじめの準備() {
   setupMenuSheets();    // 単品メニュー・おすすめメニュー・スタイル・休業日・設定
   log.push('✅ シートを作成しました（予約一覧／メニュー／おすすめメニュー／スタイル／口コミ／休業日／設定）');
 
-  // 2. 管理ページのパスワード
   const props = PropertiesService.getScriptProperties();
-  if (PASSWORD) {
+  if (props.getProperty('ADMIN_GOOGLE_ONLY') === 'true') {
+    const config = googleAdminConfig_();
+    const allowed = String(props.getProperty('ADMIN_GOOGLE_UIDS') || '')
+      .split(',').some(uid => uid.trim());
+    if (!config) {
+      log.push('❌ Google管理者の接続設定が未完了です。'
+        + 'ADMIN_GOOGLE_PROJECT_ID／ADMIN_GOOGLE_API_KEY／ADMIN_GOOGLE_APP_IDを確認してください。');
+    }
+    if (!allowed) {
+      log.push('❌ Google管理者の許可UIDが未設定です。ADMIN_GOOGLE_UIDSを確認してください。');
+    }
+    if (config && allowed) log.push('・Google管理者の設定は入力済みです。実際のログイン確認は別途必要です。');
+    log.push('・管理の入口はadmin-google.htmlです。Googleでログインし、台帳を読み込めることを確認してください。');
+  } else if (PASSWORD) {
     props.setProperty('ADMIN_PASSWORD', PASSWORD);
     log.push('✅ 管理ページのパスワードを設定しました');
     log.push('   → 保存できたので、上の PASSWORD の行は空 \'\' に戻してください。'

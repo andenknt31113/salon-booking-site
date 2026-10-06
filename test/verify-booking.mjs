@@ -25,6 +25,12 @@ test('Googleログアウトの有限待機と権限失効の保護を一括検�
   assert.equal(workflow.split("- 'test/admin-logout-deadline.mjs'").length - 1, 2);
 });
 
+test('Google専用の初期準備で旧パスワードを要求しない検査を一括検査から外さない', async () => {
+  assert.ok(BOOKING_CHECKS.includes('test/admin-setup-guidance.mjs'));
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  assert.equal(workflow.split("- 'test/admin-setup-guidance.mjs'").length - 1, 2);
+});
+
 test('前日通知・電話再送・保存中の入力・名簿からの電話受付・模擬変更の旧試験を一括検査から外さない', async () => {
   const files = ['test/reminders.mjs', 'test/phone-retry.mjs', 'test/admin-save-guard.mjs',
     'test/customer-phone-guard.mjs', 'test/mock-change.mjs'];
