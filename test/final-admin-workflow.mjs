@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { after, test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const PLAYWRIGHT = process.env.PLAYWRIGHT || 'playwright';
 const PASSWORD = process.env.MOCK_ADMIN_PASSWORD;
@@ -34,69 +35,59 @@ async function withAdmin(design, run) {
   const post = payload => fetch(base + '/exec', {
     method: 'POST', body: JSON.stringify({ ...payload, password: PASSWORD })
   }).then(response => response.json());
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo' });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Tokyo',
+    serviceWorkers: 'block' });
   const errors = [];
-  const externalRequests = [];
   const requests = [];
   const control = { notificationResponse: undefined, failNote: false,
     losePhoneResponse: false, loseChangeResponse: false };
-  await context.route('**/*', async route => {
-    const request = route.request();
-    if (new URL(request.url()).origin !== base) {
-      externalRequests.push(new URL(request.url()).hostname);
-      return route.abort();
+  const request = async payload => {
+    requests.push({ type: payload.type, target: payload.target,
+      notificationsOnly: payload.notificationsOnly === true,
+      reservationsOnly: payload.reservationsOnly === true });
+    if (payload.notificationsOnly && control.notificationResponse !== undefined) {
+      return control.notificationResponse;
     }
-    if (request.url() === base + '/exec' && request.method() === 'POST') {
-      const payload = request.postDataJSON();
-      requests.push({ type: payload.type, target: payload.target,
-        notificationsOnly: payload.notificationsOnly === true,
-        reservationsOnly: payload.reservationsOnly === true });
-      if (payload.notificationsOnly && control.notificationResponse !== undefined) {
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(control.notificationResponse) });
-      }
-      if (payload.type === 'adminNote' && control.failNote) {
-        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false, error: '架空の保存障害' }) });
-      }
-      if (payload.type === 'adminAdd' && control.losePhoneResponse) {
-        control.losePhoneResponse = false;
-        await route.fetch();
-        return route.abort();
-      }
-      if (payload.type === 'adminChange' && control.loseChangeResponse) {
-        control.loseChangeResponse = false;
-        await route.fetch();
-        return route.abort();
-      }
+    if (payload.type === 'adminNote' && control.failNote) {
+      return { ok: false, error: '架空の保存障害' };
     }
-    return route.continue();
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(TIMEOUT_MS);
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('dialog', dialog => dialog.dismiss());
+    if (payload.type === 'adminAdd' && control.losePhoneResponse) {
+      control.losePhoneResponse = false;
+      assert.equal((await post(payload)).ok, true, '応答だけを失い、電話受付は台帳へ保存済み');
+      throw new Error('架空の電話受付応答喪失');
+    }
+    if (payload.type === 'adminChange' && control.loseChangeResponse) {
+      control.loseChangeResponse = false;
+      assert.equal((await post(payload)).ok, true, '応答だけを失い、日時変更は台帳へ保存済み');
+      throw new Error('架空の日時変更応答喪失');
+    }
+    return post(payload);
+  };
+  const shell = await context.newPage();
+  shell.setDefaultTimeout(TIMEOUT_MS);
+  shell.on('pageerror', error => errors.push(error.message));
+  shell.on('dialog', dialog => dialog.dismiss());
+  let page;
   try {
     const seeded = await post({ type: 'adminAdd', force: true, date: DATE, time: '10:00',
       name: '架空の開店確認', tel: '00000000000', minutes: 60, price: 5000 });
     assert.equal(seeded.ok, true);
-    await page.goto(base + '/admin.html' + design);
-    await page.locator('#passcode').fill(PASSWORD);
-    await page.locator('#remember-me').uncheck();
-    await page.locator('#gate-btn').click();
-    await page.locator('#dashboard:not([hidden])').waitFor();
+    const admin = await openGoogleAdmin({ shell, base, design, request });
+    page = admin.frame;
     assert.equal(await page.locator('#notification-count').innerText(), '未読0件');
     await page.locator('#filter-date').fill(DATE);
     await page.locator('#filter-date').press('Tab');
-    await run({ page, seeded, post, requests, control });
+    await run({ page, shell, seeded, post, requests, control });
     assert.deepEqual(errors, []);
-    assert.deepEqual(externalRequests, []);
+    admin.assertIsolated();
   } catch (error) {
-    console.error('架空画面の診断', JSON.stringify(await page.evaluate(() => ({
+    if (page) console.error('架空画面の診断', JSON.stringify(await page.evaluate(() => ({
       changeStatus: document.querySelector('[data-change-status]')?.textContent,
       freshness: document.querySelector('#reservation-freshness')?.textContent,
       phoneError: document.querySelector('#ab-error')?.textContent,
       change: typeof activeChange === 'undefined' ? null : activeChange
     }))));
-    if (ARTIFACT_DIR) await page.screenshot({ path: resolve(ARTIFACT_DIR, `failure-${design ? 'a' : 'current'}.png`), fullPage: true });
+    if (ARTIFACT_DIR) await shell.screenshot({ path: resolve(ARTIFACT_DIR, `failure-${design ? 'a' : 'current'}.png`), fullPage: true });
     throw error;
   } finally {
     await context.close();
@@ -124,7 +115,7 @@ for (const design of ['', '?design=a']) {
   const label = design ? 'A版' : '従来版';
 
   test(`開店から電話・変更取消・メモ・休業・通知の保存条件 ${label}`, async () => {
-    await withAdmin(design, async ({ page, post, requests, control }) => {
+    await withAdmin(design, async ({ page, shell, post, requests, control }) => {
       await fillPhone(page);
       const beforeInvalid = requests.filter(request => request.type === 'adminAdd').length;
       await page.locator('#ab-minutes').fill('0');
@@ -228,13 +219,13 @@ for (const design of ['', '?design=a']) {
       assert.ok(ledger.closedDates.some(closed => closed.休業日 === CLOSED_DATE && closed.開始 === '' && closed.終了 === ''));
       assert.equal(requests.filter(request => request.type === 'adminSave').length, 2);
       for (const width of [320, 390, 768, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
+        await shell.setViewportSize({ width, height: 900 });
         await assertNoOverflow(page, `休業画面 ${width}px`);
         await page.locator('#admin-tabs [data-pane="reserve"]').click();
         await assertNoOverflow(page, `予約画面 ${width}px`);
         await page.locator('#admin-tabs [data-pane="closed"]').click();
       }
-      if (ARTIFACT_DIR) await page.screenshot({ path: resolve(ARTIFACT_DIR, `workflow-${label}.png`), fullPage: true });
+      if (ARTIFACT_DIR) await shell.screenshot({ path: resolve(ARTIFACT_DIR, `workflow-${label}.png`), fullPage: true });
     });
   });
 
@@ -265,13 +256,17 @@ for (const design of ['', '?design=a']) {
       const notices = await page.locator('#notification-list').textContent();
       await fillPhone(page, '架空の電話下書き');
       const before = await page.evaluate(() => JSON.stringify(adminData.reservations));
-      control.notificationResponse = { ok: 'false', reservations: [] };
-      await page.evaluate(() => AdminNotifications.check());
-      assert.equal(await page.locator('#notification-health').isVisible(), true);
-      assert.match(await page.locator('#notification-status').textContent(), /自動確認を停止/);
-      assert.equal(await page.locator('#notification-list').textContent(), notices);
-      assert.equal(await page.locator('#ab-name').inputValue(), '架空の電話下書き');
-      assert.equal(await page.evaluate(() => JSON.stringify(adminData.reservations)), before);
+      for (const rejected of [{ ok: 'false' }, { ok: true, transportError: true },
+        { ok: true, unknown: true }, { ok: true, error: '架空の読込障害' }]) {
+        control.notificationResponse = { ...rejected, reservations: [] };
+        await page.evaluate(() => AdminNotifications.check());
+        assert.equal(await page.locator('#notification-health').isVisible(), true);
+        assert.match(await page.locator('#notification-status').textContent(), /自動確認を停止/);
+        assert.equal(await page.locator('#notification-list').textContent(), notices);
+        assert.equal(await page.locator('#notification-count').innerText(), '未読1件');
+        assert.equal(await page.locator('#ab-name').inputValue(), '架空の電話下書き');
+        assert.equal(await page.evaluate(() => JSON.stringify(adminData.reservations)), before);
+      }
       control.notificationResponse = undefined;
       await page.evaluate(() => AdminNotifications.check());
       assert.equal(await page.locator('#notification-health').isVisible(), false);
@@ -282,7 +277,7 @@ for (const design of ['', '?design=a']) {
   });
 
   test(`日時変更の応答喪失では再保存せず、通知も入力と未読を保持 ${label}`, async () => {
-    await withAdmin(design, async ({ page, seeded, post, requests, control }) => {
+    await withAdmin(design, async ({ page, shell, seeded, post, requests, control }) => {
       const card = page.locator(`#admin-rows [data-code="${seeded.code}"]`);
       await card.locator('[data-admin-change]').click();
       await card.locator('[data-change-date]').fill(NEXT_DATE);
@@ -304,7 +299,7 @@ for (const design of ['', '?design=a']) {
       assert.equal(await card.locator('[data-change-date]').inputValue(), NEXT_DATE);
       assert.equal(await card.locator('[data-change-time]').inputValue(), '12:00');
       assert.equal(requests.filter(request => request.reservationsOnly).length, beforeRefresh);
-      await page.setViewportSize({ width: 320, height: 900 });
+      await shell.setViewportSize({ width: 320, height: 900 });
       await assertNoOverflow(page, '結果不明の日時変更と通知を開いた320px画面');
       await card.locator('[data-change-check]').click();
       await card.locator('[data-change-editor]').waitFor({ state: 'detached' });

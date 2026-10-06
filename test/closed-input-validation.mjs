@@ -3,11 +3,14 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const browsers = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
 assert.ok(password, 'MOCK_ADMIN_PASSWORD が必要です');
-const browser = await browsers[process.env.TEST_BROWSER || 'chromium'].launch();
+const engine = process.env.TEST_BROWSER || 'chromium';
+const browser = await browsers[engine].launch(engine === 'chromium' && process.env.CHROMIUM
+  ? { executablePath: process.env.CHROMIUM } : {});
 after(() => browser.close());
 const DATE = '2026-10-10';
 
@@ -19,7 +22,7 @@ async function fixture(design, run) {
   server.on('request', createMockHandler({ port }));
   const base = `http://127.0.0.1:${port}`;
   const context = await browser.newContext({ viewport: { width: 390, height: 844 },
-    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP', serviceWorkers: 'block' });
   const writes = [];
   const errors = [];
   const control = { initialRow: null, reject: false };
@@ -31,38 +34,35 @@ async function fixture(design, run) {
     assert.equal(initial.ok, true);
     assert.equal((await post({ type: 'adminSave', target: 'closed', stamp: initial.stamps.closed, rows: [] })).ok, true,
       '試験用の既定休業日と新しく追加する行を混ぜない');
-    await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort());
-    await context.route(`${base}/exec`, async route => {
-      const payload = route.request().postDataJSON();
+    const request = async payload => {
       if (payload.type === 'adminSave') {
-        writes.push(payload);
+        writes.push(structuredClone(payload));
         if (control.reject) {
-          await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false,
-            invalidClosed: true, invalidRow: 0, invalidField: '終了', error: '受け口で終了時刻の不備を検出しました。' }) });
-          return;
+          return { ok: false, invalidClosed: true, invalidRow: 0, invalidField: '終了',
+            error: '受け口で終了時刻の不備を検出しました。' };
         }
       }
+      const data = await post(payload);
       if (payload.type === 'adminData' && control.initialRow) {
-        const response = await route.fetch();
-        const data = await response.json();
-        await route.fulfill({ response, body: JSON.stringify({ ...data, closedDates: [control.initialRow] }) });
-        return;
+        return { ...data, closedDates: [control.initialRow] };
       }
-      await route.continue();
-    });
-    const page = await context.newPage();
-    page.on('pageerror', error => errors.push(error.message));
-    page.on('dialog', dialog => dialog.dismiss());
-    await page.clock.setFixedTime(new Date('2026-10-08T10:00:00+09:00'));
-    const open = async () => {
-      await page.goto(`${base}/admin.html${design}`);
-      await page.locator('#passcode').fill(password);
-      await page.locator('#remember-me').uncheck();
-      await page.locator('#gate-btn').click();
-      await page.locator('#dashboard:not([hidden])').waitFor();
-      await page.locator('#admin-tabs [data-pane="closed"]').click();
+      return data;
     };
-    await run({ page, open, control, writes });
+    const shell = await context.newPage();
+    shell.on('pageerror', error => errors.push(error.message));
+    shell.on('dialog', dialog => dialog.dismiss());
+    await shell.clock.setFixedTime(new Date('2026-10-08T10:00:00+09:00'));
+    let admin;
+    const open = async () => {
+      admin = await openGoogleAdmin({ shell, base, design, request });
+      const page = admin.frame;
+      await page.locator('#admin-tabs [data-pane="closed"]').click();
+      return page;
+    };
+    await run({ open, control, writes });
+    assert.ok(admin.operations.every(operation => operation.type === 'adminData'
+      || operation.type === 'adminSave' && operation.target === 'closed'), '休業設定以外を保存・取消しない');
+    admin.assertIsolated();
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
   } finally {
     await context.close();
@@ -73,8 +73,8 @@ async function fixture(design, run) {
 
 for (const design of ['', '?design=a']) {
   test(`${design || '従来版'}：逆転時刻を保存せず、時刻・メモを保って終了欄へ案内する`, async () => {
-    await fixture(design, async ({ page, open, writes }) => {
-      await open();
+    await fixture(design, async ({ open, writes }) => {
+      const page = await open();
       await page.locator('[data-add="closed"]').click();
       await page.locator('[data-col="休業日"][data-index="0"]').fill(DATE);
       await page.locator('[data-closed-mode="0"][value="range"]').check();
@@ -103,8 +103,8 @@ for (const design of ['', '?design=a']) {
   });
 
   test(`${design || '従来版'}：日付なし・時刻片側なしを保存せず、終日指定なら時刻を両方消す`, async () => {
-    await fixture(design, async ({ page, open, writes }) => {
-      await open();
+    await fixture(design, async ({ open, writes }) => {
+      const page = await open();
       await page.locator('[data-add="closed"]').click();
       await page.locator('[data-save="closed"]').click();
       assert.deepEqual(writes, []);
@@ -128,9 +128,9 @@ for (const design of ['', '?design=a']) {
   });
 
   test(`${design || '従来版'}：過去に保存された壊れた休業も、入力を隠さず修正できる`, async () => {
-    await fixture(design, async ({ page, open, control, writes }) => {
+    await fixture(design, async ({ open, control, writes }) => {
       control.initialRow = { 休業日: DATE, 開始: '14:00', 終了: '', メモ: '元の入力' };
-      await open();
+      const page = await open();
       assert.equal(await page.locator('[data-closed-mode="0"][value="range"]').isChecked(), true);
       assert.equal(await page.locator('[data-col="開始"][data-index="0"]').inputValue(), '14:00');
       const end = page.locator('[data-col="終了"][data-index="0"]');

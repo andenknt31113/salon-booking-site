@@ -63,6 +63,49 @@ test('切替中の古いHTMLでも、通知の成功・停止確認を例外で�
   assert.match(app.getElement('#notification-status').textContent, /自動確認を停止/);
 });
 
+const INVALID_RESPONSES = [
+  ['結果なし', null], ['成功値なし', {}], ['拒否', { ok: false }],
+  ['数値ゼロ', { ok: 0 }], ['数値一', { ok: 1 }],
+  ['文字のfalse', { ok: 'false' }], ['文字のtrue', { ok: 'true' }],
+  ['成功とエラー', { ok: true, error: '架空の読込障害' }],
+  ...['transportError', 'unknown', 'stale'].flatMap(field => [
+    [`成功と${field}`, { ok: true, [field]: true }],
+    [`文字の${field}`, { ok: true, [field]: 'false' }]
+  ]),
+  ['文字の配送指定', { ok: true, mailStatuses: 'true' }],
+  ['数値の配送指定', { ok: true, mailStatuses: 1 }]
+];
+
+for (const [label, response] of INVALID_RESPONSES) {
+  test(`${label}を正常な通知にせず、未読・比較元・配送表示を保って再確認できる`, async () => {
+    const app = fixture();
+    const added = { ...RESERVATION, code: 'LM-HEALTH-ADDED', name: '架空の新着' };
+    app.context.adminPost = async () => ({ ok: true, reservations: [RESERVATION, added] });
+    await app.notices.check();
+    const before = app.getElement('#notification-list').innerHTML;
+    const scheduled = app.scheduled();
+    let updates = 0;
+    app.context.applyMailStatusUpdate = () => { updates++; return true; };
+    app.context.adminPost = async () => response === null ? null
+      : { mailStatuses: true, reservations: [], ...response };
+    await app.notices.check();
+    assert.equal(app.getElement('#notification-health').hidden, false);
+    assert.match(app.getElement('#notification-status').textContent, /自動確認を停止/);
+    assert.equal(app.getElement('#notification-list').innerHTML, before);
+    assert.equal(app.getElement('#notification-count').textContent, '未読1件');
+    assert.equal(app.getElement('#notification-check').disabled, false);
+    assert.equal(app.scheduled(), scheduled, '不正応答の後は自動通信を続けない');
+    assert.equal(updates, 0, '確認できない応答で配送表示を消さない');
+    app.context.adminPost = async () => ({ ok: true, reservations: [RESERVATION, added], mailStatuses: true });
+    await app.notices.check();
+    assert.equal(app.getElement('#notification-health').hidden, true);
+    assert.equal(app.getElement('#notification-list').innerHTML, before);
+    assert.equal(app.getElement('#notification-count').textContent, '未読1件');
+    assert.equal(updates, 1);
+    assert.equal(app.scheduled(), scheduled + 1);
+  });
+}
+
 test('不完全・重複した通知は未読と比較元を壊さず、復旧時も既存予約を新着にしない', async () => {
   const nextReservation = { ...RESERVATION, code: 'LM-NEXT', name: '架空の新着' };
   const fields = Object.keys(RESERVATION);

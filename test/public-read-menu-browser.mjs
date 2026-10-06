@@ -77,7 +77,7 @@ function installStalledRead({ type, stage, data }) {
   }
 }
 
-async function withPage(path, design, unavailable, run) {
+async function withPage(path, design, unavailable, run, controlledTime = false) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 },
     locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
   const backend = backendFixture(unavailable);
@@ -114,8 +114,9 @@ async function withPage(path, design, unavailable, run) {
       return route.abort();
     });
     const page = await context.newPage();
+    if (controlledTime) await page.clock.install();
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(`${base}/${path}.html${design ? '?design=a' : ''}`);
+    await page.goto(`${base}/${path}.html${design ? '?design=a' : ''}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof Catalog !== 'undefined' && Catalog.loaded);
     await run({ page, reads: backend.reads, requests });
     assert.deepEqual(errors, []);
@@ -164,7 +165,6 @@ for (const design of [false, true]) {
     for (const stage of ['connect', 'body']) {
       test(`${label}：${type}の${stage}が中断を無視しても画面へ戻り、遅い応答を反映しない`, () =>
         withPage(type === 'lookup' ? 'mypage' : 'reserve', design, false, async ({ page }) => {
-          await page.clock.install();
           const data = type === 'lookup' ? { ok: true, reservation: { code: 'LM-CHECK', date: '2099-10-08',
             time: '10:00', endTime: '11:00', totalMinutes: 60, totalPrice: 4000,
             name: '架空の照会', menuText: '架空カット', staffName: '架空担当', status: '予約確定' } }
@@ -183,7 +183,7 @@ for (const design of [false, true]) {
                 return options.stage === 'connect' ? pending : Promise.resolve({ ok: true, json: () => pending });
               };
             }, { once: true }), { data, stage });
-            await page.reload();
+            await page.reload({ waitUntil: 'domcontentloaded' });
           } else {
             await page.evaluate(installStalledRead, { type, stage, data });
             if (type === 'lookup') {
@@ -230,7 +230,7 @@ for (const design of [false, true]) {
             await page.locator('#lookup-result .booking-card').waitFor();
             assert.equal(await page.evaluate(() => window.fixtureCalls), 2, '明示操作でのみ再確認する');
           }
-        }));
+        }, true));
     }
   }
 }

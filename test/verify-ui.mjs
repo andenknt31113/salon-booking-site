@@ -23,6 +23,24 @@ test('顧客の予約件数と大きい名簿の操作をGoogle管理の画面�
   assert.ok(UI_CHECKS.includes('test/customer-roster-loading.mjs'));
 });
 
+test('休業の編集・既存予約の保護・不正な時刻の拒否をGoogle管理の画面検査から外さない', async () => {
+  for (const name of ['closed-day-usability', 'closed-input-validation']) {
+    assert.ok(UI_CHECKS.includes(`test/${name}.mjs`));
+    const source = await readFile(new URL(`./${name}.mjs`, import.meta.url), 'utf8');
+    assert.match(source, /await openGoogleAdmin\(/);
+    assert.match(source, /admin\.assertIsolated\(\)/);
+    assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+  }
+});
+
+test('電話受付から変更・取消・メモ・休業・通知までの通し検査をGoogle管理から外さない', async () => {
+  assert.ok(UI_CHECKS.includes('test/final-admin-workflow.mjs'));
+  const source = await readFile(new URL('./final-admin-workflow.mjs', import.meta.url), 'utf8');
+  assert.match(source, /await openGoogleAdmin\(/);
+  assert.match(source, /admin\.assertIsolated\(\)/);
+  assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
+});
+
 const execute = promisify(execFile);
 const EXCLUDED_ENV = ['GAS_SOURCE', 'GAS_BASELINE_SOURCE', 'ADMIN_SOURCE', 'ADMIN_BASELINE_SOURCE',
   'BASE', 'ADMIN_PW', 'TEST_BROWSER', 'TEST_SCREENSHOT_DIR', 'SCREENSHOT_DIR', 'TEST_ARTIFACT_DIR', 'NODE_OPTIONS'];
@@ -170,7 +188,7 @@ test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 35);
+    assert.equal(UI_CHECKS.length, 38);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

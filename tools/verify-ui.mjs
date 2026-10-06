@@ -12,6 +12,7 @@ export const UI_CHECKS = Object.freeze([
   'admin-notification-race-browser', 'customer-pagination-browser', 'customer-roster-count', 'customer-roster-loading', 'admin-csv-safety-browser',
   'admin-publication-browser', 'admin-occupancy-intervals-ui', 'booking-email-queue-browser',
   'admin-brief-history-ui', 'admin-daily-usability', 'admin-savebar-focus', 'admin-save-ack-browser', 'mypage-lookup-sync',
+  'closed-day-usability', 'closed-input-validation', 'final-admin-workflow',
   'booking-write-response-browser', 'admin-change-receipt-browser', 'site-publication-browser', 'publication-cache-browser',
   'booking-calendar-refresh-browser', 'public-read-menu-browser'
 ].map(name => `test/${name}.mjs`));

@@ -3,6 +3,7 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { createMockHandler } from './mock-gas.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 const password = process.env.MOCK_ADMIN_PASSWORD;
@@ -24,13 +25,12 @@ async function withClosedDays(design, run) {
   const post = payload => fetch(base + '/exec', { method: 'POST',
     body: JSON.stringify({ ...payload, password }) }).then(response => response.json());
   const context = await browser.newContext({ viewport: { width: 390, height: 844 },
-    locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
-  await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort());
-  const page = await context.newPage();
+    locale: 'ja-JP', timezoneId: 'Asia/Tokyo', serviceWorkers: 'block' });
+  const shell = await context.newPage();
   const errors = [];
   const writes = [];
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('dialog', dialog => dialog.dismiss());
+  shell.on('pageerror', error => errors.push(error.message));
+  shell.on('dialog', dialog => dialog.dismiss());
   try {
     const initial = await post({ type: 'adminData' });
     assert.equal(initial.ok, true);
@@ -39,20 +39,18 @@ async function withClosedDays(design, run) {
       { '休業日': RANGE_DATE, '開始': '14:00', '終了': '16:00', 'メモ': '時間帯の試験' }
     ] })).ok, true);
     assert.equal((await post({ type: 'adminAdd', force: true, date: BUSY_DATE,
-      time: '10:00', minutes: 60, name: '試験のお客様', tel: '09000000000', price: 4000 })).ok, true);
-    await page.clock.setFixedTime(new Date('2026-10-08T10:00:00+09:00'));
-    await page.goto(base + '/admin.html' + design);
-    await page.locator('#passcode').fill(password);
-    await page.locator('#remember-me').uncheck();
-    await page.locator('#gate-btn').click();
-    await page.locator('#dashboard:not([hidden])').waitFor();
+      time: '10:00', minutes: 60, name: '試験のお客様', tel: '00000000000', price: 4000 })).ok, true);
+    await shell.clock.setFixedTime(new Date('2026-10-08T10:00:00+09:00'));
+    const admin = await openGoogleAdmin({ shell, base, design, request: payload => {
+      if (payload.type !== 'adminData') writes.push(structuredClone(payload));
+      return post(payload);
+    } });
+    const page = admin.frame;
     await page.locator('#admin-tabs [data-pane="closed"]').click();
-    page.on('request', request => {
-      if (request.url() !== base + '/exec' || request.method() !== 'POST') return;
-      const payload = request.postDataJSON();
-      if (payload.type !== 'adminData') writes.push(payload);
-    });
-    await run(page, writes, post);
+    await run(page, writes, post, shell);
+    assert.ok(admin.operations.every(operation => operation.type === 'adminData'
+      || operation.type === 'adminSave' && operation.target === 'closed'), '休業設定以外を保存・取消しない');
+    admin.assertIsolated();
     assert.deepEqual(errors, [], 'JavaScriptエラーなし');
   } finally {
     await context.close();
@@ -121,9 +119,9 @@ for (const design of ['', '?design=a']) {
     assert.deepEqual(writes, [], '空の行を追加しても保存はしない');
   }));
 
-  test(`${label}：削除後も次の行を操作でき、最後の行では追加へ戻る`, () => withClosedDays(design, async (page, writes) => {
-    page.removeAllListeners('dialog');
-    page.on('dialog', dialog => dialog.accept());
+  test(`${label}：削除後も次の行を操作でき、最後の行では追加へ戻る`, () => withClosedDays(design, async (page, writes, post, shell) => {
+    shell.removeAllListeners('dialog');
+    shell.on('dialog', dialog => dialog.accept());
     await page.locator('[data-remove="closed"][data-index="0"]').click();
     const next = page.locator('#closed-rows [data-index="0"][data-col="休業日"]');
     assert.equal(await next.inputValue(), RANGE_DATE);
@@ -133,10 +131,10 @@ for (const design of ['', '?design=a']) {
     assert.deepEqual(writes, [], '削除も保存するまで台帳へ送らない');
   }));
 
-  test(`${label}：削除の確認で戻れば入力を残し、保存時の反映先も正しく伝える`, () => withClosedDays(design, async (page, writes) => {
+  test(`${label}：削除の確認で戻れば入力を残し、保存時の反映先も正しく伝える`, () => withClosedDays(design, async (page, writes, post, shell) => {
     const field = page.locator('[data-index="0"][data-col="メモ"]');
     await field.fill('消さない試験メモ');
-    const confirmation = page.waitForEvent('dialog');
+    const confirmation = shell.waitForEvent('dialog');
     const remove = page.locator('[data-remove="closed"][data-index="0"]');
     await remove.click();
     const message = (await confirmation).message();
@@ -173,9 +171,9 @@ for (const design of ['', '?design=a']) {
     assert.deepEqual(writes, [], '予約が入っている日の確認を省略しない');
   }));
 
-  test(`${label}：予約済みの日を休みにしても件数を隠さず、予約は取り消さない`, () => withClosedDays(design, async (page, writes, post) => {
-    page.removeAllListeners('dialog');
-    page.on('dialog', dialog => dialog.accept());
+  test(`${label}：予約済みの日を休みにしても件数を隠さず、予約は取り消さない`, () => withClosedDays(design, async (page, writes, post, shell) => {
+    shell.removeAllListeners('dialog');
+    shell.on('dialog', dialog => dialog.accept());
     const day = page.locator(`[data-ccal="${BUSY_DATE}"]`);
     await day.click();
     assert.equal(await day.getAttribute('aria-pressed'), 'true');

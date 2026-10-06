@@ -1,4 +1,5 @@
 const AdminNotifications = (() => {
+  const BOOLEAN_FIELDS = ['transportError', 'unknown', 'stale', 'mailStatuses'];
   let previous = null;
   const notices = new Map();
   let timer;
@@ -79,7 +80,10 @@ const AdminNotifications = (() => {
     try {
       const result = await adminPost({ type: 'adminData', notificationsOnly: true });
       if (readingGeneration !== generation) return;
-      if (!result.ok || !validRows(result.reservations)) throw new Error('通知を確認できません');
+      if (!result || result.ok !== true || result.error
+          || BOOLEAN_FIELDS.some(field => result[field] !== undefined && typeof result[field] !== 'boolean')
+          || result.transportError || result.unknown || result.stale
+          || !validRows(result.reservations)) throw new Error('通知を確認できません');
       if (result.mailStatuses === true && !applyMailStatusUpdate(result.reservations)) {
         throw new Error('メール配送の状態を確認できません');
       }
