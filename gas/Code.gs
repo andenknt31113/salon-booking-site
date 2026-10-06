@@ -509,9 +509,11 @@ function doAdminAdd_(sheet, d) {
   const requestContent = JSON.stringify({ date: date, time: time, minutes: minutes, price: price,
     name: cell_(d.name, LIMITS.name), tel: telText_(d.tel).slice(0, LIMITS.tel),
     menu: cell_(menuText, LIMITS.menu), memo: cell_(d.memo, LIMITS.request) });
-  const col = colIndex_(sheet);
+  const snapshot = readSheetSnapshot_(sheet, []);
+  if (!validBookingHeaders_(snapshot.head, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
+  const col = colIndex_(sheet, snapshot.head);
   if (requestId) {
-    const previous = findPhoneRequest_(sheet, col, requestId);
+    const previous = findPhoneRequest_(sheet, col, requestId, snapshot);
     if (previous) {
       if (String(previous[col('電話受付内容')]) !== requestContent) {
         return { ok: false, requestConflict: true, error: 'この受付は別の内容で登録済みです。登録結果を確認してください。' };
@@ -523,7 +525,7 @@ function doAdminAdd_(sheet, d) {
   /* 重なりと休みは、止めずに知らせます。
      店が承知のうえで入れる場合（常連さんを無理に入れる等）があるためです。 */
   if (!d.force) {
-    if (isTaken_(sheet, date, time, minutes, staffId, '')) {
+    if (isTaken_(sheet, date, time, minutes, staffId, '', snapshot)) {
       return { ok: false, confirm: true,
         error: 'この時間には、すでに別のご予約が入っています。それでも登録しますか？' };
     }
@@ -533,10 +535,10 @@ function doAdminAdd_(sheet, d) {
     }
   }
 
-  const code = issueCode_(sheet);
+  const code = issueCode_(sheet, snapshot);
   const customer = { name: d.name, tel: d.tel || '', kana: '', email: '', visit: '', request: d.memo || '' };
 
-  const reservationHeaders = headerRow_(sheet);
+  const reservationHeaders = snapshot.head;
   const row = rowFor_(sheet, {
     '予約番号': code,
     '受付日時': formatTime_(new Date().toISOString()),
@@ -584,13 +586,15 @@ function doAdminAddStatus_(sheet, data) {
   requireAdmin_(data);
   const requestId = String(data.requestId || '');
   if (!PHONE_REQUEST_ID_PATTERN.test(requestId)) return { ok: false, error: '受付IDが正しくありません。' };
-  const col = colIndex_(sheet);
-  const row = findPhoneRequest_(sheet, col, requestId);
+  const snapshot = readSheetSnapshot_(sheet, []);
+  if (!validBookingHeaders_(snapshot.head, { requireCode: true })) throw userFacingError_(BOOKING_HEADERS_ERROR);
+  const col = colIndex_(sheet, snapshot.head);
+  const row = findPhoneRequest_(sheet, col, requestId, snapshot);
   return row ? { ...phoneResult_(row, col, requestId, true), found: true } : { ok: true, found: false, requestId: requestId };
 }
 
-function findPhoneRequest_(sheet, col, requestId) {
-  const rows = readRows_(sheet);
+function findPhoneRequest_(sheet, col, requestId, snapshot) {
+  const rows = snapshot ? snapshot.rows : readRows_(sheet);
   const matches = rows.filter(record => String(record[col('電話受付ID')] || '') === requestId);
   if (matches.length > 1) throw userFacingError_('電話受付IDが重複しています。制作担当者へ連絡して台帳を確認してください。');
   if (matches.length) {
