@@ -10,6 +10,18 @@ import { test } from 'node:test';
 import { UI_CHECKS, verifyUI } from '../tools/verify-ui.mjs';
 import { verifyLocalChecks } from '../tools/verify-local.mjs';
 
+test('予約・変更取消・休業・公開設定の33場面を現行Google管理の実利用検査から外さない', async () => {
+  assert.ok(UI_CHECKS.includes('test/usecase.mjs'));
+  const source = await readFile(new URL('./usecase.mjs', import.meta.url), 'utf8');
+  const scenarios = [...source.matchAll(/console\.log\('\\n【UC(\d+)】/g)].map(match => Number(match[1]));
+  assert.deepEqual(scenarios, Array.from({ length: 33 }, (_value, index) => index + 1));
+  assert.match(source, /await openGoogleAdmin\(/);
+  assert.match(source, /admin\.assertIsolated\(\)/);
+  assert.match(source, /server\.listen\(0, '127\.0\.0\.1'\)/);
+  assert.doesNotMatch(source, /#(?:passcode|gate-btn|remember-me)/);
+  assert.doesNotMatch(source, /process\.env\.(BASE|ADMIN_PW)|['"]test1234['"]/);
+});
+
 test('長い入力・下書き・隠れたプロフィール・送信前の保護を画面検査から外さない', () => {
   assert.ok(UI_CHECKS.includes('test/booking-input-limits-browser.mjs'));
 });
@@ -188,7 +200,7 @@ test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 38);
+    assert.equal(UI_CHECKS.length, 39);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

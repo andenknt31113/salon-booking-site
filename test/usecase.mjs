@@ -4,18 +4,33 @@
 /* Playwright の場所。
    ふつうは npm i -D playwright で入れた 'playwright' を使います。
    別の場所にある場合は PLAYWRIGHT に読み込み先を指定してください。 */
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { once } from 'node:events';
+import { test } from 'node:test';
+import { createMockHandler } from './mock-gas.mjs';
 import { mockBookingState } from './booking-state-fixture.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
-const B = process.env.BASE || 'http://127.0.0.1:8820';
-const PW = 'test1234';
-const post = b => fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b) }).then(r => r.json());
+const PW = process.env.MOCK_ADMIN_PASSWORD;
+assert.ok(PW, 'MOCK_ADMIN_PASSWORD が必要です');
+let handler;
+const server = http.createServer((request, response) => handler(request, response));
+server.listen(0, '127.0.0.1');
+await once(server, 'listening');
+handler = createMockHandler({ port: server.address().port });
+const B = `http://127.0.0.1:${server.address().port}`;
+const post = payload => fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify(payload.type.startsWith('admin') ? { ...payload, password: PW } : payload) }).then(response => response.json());
 const key = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const br = await chromium.launch(
   process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
 const jsErrors = [];
 const results = [];
+const management = [];
+const external = [];
 
 function check(uc, label, actual, expected) {
   const ok = String(actual) === String(expected);
@@ -25,6 +40,11 @@ function check(uc, label, actual, expected) {
 }
 
 async function enableBookingInTest(context) {
+  await context.route('**/*', route => {
+    const request = route.request();
+    if (new URL(request.url()).origin !== B) { external.push(request.method()); return route.abort(); }
+    return route.continue();
+  });
   await mockBookingState(context);
 }
 
@@ -32,11 +52,19 @@ async function newPhone(label) {
   const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     /* お客様のスマホは日本時間です。この機械の時間帯のままだと、
        当日の締め切りのような「いま何時か」で変わる判定がずれます。 */
-    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP', serviceWorkers: 'block' });
   await enableBookingInTest(ctx);
   const p = await ctx.newPage();
   p.on('pageerror', e => jsErrors.push(`[${label}] ${e.message}`));
   return p;
+}
+
+async function newAdmin(label) {
+  const shell = await newPhone(label);
+  const admin = await openGoogleAdmin({ shell, base: B,
+    request: payload => post({ ...payload, password: PW }) });
+  management.push(admin);
+  return admin.frame;
 }
 
 /* お客様が1件予約する。使い回すのでまとめておく */
@@ -81,7 +109,7 @@ try {
 /* 試験用サーバーを立ち上げっぱなしにしていると、前回の予約が残ります。
    空いているはずの時間が埋まって見え、サイトのせいではない失敗が出ます。
    まっさらから始めます。 */
-await post({ type: 'reset' }).catch(() => {});
+assert.equal((await post({ type: 'availability' })).ok, true);
 
 /* ============================================================
    UC1 はじめてのお客様が、料金を見てから予約する
@@ -261,10 +289,7 @@ console.log('\n【UC7】店主が、急に明日を休みにする');
 {
   const t = new Date(); t.setDate(t.getDate() + 5);
   const day = key(t);
-  const a = await newPhone('UC7-店');
-  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
-  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
-  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  const a = await newAdmin('UC7-店');
   await a.locator('.tab[data-pane="closed"]').click(); await a.waitForTimeout(500);
   await a.locator('[data-add="closed"]').click(); await a.waitForTimeout(400);
   await a.locator('#closed-rows input[data-col="休業日"]').last().fill(day);
@@ -275,7 +300,7 @@ console.log('\n【UC7】店主が、急に明日を休みにする');
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
   const closed = await p.evaluate(d => !Availability.isBookableDate(d), day);
   check('UC7', 'その日は予約できなくなる', closed, true);
-  await a.context().close(); await p.context().close();
+  await a.page().context().close(); await p.context().close();
 }
 
 /* ============================================================
@@ -283,13 +308,10 @@ console.log('\n【UC7】店主が、急に明日を休みにする');
    ============================================================ */
 console.log('\n【UC8】店主が、メニューの値段を変える');
 {
-  const a = await newPhone('UC8-店');
+  const a = await newAdmin('UC8-店');
   const p = await newPhone('UC8-客');
   await p.goto(B + '/menu.html');
   const publishedPrices = await p.locator('.menu-row-price').allInnerTexts();
-  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
-  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
-  await a.click('#gate-btn'); await a.waitForTimeout(1700);
   await a.locator('#site-edit-tabs > summary').click();
   await a.locator('.tab[data-pane="menus"]').click(); await a.waitForTimeout(500);
   await a.locator('#menu-rows input[data-col="価格"]').first().fill('5500');
@@ -299,16 +321,20 @@ console.log('\n【UC8】店主が、メニューの値段を変える');
   check('UC8', '保存だけでは公開済みの価格を差し替えない',
     JSON.stringify(await p.locator('.menu-row-price').allInnerTexts()), JSON.stringify(publishedPrices));
   const catalog = await post({ type: 'menu' });
-  await p.route('**/assets/js/published-menus.js', route => route.fulfill({
-    contentType: 'text/javascript', body: 'const PUBLISHED_MENUS = ' + JSON.stringify({ categories: catalog.categories, coupons: catalog.coupons }) + ';'
-  }));
+  let publishedReads = 0;
+  await p.route(/\/assets\/js\/published-menus\.js(?:\?.*)?$/, route => {
+    publishedReads++;
+    return route.fulfill({ contentType: 'text/javascript',
+      body: 'const PUBLISHED_MENUS = ' + JSON.stringify({ categories: catalog.categories, coupons: catalog.coupons }) + ';' });
+  });
   await p.reload();
+  assert.equal(publishedReads, 1);
   check('UC8', '公開用データを更新するとサイトの値段が変わる',
     (await p.locator('.menu-row-price').allInnerTexts()).some(t => t.includes('5,500')), true);
   await p.goto(B + '/reserve.html'); await p.waitForTimeout(1500);
   check('UC8', '予約画面も更新された価格を使う',
     await p.evaluate(() => allMenuItems().find(item => item.id === 'sm0').price), 5500);
-  await a.context().close(); await p.context().close();
+  await a.page().context().close(); await p.context().close();
 }
 
 /* ============================================================
@@ -353,11 +379,10 @@ console.log('\n【UC11】店が予約一覧を見て、キャンセル扱いに�
   const r = await book(p, { name: '電話 六郎', tel: '09011110012', slotIndex: 18 });
   await p.context().close();
 
-  const a = await newPhone('UC11-店');
-  a.on('dialog', d => d.accept());
-  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
-  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
-  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  const a = await newAdmin('UC11-店');
+  a.page().on('dialog', dialog => dialog.accept());
+  await a.locator('#filter-date').fill(r.date);
+  await a.locator('#filter-date').dispatchEvent('change');
   check('UC11', '予約一覧に出ている',
     !!r.code && (await a.locator('#admin-rows').innerText()).includes(r.code), true);
   await a.locator(`[data-admin-cancel="${r.code}"]`).click();
@@ -365,7 +390,7 @@ console.log('\n【UC11】店が予約一覧を見て、キャンセル扱いに�
   const info = await post({ type: 'adminData', password: PW });
   check('UC11', '台帳がキャンセルになる',
     (info.reservations.find(x => x.code === r.code) || {}).status, 'キャンセル');
-  await a.context().close();
+  await a.page().context().close();
 }
 
 /* ============================================================
@@ -446,10 +471,7 @@ console.log('\n【UC14】LINEの設定保存で公開中の案内を勝手に差
     await p.locator('.site-footer a[href*="lin.ee"]').count(), 0);
 
   // 店が管理ページの「店舗情報」からURLを貼る
-  const a = await newPhone('UC14-店');
-  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
-  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
-  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  const a = await newAdmin('UC14-店');
   await a.locator('#site-edit-tabs > summary').click();
   await a.locator('.tab', { hasText: '店舗情報' }).first().click(); await a.waitForTimeout(500);
   /* 店舗情報タブは項目が多いので、見出しで畳んであります。押して開いてから触ります */
@@ -460,7 +482,7 @@ console.log('\n【UC14】LINEの設定保存で公開中の案内を勝手に差
   check('UC14', 'コードを触らずに保存できる',
     ((await post({ type: 'adminData', password: PW })).settings || {})['LINE友だち追加URL'],
     'https://lin.ee/zer01test');
-  await a.context().close();
+  await a.page().context().close();
 
   await p.reload(); await p.waitForTimeout(1500);
   check('UC14', '保存だけでは公開トップのリンクを差し替えない',
@@ -470,17 +492,14 @@ console.log('\n【UC14】LINEの設定保存で公開中の案内を勝手に差
     await p.locator('.site-footer a[href*="line.me"]').getAttribute('href'), publishedLine);
 
   // おかしなURLは受け取らない（押した人を思わぬ場所へ飛ばさない）
-  const b2 = await newPhone('UC14-悪い値');
-  await b2.goto(B + '/admin.html'); await b2.waitForTimeout(900);
-  await b2.fill('#passcode', PW); await b2.locator('#remember-me').setChecked(false);
-  await b2.click('#gate-btn'); await b2.waitForTimeout(1700);
+  const b2 = await newAdmin('UC14-悪い値');
   await b2.locator('#site-edit-tabs > summary').click();
   await b2.locator('.tab', { hasText: '店舗情報' }).first().click(); await b2.waitForTimeout(500);
   await b2.locator('#setting-rows summary', { hasText: 'お知らせ・ご連絡先' }).first().click();
   await b2.waitForTimeout(400);
   await b2.fill('[data-setting="LINE友だち追加URL"]', 'javascript:alert(1)');
   await b2.locator('[data-save="settings"]').first().click(); await b2.waitForTimeout(1800);
-  await b2.context().close();
+  await b2.page().context().close();
 
   await p.reload(); await p.waitForTimeout(1500);
   /* 見るのは「空になること」ではなく「危ない値が採用されないこと」です。
@@ -520,10 +539,7 @@ console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める'
   const day = key(new Date(Date.now() + 9 * 864e5));
 
   // 店が 14:00〜16:00 だけ止める
-  const a = await newPhone('UC15-店');
-  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
-  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
-  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  const a = await newAdmin('UC15-店');
   await a.locator('.tab', { hasText: '休業日' }).first().click(); await a.waitForTimeout(500);
   await a.locator('[data-add="closed"]').click(); await a.waitForTimeout(300);
   const row = a.locator('#closed-rows .booking-card').last();
@@ -540,7 +556,7 @@ console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める'
   check('UC15', '時間帯つきで保存できる',
     ((await post({ type: 'adminData', password: PW })).closedDates || [])
       .some(r => r['休業日'] === day && r['開始'] === '14:00'), true);
-  await a.context().close();
+  await a.page().context().close();
 
   // お客様側のカレンダーで、その帯だけ押せなくなる
   const p = await newPhone('UC15-客');
@@ -566,7 +582,9 @@ console.log('\n【UC15】店が、ある日の時間帯だけ予約を止める'
   await p.context().close();
 
   // あと片付け
-  await post({ type: 'adminSave', password: PW, target: 'closed', rows: [] });
+  const saved = await post({ type: 'adminData', password: PW });
+  assert.equal((await post({ type: 'adminSave', password: PW, target: 'closed',
+    stamp: saved.stamps.closed, rows: [] })).ok, true);
 }
 
 /* ============================================================
@@ -585,11 +603,8 @@ console.log('\n【UC16】電話で受けた予約を台帳に入れる');
   }
   check('UC16', '予約の無い日が見つかる', !!day, true);
 
-  const a = await newPhone('UC16-店');
-  a.on('dialog', d => d.accept());
-  await a.goto(B + '/admin.html'); await a.waitForTimeout(900);
-  await a.fill('#passcode', PW); await a.locator('#remember-me').setChecked(false);
-  await a.click('#gate-btn'); await a.waitForTimeout(1700);
+  const a = await newAdmin('UC16-店');
+  a.page().on('dialog', dialog => dialog.accept());
 
   await a.click('#add-booking'); await a.waitForTimeout(300);
   await a.fill('#ab-date', day);
@@ -604,9 +619,14 @@ console.log('\n【UC16】電話で受けた予約を台帳に入れる');
   const added = ledger.find(r => r.name === '電話 九郎');
   check('UC16', '台帳に入る', !!added, true);
   check('UC16', '終了時刻が計算される', added && added.endTime, '12:00');
+  assert.ok((await a.locator('#add-result').innerText()).includes(added.code));
+  assert.match(await a.locator('#add-result').innerText(), /いま絞り込み中/);
+  await a.locator('#filter-date').fill(day);
+  await a.locator('#filter-date').dispatchEvent('change');
+  await a.locator(`#admin-rows [data-code="${added.code}"]`).waitFor();
   check('UC16', '予約一覧に出る',
     (await a.locator('#admin-rows').innerText()).includes('電話 九郎'), true);
-  await a.context().close();
+  await a.page().context().close();
 
   // お客様側から、その枠が取れなくなっている
   const p = await newPhone('UC16-客');
@@ -629,22 +649,21 @@ console.log('\n【UC16】電話で受けた予約を台帳に入れる');
   await p.context().close();
 
   // 同じ時間にもう1件入れようとすると、確認を求められる
-  const b2 = await newPhone('UC16-重複');
+  const b2 = await newAdmin('UC16-重複');
   let asked = '';
-  b2.on('dialog', d => { asked = d.message(); d.dismiss(); });   // 「いいえ」を選ぶ
-  await b2.goto(B + '/admin.html'); await b2.waitForTimeout(900);
-  await b2.fill('#passcode', PW); await b2.locator('#remember-me').setChecked(false);
-  await b2.click('#gate-btn'); await b2.waitForTimeout(1700);
+  b2.page().on('dialog', dialog => { asked = dialog.message(); dialog.dismiss(); });
   await b2.click('#add-booking'); await b2.waitForTimeout(300);
   await b2.fill('#ab-date', day);
   await b2.selectOption('#ab-time', '11:30');
   await b2.fill('#ab-name', '重なり 十郎');
+  await b2.fill('#ab-tel', '00000000002');
+  await b2.fill('#ab-minutes', '60');
   await b2.click('#ab-save'); await b2.waitForTimeout(1600);
   check('UC16', '重なるときは確認を出す', asked.includes('すでに別のご予約'), true);
 
   const after = (await post({ type: 'adminData', password: PW })).reservations || [];
   check('UC16', '「いいえ」なら入らない', after.some(r => r.name === '重なり 十郎'), false);
-  await b2.context().close();
+  await b2.page().context().close();
 }
 
 /* ============================================================
@@ -1518,7 +1537,17 @@ if (ng.length) ng.forEach(r => console.log(`  ❌ [${r.uc}] ${r.label}（期待=
 console.log('JSエラー:', jsErrors.length ? jsErrors : 'なし');
 } finally {
   await br.close();
+  server.closeAllConnections();
+  await new Promise(resolveClose => server.close(resolveClose));
 }
 
 // 1件でも失敗したら、終了コードで知らせる（CIやスクリプトから使えるように）
-if (results.some(r => !r.ok) || jsErrors.length) process.exitCode = 1;
+for (const result of results) {
+  test(`[${result.uc}] ${result.label}`, () => assert.equal(String(result.actual), String(result.expected)));
+}
+test('実利用の確認でJavaScriptエラー・外部接続・旧管理認証を混ぜない', () => {
+  assert.deepEqual(jsErrors, []);
+  assert.deepEqual(external, []);
+  assert.ok(management.length > 0);
+  for (const admin of management) admin.assertIsolated();
+});
