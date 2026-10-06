@@ -6,13 +6,24 @@
    「入れた結果が見えるか」を、実際の順番どおりに確かめます。
 
    使い方は ユースケース.md を参照。
-   node test/mock-gas.mjs のあと node test/admin.mjs */
+   node tools/verify-ui.mjs */
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { once } from 'node:events';
+import { test } from 'node:test';
+import { createMockHandler } from './mock-gas.mjs';
 import { mockBookingState } from './booking-state-fixture.mjs';
+import { openGoogleAdmin } from './google-admin-fixture.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT || 'playwright');
 
-const B = process.env.BASE || 'http://127.0.0.1:8820';
-const ADMIN_PATH = '/admin.html' + (process.env.ADMIN_DESIGN === 'a' ? '?design=a' : '');
-const PW = process.env.ADMIN_PW || 'test1234';
+const PW = process.env.MOCK_ADMIN_PASSWORD;
+assert.ok(PW, 'MOCK_ADMIN_PASSWORD が必要です');
+let handler;
+const server = http.createServer((request, response) => handler(request, response));
+server.listen(0, '127.0.0.1');
+await once(server, 'listening');
+handler = createMockHandler({ port: server.address().port });
+const B = `http://127.0.0.1:${server.address().port}`;
 const post = b => fetch(B + '/exec', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b) }).then(r => r.json());
 
 /* 店主のスマホは日本時間です。この機械はUTCで動いているので、
@@ -22,6 +33,10 @@ const key = off => { const d = jstToday(); d.setUTCDate(d.getUTCDate() + off); r
 
 const results = [];
 const jsErrors = [];
+const management = [];
+const external = [];
+const mapLoads = [];
+const controls = new WeakMap();
 function check(g, label, actual, expected) {
   const ok = String(actual) === String(expected);
   results.push({ g, label, ok, actual, expected });
@@ -46,25 +61,50 @@ const br = await chromium.launch(
 /* 店主のスマホ。片手・縦持ち・日本時間 */
 async function newPhone(label) {
   const ctx = await br.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
-    timezoneId: 'Asia/Tokyo', locale: 'ja-JP' });
+    timezoneId: 'Asia/Tokyo', locale: 'ja-JP', serviceWorkers: 'block' });
+  await ctx.route('**/*', route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.origin === 'https://www.google.com' && url.pathname === '/maps/embed') {
+      assert.equal(request.method(), 'GET');
+      mapLoads.push(request.method());
+      return route.fulfill({ contentType: 'text/html', body: '<!doctype html><p>架空の埋込地図</p>' });
+    }
+    if (url.origin !== B) { external.push(request.method() + ' ' + url.hostname + url.pathname); return route.abort(); }
+    return route.continue();
+  });
   const p = await ctx.newPage();
   /* 無いものを待ち続けないように短くします（既定の30秒だと1件で試験が止まります） */
   p.setDefaultTimeout(5000);
   p.on('pageerror', e => jsErrors.push(`[${label}] ${e.message}`));
-  p.__dialogs = [];
-  p.__answer = 'dismiss';
-  p.on('dialog', d => { p.__dialogs.push(d.message()); d[p.__answer === 'accept' ? 'accept' : 'dismiss'](); });
   return p;
 }
 /* 直前に出た確認・お知らせの文言 */
 const lastDialog = p => p.__dialogs[p.__dialogs.length - 1] || '';
 
-async function login(p) {
-  await p.goto(B + ADMIN_PATH); await p.waitForTimeout(900);
-  await p.fill('#passcode', PW);
-  await p.locator('#remember-me').setChecked(false);
-  await p.click('#gate-btn'); await p.waitForTimeout(1500);
+async function connectAdmin(shell) {
+  const control = { failReservationRead: false };
+  const admin = await openGoogleAdmin({ shell, base: B,
+    design: process.env.ADMIN_DESIGN === 'a' ? '?design=a' : '',
+    request: payload => {
+      if (control.failReservationRead && payload.type === 'adminData' && payload.reservationsOnly) {
+        throw new Error('架空の予定再読込障害');
+      }
+      return post({ ...payload, password: PW });
+    } });
+  const frame = admin.frame;
+  frame.__dialogs = [];
+  frame.__answer = 'dismiss';
+  shell.on('dialog', dialog => {
+    frame.__dialogs.push(dialog.message());
+    return dialog[frame.__answer === 'accept' ? 'accept' : 'dismiss']();
+  });
+  controls.set(frame, control);
+  management.push(admin);
+  return frame;
 }
+
+const newAdmin = async label => connectAdmin(await newPhone(label));
 
 const tab = async (p, name) => {
   const button = p.locator('#admin-tabs .tab', { hasText: name }).first();
@@ -140,8 +180,7 @@ await add({ date: key(9), time: '10:00', name: '全角 五郎', tel: '０９０�
 const off1 = await add({ date: key(10), time: '15:00', name: 'キャンセル 六郎', tel: '09012341234', menu: 'カット' });
 await post({ type: 'cancel', password: PW, code: off1.code });
 
-const p = await newPhone('管理');
-await login(p);
+const p = await newAdmin('管理');
 
 await group('【日常導線】別の日から今日へ戻る', async () => {
   await p.fill('#filter-date', key(5));
@@ -366,11 +405,7 @@ await group('【管7】お客様から当日キャンセルの電話が入る', 
    【管8】キャンセルは通ったが、読み直しで通信が切れた
    ============================================================ */
 await group('【管8】キャンセルは通ったが、読み直しで通信が切れた', async () => {
-  await p.route('**/exec', route => {
-    const body = route.request().postData() || '';
-    if (body.includes('"adminData"')) return route.abort('failed');
-    return route.continue();
-  });
+  controls.get(p).failReservationRead = true;
   await p.fill('#filter-date', key(8)); await p.waitForTimeout(400);
   p.__dialogs.length = 0;
   p.__answer = 'accept';
@@ -380,7 +415,7 @@ await group('【管8】キャンセルは通ったが、読み直しで通信が
     /取得できませんでした.*古い可能性/.test(await textOf(p.locator('#reservation-freshness'))), true);
   check('管8', '読み直し失敗でも確定したキャンセルは表示する',
     /キャンセル済み/.test(await textOf(p.locator('[data-admin-cancel]').first())), true);
-  await p.unroute('**/exec');
+  controls.get(p).failReservationRead = false;
   await p.click('#filter-reset'); await p.waitForTimeout(300);
 });
 
@@ -420,14 +455,9 @@ await group('【管10】片手のスマホで押せるか', async () => {
     const w = await p.evaluate(() => document.documentElement.scrollWidth);
     check('管10', `${name}タブが画面からはみ出さない`, w <= 390, true);
   }
-  // タブの列に混じっている「記憶を消す」を、タブのつもりで押してしまう
   await tab(p, '予約一覧'); await p.waitForTimeout(200);
-  p.__dialogs.length = 0;
-  p.__answer = 'dismiss';
-  await p.locator('#site-edit-tabs > summary').click();
-  await p.click('#forget-device'); await p.waitForTimeout(600);
-  check('管10', '記憶を消す前に確認する', /記憶|パスワード/.test(lastDialog(p)), true);
-  check('管10', 'やめれば画面はそのまま', await p.locator('#dashboard').isVisible(), true);
+  check('管10', 'Google管理に旧合鍵の操作を混在させない', await p.locator('#forget-device').isVisible(), false);
+  check('管10', '通常のタブ操作で管理画面を閉じない', await p.locator('#dashboard').isVisible(), true);
 });
 
 /* ============================================================
@@ -440,17 +470,16 @@ await group('【管11】まだ1件も予約が無い開店初日', async () => {
   const before = await post({ type: 'adminData', password: PW });
   await post({ type: 'adminSave', password: PW, target: 'closed', rows: [], stamp: before.stamps.closed });
 
-  const q = await newPhone('開店初日');
-  await login(q);
+  const q = await newAdmin('開店初日');
   const empty = await q.locator('#admin-rows').innerText();
   check('管11', '予約0件でも画面が出る', await q.locator('#dashboard').isVisible(), true);
-  check('管11', '0件のときは絞り込みのせいだと誤解させない', /まだ/.test(empty), true);
+  check('管11', '0件のときは絞り込みのせいだと誤解させない', /まだご予約はありません/.test(empty) && !/この条件に合う/.test(empty), true);
   check('管11', '過去を開くボタンは出ない', await q.locator('[data-toggle-past]').count(), 0);
   check('管11', '統計が0件で出る', /0件/.test(await q.locator('#stats').innerText()), true);
   await tab(q, 'お客様'); await q.waitForTimeout(300);
   check('管11', 'お客様タブも空で壊れない',
     /ご予約が入ると/.test(await q.locator('#customer-rows').innerText()), true);
-  await q.context().close();
+  await q.page().context().close();
 
   const now = await post({ type: 'adminData', password: PW });
   await post({ type: 'adminSave', password: PW, target: 'closed',
@@ -470,8 +499,7 @@ await group('【管11】まだ1件も予約が無い開店初日', async () => {
    ============================================================ */
 await group('【管12】メニューを直す（一覧→押した1件だけ開く）', async () => {
   await post({ type: 'reset' });        // シートを初期値（メニュー4件）に戻す
-  const m = await newPhone('メニュー');
-  await login(m);
+  const m = await newAdmin('メニュー');
   await tab(m, '単品メニュー'); await m.waitForTimeout(400);
 
   const rows = m.locator('#menu-rows .admin-row');
@@ -527,7 +555,7 @@ await group('【管12】メニューを直す（一覧→押した1件だけ開�
   console.log('   1件開いたときのタブの高さ:', openedH + 'px（直す前 2892px）');
   check('管12', '1件開いても、直す前の全部開きより短い', openedH < 2892, true);
 
-  await m.context().close();
+  await m.page().context().close();
 });
 
 /* ============================================================
@@ -538,8 +566,7 @@ await group('【管12】メニューを直す（一覧→押した1件だけ開�
    直した値段は消えて元のままになります。
    ============================================================ */
 await group('【管13】直したのに保存を押していない', async () => {
-  const m = await newPhone('未保存');
-  await login(m);
+  const m = await newAdmin('未保存');
   await tab(m, '単品メニュー'); await m.waitForTimeout(400);
 
   check('管13', '直す前は未保存の印が無い',
@@ -580,15 +607,14 @@ await group('【管13】直したのに保存を押していない', async () =>
   check('管13', '保存できたことが伝わる',
     /保存しました/.test(await textOf(m.locator('[data-note="menus"]'))), true);
 
-  await m.context().close();
+  await m.page().context().close();
 });
 
 /* ============================================================
    【管14】メニューを足す・消す
    ============================================================ */
 await group('【管14】メニューを足す・消す', async () => {
-  const m = await newPhone('追加削除');
-  await login(m);
+  const m = await newAdmin('追加削除');
   await tab(m, '単品メニュー'); await m.waitForTimeout(400);
   const rows = m.locator('#menu-rows .admin-row');
 
@@ -629,15 +655,14 @@ await group('【管14】メニューを足す・消す', async () => {
   check('管14', '保存を押すまで受け口の中身は変わらない',
     ((await post({ type: 'adminData', password: PW })).menus || []).length, 4);
 
-  await m.context().close();
+  await m.page().context().close();
 });
 
 /* ============================================================
    【管15】写真とおすすめメニューも、同じように直せる
    ============================================================ */
 await group('【管15】写真とおすすめメニューも同じように直せる', async () => {
-  const m = await newPhone('写真');
-  await login(m);
+  const m = await newAdmin('写真');
 
   await tab(m, '写真'); await m.waitForTimeout(400);
   const srows = m.locator('#style-rows .admin-row');
@@ -664,7 +689,7 @@ await group('【管15】写真とおすすめメニューも同じように直�
     check('管15', `${name}タブが、1件開いても横にはみ出さない`,
       await m.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
   }
-  await m.context().close();
+  await m.page().context().close();
   /* あと片付け。この試験でメニューの値段を書き換えたままにすると、
      次に流す試験が「サイトのせいではない失敗」を出します。 */
   await post({ type: 'reset' });
@@ -700,8 +725,7 @@ await group('【管17】カレンダーで、いつ予約が入っているか�
   const gone = await add({ date: key(5), time: '16:00', name: '高橋 三郎', tel: '09012341234', menu: 'カット' });
   await post({ type: 'cancel', password: PW, code: gone.code });
 
-  const q = await newPhone('管17');
-  await login(q);
+  const q = await newAdmin('管17');
 
   /* まだ何も選んでいない端末では一覧から始まります。
      電話を受けている最中に開くのがいちばん切実な使い方で、
@@ -800,19 +824,18 @@ await group('【管17】カレンダーで、いつ予約が入っているか�
   check('管17', '一覧に戻ると予定が並んでいる',
     /中村 太郎/.test(await q.locator('#admin-rows').innerText()), true);
   check('管17', '一覧のときカレンダーは畳まれる', await q.locator('#admin-calendar').isHidden(), true);
-  await q.context().close();
+  await q.page().context().close();
 
   /* 開店初日。予約が1件も無くても、格子だけは出て壊れないこと */
   await post({ type: 'reset' });
-  const z = await newPhone('管17-開店初日');
-  await login(z);
+  const z = await newAdmin('管17-開店初日');
   await z.locator('#reserve-view .tab', { hasText: 'カレンダー' }).click();
   await z.waitForTimeout(400);
   check('管17', '予約0件でもカレンダーが出る', await z.locator('#admin-calendar').isVisible(), true);
   check('管17', '予約0件でも時間の目盛りは並ぶ',
     await z.locator('#acal-body tr').count() > 1, true);
   check('管17', '予約0件ならお名前は1つも出ない', await z.locator('#acal-body .cal-book').count(), 0);
-  await z.context().close();
+  await z.page().context().close();
 
   // あと片付け。休業日を、この試験に入る前の状態に戻します
   const now = await post({ type: 'adminData', password: PW });
@@ -832,31 +855,38 @@ await group('【管17】カレンダーで、いつ予約が入っているか�
    （「設置してから使えます」）はこの状況では嘘です。
    ============================================================ */
 await group('管16 受け口が読めていないとき', async () => {
-  const p = await newPhone('管16');
-  /* 設置前、または古い data.js を掴んだ状態を作る */
-  await p.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async r => {
+  const shell = await newPhone('管16');
+  let sourceReads = 0;
+  await shell.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async r => {
     const res = await r.fetch();
-    const body = (await res.text()).replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
+    const source = await res.text();
+    assert.equal([...source.matchAll(/reservationEndpoint: '[^']*'/g)].length, 1);
+    const body = source.replace(/reservationEndpoint: '[^']*'/, "reservationEndpoint: ''");
+    sourceReads++;
     await r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body });
   });
-  await p.goto(B + ADMIN_PATH); await p.waitForTimeout(900);
-
-  check('管16', 'パスワード欄は入力できる（理由が分からないまま固まらない）',
-    await p.locator('#passcode').isDisabled(), false);
-  check('管16', 'ログインボタンも押せる',
-    await p.locator('#gate-btn').isDisabled(), false);
-
-  /* 打てて、押せて、押したときに次にやることが分かること */
-  await p.fill('#passcode', PW);
-  check('管16', '打った文字が入る', await p.inputValue('#passcode'), PW);
-  await p.click('#gate-btn'); await p.waitForTimeout(400);
-  const err = await p.locator('#gate-error').innerText();
-  check('管16', '押すと理由が出る', await p.locator('#gate-error').isVisible(), true);
-  check('管16', 'まず読み込み直すよう伝えている', /読み込み直|Shift\+R/.test(err), true);
-  check('管16', '未設置の可能性にも触れている', /設置/.test(err), true);
-  /* 「設置がまだです」と言い切らないこと。設置済みの人を誤った方へ送ります */
-  check('管16', '未設置と決めつけていない', /^この管理ページは、Google Apps Script を設置してから/.test(err), false);
-  await p.context().close();
+  const frame = await connectAdmin(shell);
+  check('管16', '受け口を空にするfixtureを実際に一回適用する', sourceReads, 1);
+  check('管16', '管理本体の直接受け口は空である', await frame.evaluate(() => SALON.reservationEndpoint === ''), true);
+  check('管16', '直接の受け口が空でもGoogle親から管理データを読める', await frame.locator('#dashboard').isVisible(), true);
+  check('管16', '旧ログインへ戻さない', await frame.locator('#gate').isVisible(), false);
+  await tab(frame, 'お客様');
+  check('管16', '受け口が空でもお客様タブへ移動できる', await frame.locator('.admin-pane[data-pane="customers"]').isVisible(), true);
+  await tab(frame, '予約一覧');
+  const beforeRows = await frame.locator('#admin-rows').innerText();
+  controls.get(frame).failReservationRead = true;
+  await frame.locator('#refresh-reservations').click();
+  await frame.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+  const message = await frame.locator('#reservation-freshness').innerText();
+  check('管16', '取得できなかった理由が見える', /取得できません/.test(message), true);
+  check('管16', '明示的に再読込するよう伝える', /再度読み込んで/.test(message), true);
+  check('管16', '表示中の予定を無断で空にしない', await frame.locator('#admin-rows').innerText(), beforeRows);
+  check('管16', '通信障害を未設置と決めつけない', /設置/.test(message), false);
+  controls.get(frame).failReservationRead = false;
+  await frame.locator('#refresh-reservations').click();
+  await frame.waitForFunction(() => !document.querySelector('#refresh-reservations').disabled);
+  check('管16', '復旧後の一回の読込で最新の状態へ戻る', /取得できません/.test(await frame.locator('#reservation-freshness').innerText()), false);
+  await shell.context().close();
 });
 
 /* ============================================================
@@ -871,8 +901,7 @@ await group('管16 受け口が読めていないとき', async () => {
    事故なので、画面で先に休み方を選ばせ、選んだ結果を文で見せます。
    ============================================================ */
 await group('管18 休業日の「終日」と「時間帯だけ」', async () => {
-  const p = await newPhone('管18');
-  await login(p);
+  const p = await newAdmin('管18');
   await tab(p, '休業日'); await p.waitForTimeout(500);
 
   await p.locator('[data-add="closed"]').first().click(); await p.waitForTimeout(400);
@@ -926,7 +955,7 @@ await group('管18 休業日の「終日」と「時間帯だけ」', async () =
 
   check('管18', '片手のスマホで横にはみ出さない',
     await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -940,8 +969,7 @@ await group('管18 休業日の「終日」と「時間帯だけ」', async () =
    どれも、その日のうちに直せないと予約が誰にも届きません。
    ============================================================ */
 await group('管19 予約の通知先を店の人が変えられる', async () => {
-  const p = await newPhone('管19');
-  await login(p);
+  const p = await newAdmin('管19');
   await openSettingGroup(p, 'お知らせ・ご連絡先');
 
   const field = p.locator('[data-setting="通知先メール"]');
@@ -961,7 +989,7 @@ await group('管19 予約の通知先を店の人が変えられる', async () =
   check('管19', '複数の宛先を保存できる',
     String(saved['通知先メール']), 'tenshu@example.com, staff@example.com');
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -974,8 +1002,7 @@ await group('管19 予約の通知先を店の人が変えられる', async () =
    見出しで畳んで、開いた最初の画面が目次になるようにしてあります。
    ============================================================ */
 await group('管20 店舗情報タブから、目的の欄にたどり着けるか', async () => {
-  const p = await newPhone('管20');
-  await login(p);
+  const p = await newAdmin('管20');
   await tab(p, '店舗情報'); await p.waitForTimeout(500);
 
   const heads = p.locator('#setting-rows > details > summary');
@@ -1033,7 +1060,7 @@ await group('管20 店舗情報タブから、目的の欄にたどり着ける�
   check('管20', '保存すると見出しの印が消える',
     (await p.locator('#setting-rows [data-setting-mark]').allInnerTexts()).filter(t => t.trim()).length, 0);
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1047,8 +1074,7 @@ await group('管20 店舗情報タブから、目的の欄にたどり着ける�
 await group('管21 事業者の情報を店主が埋められる', async () => {
   const v = await newPhone('管21-お客様');
   const published = await visitorText(v, 'privacy.html');
-  const p = await newPhone('管21');
-  await login(p);
+  const p = await newAdmin('管21');
   await openSettingGroup(p, '事業者の情報');
 
   for (const key of ['事業者名', '代表者名', '問い合わせ先メール', 'プライバシーポリシー制定日']) {
@@ -1069,7 +1095,7 @@ await group('管21 事業者の情報を店主が埋められる', async () => {
   check('管21', '公開ページは別途更新が必要と案内する', /公開ページ.*自動反映されません/.test(await p.locator('main').innerText()), true);
   await v.context().close();
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1087,8 +1113,7 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
   await post({ type: 'adminSave', password: PW, target: 'settings',
     stamp: before.stamps.settings, rows: { ...before.settings, '準備中の帯': '出す' } });
 
-  const p = await newPhone('管22');
-  await login(p);
+  const p = await newAdmin('管22');
   await openSettingGroup(p, 'ネット予約の受付');
 
   const sw = p.locator('[data-setting="準備中の帯"]');
@@ -1123,7 +1148,7 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
 
   await approved.context().close();
   await v.context().close();
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1133,8 +1158,7 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
    どれも普通に起きることです。
    ============================================================ */
 await group('管23 店舗情報とスタッフ紹介を書き換えられる', async () => {
-  const p = await newPhone('管23');
-  await login(p);
+  const p = await newAdmin('管23');
 
   await openSettingGroup(p, '場所・行き方');
   await p.locator('[data-setting="住所"]').fill('茨城県龍ケ崎市引越しました2-2-2');
@@ -1190,7 +1214,7 @@ await group('管23 店舗情報とスタッフ紹介を書き換えられる', a
     /PayPay/.test(await visitorText(v, 'index.html')), false);
 
   await v.context().close();
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1202,8 +1226,7 @@ await group('管23 店舗情報とスタッフ紹介を書き換えられる', a
    （受け口側と同じ値になるかは test/settings.mjs で突き合わせています）
    ============================================================ */
 await group('管24 受付期限を店主が変えられる', async () => {
-  const p = await newPhone('管24');
-  await login(p);
+  const p = await newAdmin('管24');
   await openSettingGroup(p, '営業時間・ご予約の受付');
 
   const v = await newPhone('管24-お客様');
@@ -1227,7 +1250,7 @@ await group('管24 受付期限を店主が変えられる', async () => {
   check('管24', '読めない側だけ掲載中の値に戻る', /2日前の18時まで/.test(bad), true);
 
   await v.context().close();
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1238,8 +1261,7 @@ await group('管24 受付期限を店主が変えられる', async () => {
    貼り付けそこねた長い文字列。1つ入っただけで画面が崩れてはいけません。
    ============================================================ */
 await group('管25 壊れた値でも画面が壊れない', async () => {
-  const p = await newPhone('管25');
-  await login(p);
+  const p = await newAdmin('管25');
 
   const long = 'あ'.repeat(3000);
   const noBreak = 'https://example.com/' + 'x'.repeat(500);
@@ -1280,7 +1302,7 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
     await v.evaluate(() => document.body.scrollWidth) <= 390, true);
   await v.context().close();
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1318,8 +1340,7 @@ await group('管26 数字タブで、掲載を続けるか決められるか', a
   await seed({ date: monthDay(-1, 10), source: 'LINE', visit: '2回目以降', price: 7000 });
   await seed({ date: monthDay(-1, 11), source: 'LINE', visit: '初めて', price: 7000 });
 
-  const q = await newPhone('管26');
-  await login(q);
+  const q = await newAdmin('管26');
   await tab(q, '数字'); await q.waitForTimeout(600);
   const body = () => q.locator('#numbers-body').innerText();
   const savings = () => q.locator('#numbers-savings').innerText();
@@ -1393,15 +1414,14 @@ await group('管26 数字タブで、掲載を続けるか決められるか', a
   check('管26', '読めない手数料率では金額を出さない', /¥[\d,]/.test(broken), false);
   check('管26', 'そのときも入れ方を促す', /請求明細/.test(broken), true);
 
-  await q.context().close();
+  await q.page().context().close();
 });
 
 /* ============================================================
    管27 数字タブは、片手のスマホで読めるか（390px）
    ============================================================ */
 await group('管27 数字タブが片手のスマホで読めるか', async () => {
-  const q = await newPhone('管27');
-  await login(q);
+  const q = await newAdmin('管27');
   await tab(q, '数字'); await q.waitForTimeout(600);
 
   check('管27', '数字タブが画面からはみ出さない',
@@ -1441,7 +1461,7 @@ await group('管27 数字タブが片手のスマホで読めるか', async () =
   check('管27', '先月に切り替えると先月の件数になる',
     /2件/.test(await q.locator('#numbers-body').innerText()), true);
 
-  await q.context().close();
+  await q.page().context().close();
 });
 
 /* ============================================================
@@ -1452,8 +1472,7 @@ await group('管27 数字タブが片手のスマホで読めるか', async () =
    ============================================================ */
 await group('管28 予約が1件も無い月でも壊れない', async () => {
   await post({ type: 'reset' });
-  const q = await newPhone('管28');
-  await login(q);
+  const q = await newAdmin('管28');
   await tab(q, '数字'); await q.waitForTimeout(600);
 
   const text = await q.locator('#numbers-body').innerText();
@@ -1475,7 +1494,7 @@ await group('管28 予約が1件も無い月でも壊れない', async () => {
   check('管28', '0件では「何件から」を出さずに、出せないと書く', /出せません/.test(money), true);
   check('管28', '0円のときも数字を作らない', /NaN|Infinity|undefined/.test(money), false);
 
-  await q.context().close();
+  await q.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1492,8 +1511,7 @@ await group('管28 予約が1件も無い月でも壊れない', async () => {
    ============================================================ */
 await group('管29 施術メモ（次回への申し送り）', async () => {
   const r1 = await add({ date: key(0), time: '10:00', name: 'メモ 一郎', tel: '09088887777', menu: 'カット' });
-  const p = await newPhone('管29');
-  await login(p);
+  const p = await newAdmin('管29');
 
   const card = p.locator(`#admin-rows [data-code="${r1.code}"]`);
   check('管29', '予約のカードに申し送りの欄がある', await card.locator('.note-box').count(), 1);
@@ -1547,7 +1565,7 @@ await group('管29 施術メモ（次回への申し送り）', async () => {
   const ghost = await post({ type: 'adminNote', password: PW, code: 'LM-ZZZZZ', note: 'どこにも無い' });
   check('管29', '無い予約番号には書けない', ghost.ok, false);
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1592,8 +1610,7 @@ await group('管30 小さすぎる写真を黙って受け取らない', async (
     ]);
   };
 
-  const p = await newPhone('管30');
-  await login(p);
+  const p = await newAdmin('管30');
   await tab(p, '写真'); await p.waitForTimeout(500);
   await p.locator('#style-rows .admin-row').first().click(); await p.waitForTimeout(400);
 
@@ -1620,7 +1637,7 @@ await group('管30 小さすぎる写真を黙って受け取らない', async (
   check('管30', '大きい写真では確認を出さない', p.__dialogs.length, 0);
   check('管30', '大きい写真は登録される', (await text.inputValue()) !== before, true);
 
-  await p.context().close();  await post({ type: 'reset' });
+  await p.page().context().close();  await post({ type: 'reset' });
 });
 
 /* ============================================================
@@ -1640,8 +1657,7 @@ await group('管31 休業日を日を押すだけで入り切りする', async (
   const busy = key(4);
   await add({ date: busy, time: '10:00', name: '予約 太郎', tel: '09033332222', menu: 'カット' });
 
-  const p = await newPhone('管31');
-  await login(p);
+  const p = await newAdmin('管31');
   await tab(p, '休業日'); await p.waitForTimeout(600);
 
   check('管31', '月のマス目が出る', await p.locator('#closed-cal .ccal').count(), 1);
@@ -1714,7 +1730,7 @@ await group('管31 休業日を日を押すだけで入り切りする', async (
   check('管31', 'スマホで横にはみ出さない',
     await p.evaluate(() => document.documentElement.scrollWidth) <= 390, true);
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1745,8 +1761,7 @@ await group('管32 写真の出どころと大きさが分かる', async () => {
              /* 店主が上げた写真のつもり。http で始まるものが「上げた写真」です */
              画像: B + '/mock-image.svg?seed=up', 表示: '○' }] });
 
-  const p = await newPhone('管32');
-  await login(p);
+  const p = await newAdmin('管32');
   await tab(p, 'おすすめメニュー'); await p.waitForTimeout(900);
 
   /* 写真欄は他のタブにもあります（単品メニュー・店舗情報）。隠れていても DOM には居るので、
@@ -1773,16 +1788,15 @@ await group('管32 写真の出どころと大きさが分かる', async () => {
     /^assets\//.test(String((saved[0] || {})['画像'] || '')), true);
 
   /* 既定と同じものが入っているときは、押す意味が無いので出しません */
-  await p.reload(); await p.waitForTimeout(1800);
-  await p.fill('#passcode', PW); await p.locator('#remember-me').setChecked(false);
-  await p.click('#gate-btn'); await p.waitForTimeout(1800);
+  await p.goto(B + '/admin.html?google=1' + (process.env.ADMIN_DESIGN === 'a' ? '&design=a' : ''));
+  await p.locator('#dashboard:not([hidden])').waitFor();
   await tab(p, 'おすすめメニュー'); await p.waitForTimeout(900);
   check('管32', '既定と同じなら、戻すボタンは出さない',
     await p.locator('[data-pane="coupons"] .image-picker').first().locator('[data-default-image]').count(), 0);
   check('管32', '既定の写真だと分かる',
     /既定/.test(await textOf(p.locator('[data-pane="coupons"] .image-picker').first().locator('[data-image-size]'))), true);
 
-  await p.context().close();
+  await p.page().context().close();
   await post({ type: 'reset' });
 });
 
@@ -1796,6 +1810,17 @@ if (ng.length) ng.forEach(r => console.log(`  ❌ [${r.g}] ${r.label}（期待=$
 console.log('JSエラー:', jsErrors.length ? jsErrors : 'なし');
 } finally {
   await br.close();
+  server.closeAllConnections();
+  await new Promise(resolveClose => server.close(resolveClose));
 }
 
-if (results.some(r => !r.ok) || jsErrors.length) process.exitCode = 1;
+for (const result of results) {
+  test(`${result.g}: ${result.label}`, () => assert.equal(String(result.actual), String(result.expected)));
+}
+test('管理の操作は架空台帳と現行Google管理だけを使い、JavaScriptエラーと外部通信を出さない', () => {
+  assert.deepEqual(jsErrors, []);
+  assert.deepEqual(external, []);
+  assert.ok(mapLoads.length > 0, 'お客様の埋込地図は試験内のHTMLへ置換し、Googleへ送信しない');
+  assert.ok(management.length > 0);
+  for (const admin of management) admin.assertIsolated();
+});

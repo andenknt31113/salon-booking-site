@@ -10,6 +10,29 @@ import { test } from 'node:test';
 import { UI_CHECKS, verifyUI } from '../tools/verify-ui.mjs';
 import { verifyLocalChecks } from '../tools/verify-local.mjs';
 
+test('管理の32場面と日常導線を現行Google管理・独立した架空台帳で検査する', async () => {
+  assert.ok(UI_CHECKS.includes('test/admin.mjs'));
+  const source = await readFile(new URL('./admin.mjs', import.meta.url), 'utf8');
+  const groups = [...source.matchAll(/await group\('(?:【管|管)(\d+)/g)].map(match => Number(match[1]));
+  assert.deepEqual([...groups].sort((left, right) => left - right), Array.from({ length: 32 }, (_value, index) => index + 1));
+  assert.match(source, /await openGoogleAdmin\(/);
+  assert.match(source, /admin\.assertIsolated\(\)/);
+  assert.match(source, /server\.listen\(0, '127\.0\.0\.1'\)/);
+  assert.doesNotMatch(source, /#(?:passcode|gate-btn|remember-me)/);
+  assert.match(source, /const PW = process\.env\.MOCK_ADMIN_PASSWORD;/);
+  assert.doesNotMatch(source, /process\.env\.(BASE|ADMIN_PW)/);
+});
+
+test('Google親へ接続済みでも管理本体の受け口が空の場面を画面検査から外さない', async () => {
+  assert.ok(UI_CHECKS.includes('test/admin-google-endpoint-browser.mjs'));
+  const source = await readFile(new URL('./admin-google-endpoint-browser.mjs', import.meta.url), 'utf8');
+  assert.match(source, /await openGoogleAdmin\(/);
+  assert.match(source, /admin\.assertIsolated\(\)/);
+  assert.match(source, /SALON\.reservationEndpoint === ''/);
+  assert.match(source, /admin\.operations\.filter\(operation => operation\.type === 'adminAdd'\)/);
+  assert.doesNotMatch(source, /#(?:passcode|gate-btn|remember-me)/);
+});
+
 test('予約・変更取消・休業・公開設定の33場面を現行Google管理の実利用検査から外さない', async () => {
   assert.ok(UI_CHECKS.includes('test/usecase.mjs'));
   const source = await readFile(new URL('./usecase.mjs', import.meta.url), 'utf8');
@@ -200,7 +223,7 @@ test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 39);
+    assert.equal(UI_CHECKS.length, 41);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

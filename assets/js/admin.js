@@ -617,10 +617,11 @@ function renderReservations() {
        本当に1件も無いのかが分かりません。片方を思い込むと、
        入っているはずの予約を見落とすか、入っていない予約を待つことになります。 */
     const total = (adminData.reservations || []).length;
-    const message = (dateFilter || $('#filter-status').value !== 'all')
-      ? EMPTY_FILTER_MESSAGE
-      : total ? '本日より先のご予約は、まだありません。'
-        : 'まだご予約はありません。電話で受けたご予約は「＋ 電話予約を入れる」から台帳に入れてください。';
+    const message = !total
+      ? 'まだご予約はありません。電話で受けたご予約は「＋ 電話予約を入れる」から台帳に入れてください。'
+      : (dateFilter || $('#filter-status').value !== 'all')
+        ? EMPTY_FILTER_MESSAGE
+        : '本日より先のご予約は、まだありません。';
     $('#admin-rows').innerHTML = pastButton + `<p class="empty-state">${esc(message)}</p>`;
     return;
   }
@@ -3713,7 +3714,7 @@ document.addEventListener('DOMContentLoaded', () => {
      「まだ設置していません」と言い切るのは、間違った方向へ人を送ります。
 
      なので欄は生かしたままにして、押した人に両方の可能性を伝えます。 */
-  if (!SALON.reservationEndpoint) {
+  if (!SALON.reservationEndpoint && !window.googleAdminEmbedded) {
     $('#gate-message').textContent =
       '予約の受け口（Apps Script のURL）が読み込めていません。'
       + 'まず、このページを読み込み直してください。';

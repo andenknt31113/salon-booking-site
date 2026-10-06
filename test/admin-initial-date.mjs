@@ -58,3 +58,33 @@ test('日付の初期化は画面起動で一度だけ行い、更新や再ロ�
   const open = SOURCE.match(/^async function openDashboard\([^]*?^}/m)[0];
   assert.doesNotMatch(open, /initializeReservationDate|#filter-date/);
 });
+
+const EMPTY_DATE = '2030-01-15';
+const EMPTY_RENDER = SOURCE.match(/^function renderReservations\(\) \{[^]*?^}/m)[0];
+for (const scenario of [
+  { label: '初回の今日', date: EMPTY_DATE, status: 'all', rows: [], global: true },
+  { label: '日付なし', date: '', status: 'all', rows: [], global: true },
+  { label: '日付と状態で絞る', date: EMPTY_DATE, status: 'cancelled', rows: [], global: true },
+  { label: '他の日の予約はある', date: EMPTY_DATE, status: 'all', rows: [{ date: '2030-01-16' }], global: false },
+  { label: '状態の異なる予約はある', date: '', status: 'cancelled', rows: [{ date: EMPTY_DATE }], global: false }
+]) {
+  test(`台帳全体の0件と絞込の0件を区別し、選択条件を保持する：${scenario.label}`, () => {
+    const fields = { '#filter-date': { value: scenario.date }, '#filter-status': { value: scenario.status },
+      '#admin-rows': { innerHTML: '' } };
+    const context = vm.createContext({
+      $: selector => { assert.ok(fields[selector], selector); return fields[selector]; },
+      adminData: { reservations: scenario.rows, closedDates: [] },
+      renderedReservationFilters: null, showPast: false,
+      reconcilePhoneResult() {}, renderMailAlert() {}, renderReservationFilterSummary() {},
+      guardNoteFilters: () => true, filteredReservations: () => [],
+      hasPendingReservationDetails: () => false,
+      toKey: () => EMPTY_DATE, esc: text => text
+    });
+    vm.runInContext(EMPTY_RENDER, context);
+    context.renderReservations();
+    assert.equal(fields['#admin-rows'].innerHTML.includes('まだご予約はありません'), scenario.global);
+    assert.equal(fields['#admin-rows'].innerHTML.includes('この条件に合うご予約はありません'), !scenario.global);
+    assert.equal(fields['#filter-date'].value, scenario.date);
+    assert.equal(fields['#filter-status'].value, scenario.status);
+  });
+}
