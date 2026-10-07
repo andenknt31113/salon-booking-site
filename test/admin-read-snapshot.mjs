@@ -191,15 +191,23 @@ for (const payload of [{}, { startupOnly: true, briefPast: true }]) {
 }
 
 for (const state of ['未作成', '空シート', '見出しだけ']) {
-  test(`起動時の初期化・空一覧の互換性を保持する：${state}`, () => {
+  test(`起動時は未準備の台帳を拒否し、準備済みの空一覧は表示する：${state}`, () => {
     const app = fixture({ repairBookings: true });
     if (state === '未作成') app.sheets.delete('予約一覧');
     else app.sheets.get('予約一覧').cells.length = state === '空シート' ? 0 : 1;
     const result = app.send({ startupOnly: true, briefPast: true });
-    assert.equal(result.ok, true);
-    assert.deepEqual(result.reservations, []);
-    assert.deepEqual(app.sheets.get('予約一覧').cells, [Array.from(vm.runInContext('HEADERS', app.context))]);
-    assert.ok(app.writes.every(write => write.operation === 'insert' || write.operation === 'headers'));
+    if (state === '見出しだけ') {
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.reservations, []);
+      assert.deepEqual(app.sheets.get('予約一覧').cells, [Array.from(vm.runInContext('HEADERS', app.context))]);
+    } else {
+      assert.equal(result.ok, false);
+      assert.match(result.error, /予約台帳.*確認できません/);
+      assert.equal(Object.hasOwn(result, 'reservations'), false);
+      assert.deepEqual(app.sheets.get('予約一覧')?.cells, state === '未作成' ? undefined : []);
+      assert.deepEqual(app.reads, []);
+    }
+    assert.deepEqual(app.writes, []);
     assert.equal(app.held(), false);
   });
 }
@@ -223,13 +231,17 @@ for (const headerFault of ['discard', 'partial']) {
   });
 }
 
-test('初回の見出し作成が実保存されなければ、仮の見出しを使って成功と返さない', () => {
+test('明示準備で見出しが実保存されなければ、初回取得で成功と返さない', () => {
   const app = fixture({ repairBookings: true, headerFault: 'discard' });
   app.sheets.get('予約一覧').cells.length = 0;
+  app.context.withLedgerLock_(() => app.context.getSheet_(null, { initialize: true }));
+  assert.equal(app.writes.length, 1);
   const result = app.send({ startupOnly: true, briefPast: true });
   assert.equal(result.ok, false);
   assert.equal(Object.hasOwn(result, 'reservations'), false);
   assert.deepEqual(app.sheets.get('予約一覧').cells, []);
+  assert.deepEqual(app.reads, []);
+  assert.equal(app.writes.length, 1, '失敗した初期準備を初回取得で再試行しない');
   assert.equal(app.held(), false);
 });
 

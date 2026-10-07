@@ -67,6 +67,7 @@ function fixture({ editHeaders = headers => headers, legacy = false, blank = fal
     context[name] = () => { operations.push(name); return { ok: true }; };
   }
   return { cells: () => cells, before, reads, writes, operations, canonical, held: () => held,
+    prepare: () => context.withLedgerLock_(() => context.getSheet_(null, { initialize: true })),
     send: request => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(request) } })) };
 }
 
@@ -153,8 +154,12 @@ test('既定順の空白見出しの旧台帳は、読取に限り従来の占�
   assert.deepEqual(app.cells(), app.before);
 });
 
-test('空の新規台帳は従来どおり準備し、管理認証の失敗では台帳を読まない', () => {
+test('空の新規台帳は明示準備の後だけ使い、管理認証の失敗では台帳を読まない', () => {
   const empty = fixture({ empty: true });
+  assert.equal(empty.send({ type: 'reserve' }).ok, false);
+  assert.deepEqual(empty.cells(), []);
+  assert.deepEqual(empty.writes, []);
+  empty.prepare();
   assert.equal(empty.send({ type: 'reserve' }).ok, true);
   assert.deepEqual(empty.cells()[0], empty.canonical);
   const denied = fixture({ authorized: false, editHeaders: headers => headers.map(() => '') });

@@ -343,10 +343,17 @@ for (const native of [true, false]) {
   });
 
   for (const missing of [false, true]) {
-    test(`${native ? 'native' : 'fallback'}：空台帳／欠落台帳の従来の初期化を勝手に取り除かない：${missing}`, () => {
+    test(`${native ? 'native' : 'fallback'}：空台帳／欠落台帳は拒否し、明示準備後の初回受付を保持する：${missing}`, () => {
       const app = fixture({ native, createLedger: true });
       if (missing) app.sheets.delete('予約一覧');
       else app.ledger.cells.length = 0;
+      const result = app.send();
+      assert.equal(result.ok, false);
+      assert.match(result.error, /予約台帳.*確認できません/);
+      assert.deepEqual(app.sheets.get('予約一覧')?.cells, missing ? undefined : []);
+      assert.deepEqual(app.effects, []);
+      assert.equal(app.held(), false);
+      app.context.withLedgerLock_(() => app.context.getSheet_(null, { initialize: true }));
       assert.equal(app.send().ok, true);
       const ledger = app.sheets.get('予約一覧');
       assert.equal(ledger.cells.length, 2);

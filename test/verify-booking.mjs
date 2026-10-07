@@ -42,6 +42,10 @@ test('前日通知・電話再送・保存中の入力・名簿からの電話�
   assert.equal(workflow.split("- 'test/phone-*.mjs'").length - 1, 2);
 });
 
+test('台帳消失時の初期化拒否と明示準備を恒久検査から外さない', () => {
+  assert.ok(BOOKING_CHECKS.includes('test/booking-ledger-initialization.mjs'));
+});
+
 test('メモ保存の応答照合と別画面の競合を一括検査から外さない', () => {
   for (const path of ['test/admin-note-conflict.mjs', 'test/admin-note-ack-ui.mjs']) {
     assert.ok(BOOKING_CHECKS.includes(path), path);

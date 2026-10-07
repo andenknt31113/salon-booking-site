@@ -1,0 +1,69 @@
+name: Update saved menus and publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_publication:
+        description: '保存済みの予約用メニューを公開ページへ反映します（店舗情報・スタイル写真は対象外）'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-menu-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+      revision: ${{ steps.commit.outputs.revision }}
+    steps:
+      - name: Confirm publication scope
+        run: |
+          if [ "$GITHUB_REF" != 'refs/heads/main' ] || [ "$CONFIRM_PUBLICATION" != 'true' ]; then
+            echo 'mainを選び、保存済みメニューの公開を確認してから実行してください。'
+            exit 1
+          fi
+        env:
+          CONFIRM_PUBLICATION: ${{ inputs.confirm_publication }}
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - id: baseline
+        run: echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - run: node --test test/commit-publication.mjs test/publication-workflow.mjs test/publication-cache.mjs test/site-publication.mjs test/site-publication-flow.mjs test/publication-gate.mjs test/publication-write-safety.mjs test/publish-menu-redirect.mjs
+      - run: node tools/publish-menus.mjs --write
+      - run: node tools/publish-menus.mjs --check
+      - run: node tools/publish-menus.mjs --check-local
+      - run: node tools/prepare-site.mjs "$RUNNER_TEMP/public-site"
+      - run: FINAL_RELEASE_ROOT="$RUNNER_TEMP/public-site" node --test test/final-release-static.mjs
+      - id: commit
+        name: Commit only verified public menu files
+        run: |
+          gh auth setup-git --hostname github.com
+          node tools/commit-publication.mjs --commit "$EXPECTED_BASE" "$RUNNER_TEMP/public-site"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_BASE: ${{ steps.baseline.outputs.revision }}
+
+  publish:
+    needs: update
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/publish-site.yml
+    with:
+      revision: ${{ needs.update.outputs.revision }}
+      verify_booking: true

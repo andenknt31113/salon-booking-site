@@ -4,8 +4,8 @@ import vm from 'node:vm';
 
 const ROOT = new URL('../', import.meta.url);
 const read = name => readFile(new URL(name, ROOT), 'utf8');
-const PUBLICATION_PAGES = ['index.html', 'reviews.html', 'menu.html', 'staff.html', 'gallery.html',
-  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];
+export const PUBLICATION_PAGES = Object.freeze(['index.html', 'reviews.html', 'menu.html', 'staff.html', 'gallery.html',
+  'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html']);
 
 export async function publicHtml(catalogSource) {
   const context = vm.createContext({ URL, document: { addEventListener() {} } });

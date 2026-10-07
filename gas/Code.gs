@@ -2414,12 +2414,13 @@ function doAdminData_(d) {
      支払い方法も空欄として書き込まれ、サイトから消えます。
      読み込む前に足りない行を掲載中の内容で埋めておけば、それが起きません。
      足りているときは何も書きません（印も変わりません）。 */
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet || sheet.getLastRow() === 0) throw userFacingError_('予約台帳を確認できません。');
   let settingSnapshot = readSheetSnapshot_(ss.getSheetByName(SETTING_SHEET), ['項目', '内容'], true);
   if (ensureSettingRows_(ss, settingSnapshot)) settingSnapshot = null;
   /* 台帳にも、こちらが知っている列が全部あるようにしておきます。
      「施術メモ」はあとから足した列で、先に作られた台帳にはありません。
      ここで足しておかないと、店が書いたメモの行き先がなくなります。 */
-  let sheet = ss.getSheetByName(SHEET_NAME);
   let reservationSnapshot = sheet ? readSheetSnapshot_(sheet, []) : null;
   if (!reservationSnapshot || HEADERS.some(header => reservationSnapshot.head.indexOf(header) < 0)) {
     sheet = getSheet_();
@@ -3133,11 +3134,16 @@ function appendVerifiedBooking_(sheet, values, headers, errorMessage) {
 /* ============================================================
    補助
    ============================================================ */
-function getSheet_(reservationContext) {
+function getSheet_(reservationContext, options) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  const last = sheet ? sheet.getLastRow() : 0;
+  if ((!sheet || last === 0) && !(options && options.initialize === true)) {
+    throw userFacingError_('予約台帳を確認できません。');
+  }
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
 
-  if (sheet.getLastRow() === 0) {
+  if (last === 0) {
     sheet.appendRow(HEADERS);
     sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold').setBackground('#f3efea');
     sheet.setFrozenRows(1);
@@ -3692,7 +3698,7 @@ function はじめの準備() {
   const log = [];
 
   // 1. シートをそろえる
-  getSheet_();          // 予約台帳
+  getSheet_(null, { initialize: true });          // 予約台帳
   setupMenuSheets();    // 単品メニュー・おすすめメニュー・スタイル・休業日・設定
   log.push('✅ シートを作成しました（予約一覧／メニュー／おすすめメニュー／スタイル／口コミ／休業日／設定）');
 
