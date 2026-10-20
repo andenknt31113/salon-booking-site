@@ -28,10 +28,10 @@ export async function publicHtml(catalogSource) {
         '<span>' + esc(text) + (index < parts.length - 1 ? '｜' : '') + '</span>').join(''),
       'salon-info': info.innerHTML,
       'home-coupons': SALON.coupons.slice(0, 3).map(couponCard).join(''),
-      'home-staff': SALON.staff.map(staffCard).join(''),
+      'home-staff': SALON.staff.map(staff => staffCard(staff, { preview: true })).join(''),
       'coupon-list': SALON.coupons.map(couponCard).join(''),
       'menu-list': SALON.menuCategories.map(menuGroupHtml).join(''),
-      'staff-list': SALON.staff.map(staffCard).join(''),
+      'staff-list': SALON.staff.map(staff => staffCard(staff)).join(''),
       'style-list': SALON.styles.map(styleCard).join(''),
       'staff-note': staffNoteHtml()
     };

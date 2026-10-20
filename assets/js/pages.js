@@ -74,7 +74,7 @@ function staffTextHtml(s) {
   return `<div class="staff-message"><p>${esc(s.message)}</p>${extra ? `<dl class="staff-details">${extra}</dl>` : ''}</div>`;
 }
 
-function staffCard(s) {
+function staffCard(s, { preview = false } = {}) {
   const fee = s.nominationFee > 0 ? `指名料 ${yen(s.nominationFee)}` : '指名料なし';
   const meta = [s.kana, s.years ? `経験${s.years}年` : ''].filter(Boolean).join('／');
   // 在籍1名のサロンでは、グリッドに1枚だけ置くと寂しいので横並びの大きめカードにする
@@ -98,9 +98,10 @@ function staffCard(s) {
         <h3 class="staff-name">${esc(s.name)}</h3>
         ${meta ? `<p class="staff-kana">${esc(meta)}</p>` : ''}
         <ul class="tag-list">${s.tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>
-        ${staffTextHtml(s)}
+        ${preview ? `<div class="staff-message"><p>${esc(s.message)}</p></div>` : staffTextHtml(s)}
         <div class="staff-booking">
           <p class="staff-fee">${esc(fee)}</p>
+          ${preview ? '<a class="btn btn-ghost btn-sm" href="staff.html">プロフィールを見る</a>' : ''}
           <a class="btn btn-outline btn-sm" href="reserve.html?staff=${encodeURIComponent(s.id)}">${cta}</a>
         </div>
       </div>
@@ -220,7 +221,7 @@ function reviewCard(r) {
    予約ページ・予約確認ページも「お見積り」なので、そちらに揃えます。 */
 function menuGroupHtml(cat) {
   const rows = cat.items.map(m => `
-    <div class="menu-row">
+    <a class="menu-row" href="reserve.html?menu=${encodeURIComponent(m.id)}">
       ${m.image ? `<img class="menu-row-photo ph-photo-opt" src="${esc(m.image)}" alt="" />` : ''}
       <div>
         <p class="menu-row-name">${esc(m.name)}</p>
@@ -229,8 +230,9 @@ function menuGroupHtml(cat) {
       <div class="menu-row-meta">
         <p class="menu-row-price">${m.price ? yen(m.price) + (m.priceFrom ? '〜' : '') : 'お見積り'}</p>
         <p class="menu-row-time">約${formatDuration(m.minutes)}</p>
+        <span class="menu-row-action">${SALON.draft ? '予約について' : 'このメニューで予約'}</span>
       </div>
-    </div>`).join('');
+    </a>`).join('');
   return `<div class="menu-group" id="cat-${esc(cat.id)}"><h3>${esc(cat.name)}</h3>${rows}</div>`;
 }
 
@@ -378,7 +380,6 @@ function homeAccessHtml() {
         <a class="btn btn-primary" href="https://www.google.com/maps/dir/?api=1&destination=${query}" target="_blank" rel="noopener noreferrer">ここへの経路を調べる（別タブ）</a>
         <a class="access-map-link" href="https://www.google.com/maps/search/?api=1&query=${query}" target="_blank" rel="noopener noreferrer">大きな地図で見る（別タブ）</a>
       </div>
-      <p class="map-note">Googleマップを表示しています。地図が開かないときも、上のリンクから場所・道順を確認できます。</p>
     </div>`;
 }
 
@@ -488,7 +489,7 @@ function initHome() {
   setHtml($('#home-coupons'), SALON.coupons.slice(0, 3).map(couponCard).join(''));
   setHtml($('#home-styles'), homeStyles().map(styleCard).join(''));
   bindStyleBooking();
-  setHtml($('#home-staff'), SALON.staff.map(staffCard).join(''));
+  setHtml($('#home-staff'), SALON.staff.map(staff => staffCard(staff, { preview: true })).join(''));
   setHtml($('#home-reviews'), reviewEmptyHtml());
   renderHomeReviewLink();
   const access = $('#home-access');
@@ -609,7 +610,7 @@ function initCouponFilter() {
 }
 
 function initStaffPage() {
-  setHtml($('#staff-list'), SALON.staff.map(staffCard).join(''));
+  setHtml($('#staff-list'), SALON.staff.map(staff => staffCard(staff)).join(''));
   const note = $('#staff-note');
   if (note) note.innerHTML = staffNoteHtml();
   wireImageFallbacks();
