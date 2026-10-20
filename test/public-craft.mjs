@@ -81,7 +81,7 @@ for (const width of [320, 390]) {
     assert.ok(photo.width >= container.width - 1 && photo.height > 0, 'JavaScriptなしでも写真を実際に見える大きさにする');
     assert.ok(photo.y + photo.height <= copy.y, '写真を表示後のJavaScriptで並べ替えない');
     assert.equal(await page.locator('#home-photo img').evaluate(image => image.complete && image.naturalWidth > 0), true);
-    assert.equal(await page.locator('#hero-catch').textContent(), 'イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に');
+    assert.equal(await page.locator('#hero-catch').textContent(), 'ZER01 barber/lounge');
     assert.equal(await page.locator('.hero a[href="reserve.html"]').isVisible(), true);
     assert.equal(await page.locator('.hero a[href="menu.html"]').isVisible(), true);
   }, { viewport: { width, height: 844 }, javaScriptEnabled: false }));
@@ -243,16 +243,16 @@ test('320pxでも公開9ページの店名・ロゴと予約ボタンを重ね�
 });
 
 for (const width of [320, 390, 768, 1280]) {
-  test(`${width}px：店の文章はそのままで、主見出しと補足の強弱を付ける`, () => withPage('index', async page => {
+  test(`${width}px：店名と業態名を読みやすく表示し、余計なキャッチコピーを出さない`, () => withPage('index', async page => {
     const type = await page.locator('#hero-catch').evaluate(heading => ({
       text: heading.textContent,
       lead: parseFloat(getComputedStyle(heading.children[0]).fontSize),
-      supporting: parseFloat(getComputedStyle(heading.children[2]).fontSize),
+      supporting: parseFloat(getComputedStyle(heading.children[1]).fontSize),
       spans: [...heading.children].map(span => ({ box: span.getBoundingClientRect().toJSON(), width: span.scrollWidth })),
       box: heading.getBoundingClientRect().toJSON()
     }));
-    assert.equal(type.text, 'イタリア発、東京経由。伝統と研ぎ澄まされた技術が生む、本格バーバーを日常に');
-    assert.ok(type.lead >= type.supporting * 1.8, '最初の一文を視覚の主役にする');
+    assert.equal(type.text, 'ZER01 barber/lounge');
+    assert.ok(type.lead >= type.supporting * 1.8, '店名を主見出しにし、業態名は補足にする');
     assert.ok(type.spans.every(span => span.box.right <= type.box.right + 1 && span.width <= span.box.width + 1), '大きい文字を途中で切らない');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.equal(await page.locator('.hero a[href="reserve.html"]').isVisible(), true);
@@ -262,6 +262,30 @@ for (const width of [320, 390, 768, 1280]) {
     }
   }, { viewport: { width, height: 900 } }));
 }
+
+test('文言を整理しても店舗の原文・料金案内・予約と口コミの操作を残す', async () => {
+  await withPage('index', async page => {
+    assert.equal(await page.locator('#hero-desc').innerText(), await page.evaluate(() => SALON.description));
+    assert.equal(await page.locator('#home-staff .staff-message > p').innerText(), await page.evaluate(() => SALON.staff[0].message));
+    assert.equal(await page.locator('.notice.is-info').isVisible(), false, '通常受付中に予約ボタンと重複するお知らせを出さない');
+    assert.doesNotMatch(await page.locator('main').innerText(), /なりたいイメージを探して|来店前の参考に|イタリア発、東京経由/);
+    assert.equal(await page.locator('#home-review-link').isVisible(), true);
+    await page.evaluate(() => { SALON.draft = true; renderHeader(); });
+    assert.equal(await page.locator('.notice.is-info').isVisible(), true, '受付を停止した場合の準備中の案内は残す');
+    assert.equal(await page.locator('.hero .booking-active-only').isVisible(), false);
+    assert.equal(await page.locator('.hero .booking-paused-only').isVisible(), true);
+  });
+  await withPage('menu', async page => {
+    assert.match(await page.locator('.page-head').innerText(), /税込|追加料金/);
+    assert.deepEqual(await page.locator('#coupon-list h3').allTextContents(), await page.evaluate(() => SALON.coupons.map(menu => menu.title)));
+  });
+  await withPage('reviews', async page => {
+    assert.deepEqual(await page.locator('#google-review h2').allTextContents(), ['口コミを見る', '口コミを書く']);
+    assert.equal(await page.getByRole('link', { name: 'Googleで口コミを見る（別タブ）', exact: true }).isVisible(), true);
+    assert.match(await page.locator('#google-review').innerText(), /クチコミを書く|Googleに口コミを書く/);
+    assert.match(await page.locator('#google-review').innerText(), /口コミを収集・掲載しません/);
+  });
+});
 
 for (const name of ['index', 'gallery']) {
   test(`${name}：写真を大きく見て閉じても一覧の操作位置へ戻る`, () => withPage(name, async page => {
@@ -301,13 +325,19 @@ for (const name of ['index', 'gallery']) {
 }
 
 for (const name of ['gallery', 'menu', 'staff', 'reviews']) {
-  test(`${name}：PCでは見出しと案内を並べ、スマホでは読み順に積む`, () => withPage(name, async page => {
+  test(`${name}：各画面幅で見出しと必要な案内だけを重ねずに表示する`, () => withPage(name, async page => {
     for (const width of [390, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       const heading = await page.locator('.page-head h1').boundingBox();
-      const guide = await page.locator('.page-head h1 + p').boundingBox();
-      assert.ok(width > 1000 ? heading.x + heading.width <= guide.x : heading.y + heading.height <= guide.y,
-        '見出しと案内を重ねず、画面幅に合わせて読みやすく配置する');
+      const guide = page.locator('.page-head h1 + p');
+      assert.equal(await guide.count(), ['gallery', 'menu'].includes(name) ? 1 : 0,
+        '料金・操作の案内は残し、見出しの言い換えだけの説明を増やさない');
+      assert.ok(heading.width > 0 && heading.height > 0);
+      if (await guide.count()) {
+        const bounds = await guide.boundingBox();
+        assert.ok(width > 1000 ? heading.x + heading.width <= bounds.x : heading.y + heading.height <= bounds.y,
+          '見出しと案内を重ねず、画面幅に合わせて読みやすく配置する');
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     }
   }));

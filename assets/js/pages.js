@@ -244,7 +244,6 @@ function menuGroupHtml(cat) {
    そのあいだは案内も出しません。無いものを探させないためです。 */
 function reviewEmptyHtml({ formHere = false } = {}) {
   return `<p>ご来店の感想は、Googleの店舗ページでご覧いただけます。</p>
-    <p class="review-caption">施術やお店の雰囲気について、来店前の参考に。</p>
     <a class="btn btn-outline" href="${esc(googleReviewViewUrl())}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a>`;
 }
 
@@ -435,8 +434,8 @@ function homePhotoHtml() {
 }
 
 function homeCatchHtml() {
-  return String(SALON.catch || '').split(/(?<=[、。])/)
-    .map(text => `<span>${esc(text)}</span>`).join('');
+  return [SALON.name, SALON.nameSub].filter(Boolean)
+    .map((text, index) => `<span class="${index === 0 ? 'hero-name' : 'hero-category'}">${esc(text)}</span>`).join(' ');
 }
 
 /* ---------- ページごとの初期化 ---------- */
@@ -463,9 +462,6 @@ function initHome() {
   }
 
   const heroBrand = $('#hero-brand');
-  /* トップの大見出しは文字ロゴのままにします。
-     ロゴ画像を大きく出すと、画面の1/3がロゴ1枚で埋まり、
-     「イタリア発、東京経由。」の一文まで下に押し出されます。 */
   if (heroBrand) heroBrand.innerHTML = brandLockup({ size: 'lg', logo: false });
   const tagline = $('#hero-tagline');
   if (tagline) {
@@ -730,16 +726,12 @@ function googleReviewGuideHtml() {
   return `
     <div class="google-review-guide">
       <div class="review-reading">
-        <span class="section-label">READ REVIEWS</span>
-        <h2>来店前に、口コミを読む。</h2>
-        <p>施術やお店の雰囲気について、Googleに寄せられた感想をご覧いただけます。</p>
+        <h2>口コミを見る</h2>
         <a class="btn btn-outline" href="${esc(viewUrl)}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a>
         <p class="review-caption">Googleマップの店舗ページで「クチコミ」を選んでください。</p>
       </div>
       <div class="review-writing">
-        <span class="section-label">SHARE YOUR EXPERIENCE</span>
-        <h2>来店後に、感想を届ける。</h2>
-        <p>ご来店の感想はGoogleへお寄せください。</p>
+        <h2>口コミを書く</h2>
         ${writeUrl ? `<a class="btn btn-primary" href="${esc(writeUrl)}" target="_blank" rel="noopener noreferrer">Googleに口コミを書く（別タブ）</a>` : ''}
         ${writeUrl ? '' : '<ol class="review-steps"><li>「Googleで口コミを見る」を選ぶ</li><li>「クチコミ」から「クチコミを書く」を選ぶ</li><li>Googleにログインして投稿する</li></ol>'}
       </div>
