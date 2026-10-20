@@ -171,7 +171,7 @@ function busy(btn, on, label) {
 function statusChipHtml(r) {
   if (isUnconfirmed(r)) return '<span class="status-chip is-unconfirmed">受付未確認</span>';
   if (isCancelled(r)) return '<span class="status-chip is-cancelled">キャンセル済み</span>';
-  if (isPast(r)) return '<span class="status-chip is-past">ご来店済み</span>';
+  if (isPast(r)) return '<span class="status-chip is-past">過去の予約</span>';
   return '<span class="status-chip">予約確定</span>';
 }
 
@@ -426,7 +426,8 @@ async function doLookup() {
 
 document.addEventListener('DOMContentLoaded', () => {
   refreshView(true);
-  if (!Store.all().length && $('#saved-bookings-title') && $('#lookup-box')) {
+  const hasUpcoming = Store.all().some(reservation => !isPast(reservation) && !isCancelled(reservation));
+  if (!hasUpcoming && $('#saved-bookings-title') && $('#lookup-box')) {
     $('#saved-bookings-title').before($('#lookup-box'));
     document.body.classList.add('lookup-first');
   }

@@ -62,12 +62,16 @@ async function withPage(name, width, records, run) {
 }
 
 for (const width of [320, 390, 1280]) {
-  for (const saved of [false, true]) {
-    test(`${width}px・${saved ? '控えあり' : '控えなし'}：自分の予約を確認する入口を先に表示する`, () => withPage('mypage', width, saved ? [savedReservation] : [], async page => {
+  for (const mode of ['none', 'upcoming', 'past', 'cancelled']) {
+    const saved = mode === 'upcoming';
+    const records = mode === 'none' ? [] : [{ ...savedReservation,
+      ...(mode === 'past' ? { date: '2000-01-01' } : {}),
+      ...(mode === 'cancelled' ? { status: 'cancelled' } : {}) }];
+    test(`${width}px・${mode}：今後の予約がなければ履歴より先に照会できる`, () => withPage('mypage', width, records, async page => {
       const order = await page.locator('#lookup-box').evaluate(lookup => ({
         beforeHistory: !!(lookup.compareDocumentPosition(document.querySelector('#upcoming-list')) & Node.DOCUMENT_POSITION_FOLLOWING)
       }));
-      assert.equal(order.beforeHistory, !saved, '控えがなければ照会を先に、あれば保存済み予約を先に出す');
+      assert.equal(order.beforeHistory, !saved, '今後の予約があれば先に表示し、過去・取消だけなら照会を先に出す');
       await page.locator('#lookup-code').fill('LM-INPUT');
       await page.locator('#lookup-tel').fill('00000000000');
       await page.evaluate(() => refreshView(true));
@@ -76,6 +80,7 @@ for (const width of [320, 390, 1280]) {
       assert.equal(await page.locator('#lookup-tel').evaluate(input => input === document.activeElement), true);
       assert.equal(await page.locator('#lookup-box').evaluate(lookup => !!(lookup.compareDocumentPosition(document.querySelector('#upcoming-list')) & Node.DOCUMENT_POSITION_FOLLOWING)), !saved);
       assert.equal(await page.locator('#upcoming-list .booking-card').count(), saved ? 1 : 0);
+      assert.equal(await page.locator('#past-list .booking-card').count(), ['past', 'cancelled'].includes(mode) ? 1 : 0);
       assert.doesNotMatch(await page.locator('#lookup-box').innerText(), /上の一覧/);
       assert.equal(await page.locator('.page-kicker').isVisible(), false, '手続き画面で見出しと同じ英語を繰り返さない');
     }));
@@ -110,3 +115,8 @@ test('予約番号の日本語変換を確定するEnterでは照会しない', 
   await page.locator('#lookup-code').press('Enter');
   assert.match(await page.locator('#lookup-error').innerText(), /予約番号/);
 }));
+
+test('日時が過ぎた予約を、実際に来店したと断定しない', () => withPage('mypage', 390,
+  [{ ...savedReservation, date: '2000-01-01' }], async page => {
+    assert.equal(await page.locator('#past-list .status-chip').innerText(), '過去の予約');
+  }));
