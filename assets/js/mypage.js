@@ -214,8 +214,8 @@ function bookingCard(r) {
    「ありません」だけで終わらせると、確かめる手立てが無くなります。 */
 function noRecordHint() {
   return SALON.reservationEndpoint
-    ? '別の端末でご予約された場合は、このページの下にある'
-      + '<a href="#lookup-box" style="text-decoration:underline">ご予約番号での照会</a>からご確認いただけます。'
+    ? '別の端末でご予約された場合も、'
+      + '<a href="#lookup-box" style="text-decoration:underline">予約番号と電話番号で確認できます</a>。'
     : `お手数ですが${contactWay({ html: true })}`;
 }
 
@@ -426,6 +426,10 @@ async function doLookup() {
 
 document.addEventListener('DOMContentLoaded', () => {
   refreshView(true);
+  if (!Store.all().length && $('#saved-bookings-title') && $('#lookup-box')) {
+    $('#saved-bookings-title').before($('#lookup-box'));
+    document.body.classList.add('lookup-first');
+  }
 
   /* 受付期限の案内。期限も連絡先も設定で変わるので、まるごとここで組み立てます。
      電話番号が空のときに「までお電話ください」だけが残る、という出方をさせません。 */
@@ -480,10 +484,10 @@ document.addEventListener('DOMContentLoaded', () => {
      番号を打ったあと、そのまま確定キー（改行）を押す方がいます。
      電話番号の欄だけに付けておくと、その方は何も起きない画面を見ます。 */
   $('#lookup-code').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLookup();
+    if (e.key === 'Enter' && !e.isComposing) doLookup();
   });
   $('#lookup-tel').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLookup();
+    if (e.key === 'Enter' && !e.isComposing) doLookup();
   });
   /* 受信先が未設定のあいだは照会が使えません。
      ここで止めたままにすると、この端末に記録が無い方の行き止まりになるので、

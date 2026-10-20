@@ -60,7 +60,8 @@ test('公開9ページの色・ヘッダー・余白を揃え、4画面幅で本
         assert.equal(await page.locator('main h1').count(), 1);
         if (!['index', '404'].includes(name)) {
           assert.equal(await page.locator('.page-head').evaluate(element => getComputedStyle(element).backgroundColor), 'rgba(0, 0, 0, 0)');
-          assert.equal(await page.locator('.page-kicker').isVisible(), true);
+          assert.equal(await page.locator('.page-kicker').isVisible(), !['reserve', 'mypage'].includes(name),
+            '予約の手続き画面では重複する英語見出しを省き、その他のページは維持する');
         }
         if (name === 'gallery') {
           assert.equal(await page.locator('#style-list .style-card').count(), 12, '写真を減らさない');

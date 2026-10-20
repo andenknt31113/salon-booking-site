@@ -204,6 +204,12 @@ body[data-page="reserve"]:has(.step-cta:not([hidden])) { padding-bottom: calc(88
 .booking-entry-contact { font-size: 13px; color: var(--text-2); margin-top: 12px; }
 body[data-page="mypage"] .booking-card { padding: 24px; }
 body[data-page="mypage"] #lookup-box { padding: 28px; margin-top: 36px; border: 1px solid var(--line); background: var(--panel); }
+body[data-page="mypage"].lookup-first #lookup-box { margin-block: 20px 32px; }
+body:is([data-page="reserve"], [data-page="mypage"]) .page-head { padding-block: 20px 24px; }
+body:is([data-page="reserve"], [data-page="mypage"]) .breadcrumb { margin-bottom: 14px; }
+body:is([data-page="reserve"], [data-page="mypage"]) .page-head .page-kicker { display: none; }
+body:is([data-page="reserve"], [data-page="mypage"]) .page-head h1 { font-size: clamp(22px, 2.6vw, 30px); }
+body:is([data-page="reserve"], [data-page="mypage"]) .page-head h1 + p { margin-top: 8px; line-height: 1.8; }
 body[data-page="privacy"] .container-narrow { line-height: 2; }
 
 .review-caption { color: var(--text-2); font-size: 13px; line-height: 1.9; }

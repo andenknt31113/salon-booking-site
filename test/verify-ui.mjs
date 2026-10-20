@@ -76,6 +76,10 @@ test('電話受付から変更・取消・メモ・休業・通知までの通�
   assert.doesNotMatch(source, /\.locator\(['"]#(?:passcode|gate-btn|remember-me)['"]\)/);
 });
 
+test('控えの有無・最終確認・日本語変換中の操作を画面検査から外さない', () => {
+  assert.ok(UI_CHECKS.includes('test/public-task-flow.mjs'));
+});
+
 const execute = promisify(execFile);
 const EXCLUDED_ENV = ['GAS_SOURCE', 'GAS_BASELINE_SOURCE', 'ADMIN_SOURCE', 'ADMIN_BASELINE_SOURCE',
   'BASE', 'ADMIN_PW', 'TEST_BROWSER', 'TEST_SCREENSHOT_DIR', 'SCREENSHOT_DIR', 'TEST_ARTIFACT_DIR', 'NODE_OPTIONS'];
@@ -223,7 +227,7 @@ test('休業メモのfocus試験もGoogle管理bridgeと親フレーム内で検
 
 test('全対象を架空の認証値で実行し、標準出力・エラーから値を除き一時.envを消す', async () => {
   await fixture(async ({ root, output, log }) => {
-    assert.equal(UI_CHECKS.length, 41);
+    assert.equal(UI_CHECKS.length, 42);
     const result = await verifyUI({ root, output });
     assert.deepEqual(result, { exitCode: 0, tests: UI_CHECKS.length, pass: UI_CHECKS.length, fail: 0 });
     assert.match(log(), /\[redacted\]/);

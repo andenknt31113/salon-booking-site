@@ -21,7 +21,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/css/style.css" />
-  <link rel="stylesheet" href="assets/css/public.css?v=20261002-completion" />
+  <link rel="stylesheet" href="assets/css/public.css?v=20261020-taskflow" />
 </head>
 <body data-page="mypage">
   <div id="site-header"></div>
@@ -34,7 +34,7 @@
         </nav>
         <p class="page-kicker" lang="en">MY RESERVATION</p>
         <h1>予約の確認・変更・キャンセル</h1>
-        <p>会員登録・ログインは不要です。このサイトで受け付けた予約の日時確認・変更・キャンセルができます。</p>
+        <p>このサイトで受け付けた予約を確認・変更・キャンセルできます。ログインは不要です。</p>
         <a class="reservation-lookup-link" href="#lookup-box">予約番号を使って確認する</a>
       </div>
     </div>
@@ -57,7 +57,7 @@
         <div class="notice is-info" id="flash" style="display:none;"></div>
         <div class="notice is-warn" id="store-warning" role="status" hidden>この端末の控えの一部を読み込めません。店舗の予約が取り消されたわけではありません。予約し直さず、<a href="#lookup-box">予約番号と電話番号で最新の状態を確認してください</a>。</div>
 
-        <h2 class="section-title" style="font-size:17px;margin:0 0 14px;">これからのご予約</h2>
+        <h2 class="section-title" id="saved-bookings-title" style="font-size:17px;margin:0 0 14px;">これからのご予約</h2>
         <div id="upcoming-list"></div>
         <p class="section-desc" style="margin:12px 0;font-size:13px;">一覧はこの端末の控えです。お電話や別の端末で変更した場合は、<a href="#lookup-box">予約番号で最新の状態をご確認ください</a>。</p>
 
@@ -76,11 +76,10 @@
         <div id="past-list"></div>
 
         <!-- 予約番号 + 電話番号での照会（別の端末からでも確認できます） -->
-        <section id="lookup-box">
-          <h2 class="section-title" style="font-size:16px;margin-bottom:6px;">予約番号で最新の状態を確認する</h2>
+        <section id="lookup-box" aria-labelledby="lookup-title">
+          <h2 class="section-title" id="lookup-title" style="font-size:16px;margin-bottom:6px;">予約番号で最新の状態を確認する</h2>
           <p class="section-desc" style="margin:0 0 18px;font-size:13px;">
-            機種変更やご家族の端末からのご予約は、上の一覧に出ません。
-            ご予約番号とお電話番号でご確認いただけます。
+            この端末に記録がない予約も、予約番号と電話番号で確認できます。
           </p>
           <div class="form-field" style="margin-bottom:14px;">
             <label for="lookup-code">ご予約番号</label>
@@ -118,6 +117,6 @@
 <script src="assets/js/published-menus.js?v=9128053ef54b80337eaafe418d80a039cb002f346a8c1ae2708ba29f36d2f586"></script>
   <script src="assets/js/public-read.js?v=20261005-read-scope"></script>
 <script src="assets/js/common.js?v=20261006-read-deadline"></script>
-  <script src="assets/js/mypage.js?v=20261002-completion"></script>
+  <script src="assets/js/mypage.js?v=20261020-taskflow"></script>
 </body>
 </html>

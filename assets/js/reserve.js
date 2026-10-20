@@ -1192,8 +1192,8 @@ function renderStep() {
     $('button', s).disabled = s.hidden || n >= state.step || s.classList.contains('is-skipped');
   });
   $('#steps').style.display = state.step === 6 ? 'none' : '';
-  $('#summary').style.display = state.step === 6 ? 'none' : '';
-  if (state.step === 6) $('#reserve-layout').style.gridTemplateColumns = '1fr';
+  $('#summary').style.display = state.step >= 5 ? 'none' : '';
+  $('#reserve-layout').style.gridTemplateColumns = state.step >= 5 ? '1fr' : '';
   updateSummary();   // この中で下のボタンも描き直します
 }
 
