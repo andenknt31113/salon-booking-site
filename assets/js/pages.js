@@ -76,7 +76,7 @@ function staffTextHtml(s) {
 
 function staffCard(s, { preview = false } = {}) {
   const fee = s.nominationFee > 0 ? `指名料 ${yen(s.nominationFee)}` : '指名料なし';
-  const meta = [s.kana, s.years ? `経験${s.years}年` : ''].filter(Boolean).join('／');
+  const meta = s.years ? `経験${s.years}年` : '';
   // 在籍1名のサロンでは、グリッドに1枚だけ置くと寂しいので横並びの大きめカードにする
   const isSolo = SALON.staff.length === 1;
   const solo = isSolo ? ' staff-card-solo' : '';
@@ -90,11 +90,9 @@ function staffCard(s, { preview = false } = {}) {
     <article class="staff-card${solo}">
       <div class="avatar ph" style="--ph-hue:${s.hue};">
         <span class="ph-stripes" aria-hidden="true"></span>
-        <span class="avatar-initial">${esc(s.name.slice(0, 1))}</span>
         ${s.image ? `<img class="ph-photo" src="${esc(s.image)}" alt="${esc(s.name)}" loading="lazy" />` : ''}
       </div>
       <div class="staff-body">
-        <p class="staff-role">${esc(s.role)}</p>
         <h3 class="staff-name">${esc(s.name)}</h3>
         ${meta ? `<p class="staff-kana">${esc(meta)}</p>` : ''}
         <ul class="tag-list">${s.tags.map(t => `<li class="tag">${esc(t)}</li>`).join('')}</ul>
@@ -242,8 +240,7 @@ function menuGroupHtml(cat) {
    受信先を入れる前は投稿フォーム自体を出していない（initReviewForm）ので、
    そのあいだは案内も出しません。無いものを探させないためです。 */
 function reviewEmptyHtml({ formHere = false } = {}) {
-  return `<p>ご来店の感想は、Googleの店舗ページでご覧いただけます。</p>
-    <a class="btn btn-outline" href="${esc(googleReviewViewUrl())}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る（別タブ）</a>`;
+  return `<a class="btn btn-outline" href="${esc(googleReviewViewUrl())}" target="_blank" rel="noopener noreferrer">Googleで口コミを見る</a>`;
 }
 
 /* トップを開いた方が最初に読む1行。
@@ -318,7 +315,7 @@ function renderSalonInfo(host) {
      （style.css の .header-tel）、番号が出ているのはこの表だけです。
      文字のままだと、当日の遅れを伝えたい方が番号を選んで写す手間を踏みます。 */
   const rows = [
-    ['店名', SALON.fullName || `${SALON.name} ${SALON.nameSub || ''}`.trim()],
+    ['店名', `${SALON.name} ${SALON.nameSub || ''}`.trim()],
     ['電話番号', SALON.tel,
       SALON.tel ? `<a href="tel:${esc(SALON.tel.replace(/-/g, ''))}">${esc(SALON.tel)}</a>` : ''],
     ['住所', SALON.address],
@@ -326,11 +323,8 @@ function renderSalonInfo(host) {
     ['道案内', SALON.directions],
     ['営業時間', hours],
     ['定休日', closed],
-    ['席数', SALON.seats],
-    ['スタッフ数', SALON.staffCount],
     ['駐車場', SALON.parking],
-    ['支払方法', SALON.payment],
-    ['こだわり条件', (SALON.features || []).join('／')]
+    ['支払方法', SALON.payment]
   ];
   // 未確認で空にしてある項目は、行ごと出さない
   host.innerHTML = rows
