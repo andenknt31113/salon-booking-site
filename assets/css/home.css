@@ -30,7 +30,6 @@
 .home-text-link { display: inline-flex; align-items: center; gap: 30px; min-height: 44px; margin-top: 26px; border-bottom: 1px solid var(--line); font-size: 12px; }
 .hero-media { position: relative; margin: 0; align-self: stretch; background: var(--panel-2); min-height: 550px; }
 .hero-media .hero-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 58% center; }
-.hero-media figcaption { position: absolute; top: calc(100% + 10px); right: 0; font: 10px/1.5 var(--font-en); letter-spacing: .12em; color: var(--text-2); }
 .home-intro { display: grid; grid-template-columns: 1fr 2fr; gap: 9%; padding-block: 100px 50px; }
 .hero-desc { max-width: none; font-size: 15px; line-height: 2.2; }
 .hero-meta { gap: 8px 20px; font-size: 12px; line-height: 1.9; }
@@ -71,21 +70,12 @@
 .home-review .review-list .btn { margin-top: 24px; }
 .home-review .section-more { text-align: left; margin-top: 18px; }
 .home-review .section-more .btn { padding: 8px 0; min-height: 44px; border: 0; border-bottom: 1px solid var(--text-2); background: transparent; }
-.access-layout { display: grid; grid-template-columns: 1fr 1.35fr; align-items: start; gap: 7%; }
-.access-summary h3 { font-size: 24px; font-weight: 500; line-height: 1.6; }
-.access-address { margin-top: 14px; line-height: 1.9; }
-.access-summary dl { margin: 24px 0; }
-.access-summary dl > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 16px; padding-block: 14px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.9; }
-.access-summary dt { font-weight: 600; }
-.access-summary dd { margin: 0; }
-.access-tel { display: inline-grid; font: 27px/1.8 var(--font-en); }
-.access-tel span { font: 12px/1.8 var(--font); color: var(--text-2); }
+.access-layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 7%; }
 .access-map iframe { display: block; width: 100%; height: 450px; border: 0; background: var(--panel-2); }
 .access-map .map-actions { justify-content: flex-start; gap: 16px; margin-top: 20px; }
 .access-map-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; text-decoration: underline; text-underline-offset: 4px; }
 .access-map .map-note { text-align: left; font-size: 12px; line-height: 1.9; }
 .access-details { margin-top: 44px; border-block: 1px solid var(--line); }
-.access-details summary { padding: 22px 0; cursor: pointer; font-size: 14px; }
 .access-details .info-table { margin-block: 0 24px; }
 @media (max-width: 1000px) {
   .hero { gap: 5%; }
@@ -96,7 +86,7 @@
   .home-styles .style-grid { gap: 16px; }
   .home-menu > .container { grid-template-columns: 1fr; }
   .home-menu .section-head, .home-menu .coupon-list, .home-menu .section-more { grid-column: auto; grid-row: auto; }
-  .access-layout { gap: 5%; grid-template-columns: 1fr 1fr; }
+  .access-layout { gap: 5%; grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 700px) {
   .hero { grid-template-columns: 1fr; gap: 30px; padding-top: 32px; }

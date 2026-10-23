@@ -109,7 +109,6 @@ function staffCard(s, { preview = false } = {}) {
 }
 
 function styleCard(sy) {
-  const st = findStaff(sy.staffId);
   /* 掲載の説明文（「癖毛の方は曲がる縮毛矯正、直毛の方は…」）。
      タイトルとタグだけだと語の羅列に見えて、どういうスタイルなのかが
      いちばん伝わる一文が読めません。シートで空にもできる欄なので、
@@ -117,14 +116,12 @@ function styleCard(sy) {
   const detail = String(sy.detail ?? '').trim();
   return `
     <article class="style-card">
-      ${photoOrPlaceholder(sy, sy.length, 'style-thumb', sy.title)}
+      ${photoOrPlaceholder(sy, '', 'style-thumb', sy.title)}
       <div class="style-body">
         <h3 class="style-title">${esc(sy.title)}</h3>
-        <p class="style-meta">${esc(sy.length)}${st ? '／' + esc(st.name) : ''}</p>
         ${/* 灰色のままだと分類・タグと同じ見た目に埋もれるので、本文の色にします
               （style.css は別の作業者が触っているので、ここで指定しています） */ ''}
         ${detail ? `<p class="style-meta" style="color:var(--text-2);">${esc(detail)}</p>` : ''}
-        ${sy.tags.length ? `<details class="style-keywords"><summary>関連キーワード</summary><p class="style-meta">${sy.tags.map(tag => `#${esc(tag)}`).join(' ')}</p></details>` : ''}
         ${/* 押すと、このスタイルの名前をご要望欄まで持っていきます
               （common.js の rememberStyleRequest → 予約ページの takeStyleRequest）。
               以前は一覧の下に「このイメージで予約する」が1つあるだけで、どのスタイルも
@@ -292,7 +289,7 @@ function renderFaq(host) {
   setHtml(host, SALON.faq.map((f, i) => `
     <div class="faq-item" data-faq="${i}">
       <button class="faq-q" type="button" aria-expanded="false" aria-controls="${esc(host.id)}-answer-${i}">${esc(f.q)}</button>
-      <div class="faq-a" id="${esc(host.id)}-answer-${i}"><span>${esc(SALON.draft && f.q === '予約は必要ですか？' ? 'ネット予約は準備中です。ご予約については店舗へお問い合わせください。' : String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
+      <div class="faq-a" id="${esc(host.id)}-answer-${i}"><span>${esc(SALON.draft && f.q === '予約は必要ですか？' ? 'ご予約については店舗へお問い合わせください。' : String(f.a).replace(/\{受付期限\}/g, deadlineLabel()))}</span></div>
     </div>`).join(''));
 
   bindOnce('faq', () => host.addEventListener('click', e => {
@@ -357,28 +354,11 @@ function homeAccessHtml() {
     if (url.origin === 'https://www.google.com' && url.pathname === '/maps/embed'
         && url.searchParams.has('pb') && !url.username && !url.password) embedUrl = url.href;
   } catch {}
-  const business = SALON.business;
-  const closed = [business.closedWeekdays.map(day => WEEKDAY_JA[day] + '曜日').join('・'), business.closedNote]
-    .filter(Boolean).join('\n') || '年中無休';
-  const details = [
-    ['アクセス', SALON.access],
-    ['駐車場', SALON.parking],
-    ['営業時間', `${business.openTime}〜${business.closeTime}（最終受付 ${business.lastOrder}）`
-      + (business.note ? '\n' + business.note : '')],
-    ['定休日', closed]
-  ];
-  return `<div class="access-summary">
-      <h3>${esc(SALON.name)} ${esc(SALON.nameSub || '')}</h3>
-      <p class="access-address">${esc(SALON.address)}</p>
-      <dl>${details.filter(([, value]) => value).map(([label, value]) =>
-        `<div><dt>${esc(label)}</dt><dd>${esc(value).replace(/\n/g, '<br />')}</dd></div>`).join('')}</dl>
-      ${SALON.tel ? `<a class="access-tel" href="tel:${esc(SALON.tel.replace(/-/g, ''))}"><span>お電話でのお問い合わせ</span>${esc(SALON.tel)}</a>` : ''}
-    </div>
-    <div class="access-map">
+  return `<div class="access-map">
       ${embedUrl ? `<iframe src="${esc(embedUrl)}" title="${esc(SALON.name)}の場所を示すGoogleマップ" width="600" height="450" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>` : '<p class="map-note">地図はGoogleマップでご確認いただけます。</p>'}
       <div class="map-actions">
-        <a class="btn btn-primary" href="https://www.google.com/maps/dir/?api=1&destination=${query}" target="_blank" rel="noopener noreferrer">ここへの経路を調べる（別タブ）</a>
-        <a class="access-map-link" href="https://www.google.com/maps/search/?api=1&query=${query}" target="_blank" rel="noopener noreferrer">大きな地図で見る（別タブ）</a>
+        <a class="btn btn-primary" href="https://www.google.com/maps/dir/?api=1&destination=${query}" target="_blank" rel="noopener noreferrer">ここへの経路を調べる</a>
+        <a class="access-map-link" href="https://www.google.com/maps/search/?api=1&query=${query}" target="_blank" rel="noopener noreferrer">大きな地図で見る</a>
       </div>
     </div>`;
 }
@@ -431,7 +411,7 @@ function renderHomeReviewLink() {
 }
 
 function homePhotoHtml() {
-  return `${SALON.heroImage ? `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="${esc(SALON.name)}の店内" width="1280" height="1061" fetchpriority="high" />` : ''}<figcaption>${esc(SALON.name)} ${esc(SALON.nameSub || '')}</figcaption>`;
+  return `${SALON.heroImage ? `<img class="hero-photo ph-photo-opt" src="${esc(SALON.heroImage)}" alt="${esc(SALON.name)}の店内" width="1280" height="1061" fetchpriority="high" />` : ''}`;
 }
 
 function homeCatchHtml() {
@@ -445,7 +425,11 @@ function initHome() {
      入れても出ないと、店側は入力欄を信用しなくなります。 */
   const noticeBox = $('#shop-notice');
   if (noticeBox) {
-    const text = String(SALON.notice || '').trim();
+    const notice = String(SALON.notice || '').trim();
+    const paused = 'ネット予約は準備中です。ご予約については店舗へお問い合わせください。';
+    const text = SALON.draft
+      ? (notice.includes('準備中') ? notice : [paused, notice].filter(Boolean).join(' '))
+      : notice;
     $('#shop-notice-text').textContent = text;
     noticeBox.hidden = !text;
   }
@@ -476,15 +460,6 @@ function initHome() {
   setHtml($('#hero-catch'), homeCatchHtml());
   $('#hero-desc').textContent = SALON.description;
 
-  $('#hero-meta').innerHTML = [
-    SALON.access || SALON.address,
-    `${SALON.business.openTime}〜${SALON.business.closeTime}`,
-    /* トップの一行なので、定休日の注記は先頭の語（「不定休」）だけ出します。
-       ここに注記を丸ごと入れると、3行の箇条書きが1つだけ長くなって読めません。
-       全文は店舗情報の表に出ています。 */
-    `定休日 ${SALON.business.closedWeekdays.map(d => WEEKDAY_JA[d]).join('・')
-      || String(SALON.business.closedNote || '').split(/[\s　]/)[0] || 'なし'}`
-  ].filter(Boolean).map(t => `<li>◍ ${esc(t)}</li>`).join('');
 
   setHtml($('#home-coupons'), SALON.coupons.slice(0, 3).map(couponCard).join(''));
   setHtml($('#home-styles'), homeStyles().map(styleCard).join(''));
