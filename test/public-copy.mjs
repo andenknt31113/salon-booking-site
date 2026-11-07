@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { publicHtml } from '../tools/public-content.mjs';
 
@@ -52,4 +53,24 @@ test('初期HTMLも再生成後も同じ文言になり、宣伝文が復活し�
   const home = files.find(file => file.name === 'index.html').next;
   assert.match(home, /class="hero-name">ZER01<\/span>/);
   assert.doesNotMatch(home, /なりたいイメージを探して|来店前の参考に/);
+});
+
+test('描画JSとトップCSSは内容のhashを参照し、次のメニュー公開でも古いcache版へ戻らない', async () => {
+  const files = await publicHtml(await read('assets/js/published-menus.js'));
+  for (const asset of ['assets/js/pages.js', 'assets/css/home.css']) {
+    const version = createHash('sha256').update(await read(asset)).digest('hex');
+    const consumers = files.filter(file => file.previous.includes(asset));
+    assert.equal(consumers.length, asset.endsWith('pages.js') ? 5 : 1);
+    for (const file of consumers) {
+      assert.ok(file.previous.includes(asset + '?v=' + version), `${file.name}は実際のファイル内容に合うcache版を使う`);
+      assert.ok(file.next.includes(asset + '?v=' + version), 'メニュー更新後も同じ描画版を維持する');
+    }
+  }
+});
+
+test('口コミの投稿方法への案内は読み込み前後で同じで、閲覧ボタンと重複しない', async () => {
+  const context = await model();
+  const home = await read('index.html');
+  assert.match(home, /id="home-review-link" href="reviews\.html">口コミの投稿方法<\/a>/);
+  assert.doesNotMatch(context.reviewEmptyHtml(), /口コミの投稿方法|ご来店の感想は/);
 });

@@ -399,7 +399,7 @@ function renderHomeReviewLink() {
   const link = $('#home-review-link');
   if (!link) return;
   const box = link.parentElement;
-  link.textContent = 'Googleの口コミを見る・書く';
+  link.textContent = '口コミの投稿方法';
   link.href = 'reviews.html';
   box.hidden = false;
 }

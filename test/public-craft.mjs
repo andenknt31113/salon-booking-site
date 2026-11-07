@@ -54,7 +54,7 @@ for (const width of [320, 390]) {
       const photo = document.querySelector('#home-photo img');
       const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
       return {
-        photo: bounds('#home-photo'), image: bounds('#home-photo img'), copy: bounds('.hero-inner'), caption: bounds('#home-photo figcaption'),
+        photo: bounds('#home-photo'), image: bounds('#home-photo img'), copy: bounds('.hero-inner'),
         container: bounds('.hero'),
         booking: bounds('.sp-cta'), fit: getComputedStyle(photo).objectFit,
         actual: { width: photo.naturalWidth, height: photo.naturalHeight },
@@ -64,8 +64,8 @@ for (const width of [320, 390]) {
     assert.ok(layout.photo.top >= 0 && layout.photo.bottom <= layout.booking.top, '初期画面で店内写真の全体を見せ、固定の予約案内で隠さない');
     assert.ok(layout.photo.width >= layout.container.width - 1 && layout.photo.height > 0, '写真の幅や高さをゼロへ潰さない');
     assert.ok(layout.image.width >= layout.photo.width - 1 && layout.image.height >= layout.photo.height - 1, '画像自体も写真の領域全体へ表示する');
-    assert.ok(layout.caption.bottom <= layout.copy.top, '写真名と店の文章を重ねない');
-    assert.ok(layout.caption.width > layout.caption.height, '写真名を一文字ずつ縦に折り返さない');
+    assert.ok(layout.image.bottom <= layout.copy.top, '写真と店の文章を重ねない');
+    assert.equal(await page.locator('#home-photo figcaption').count(), 0, '見出しと重複する写真名を足し直さない');
     assert.equal(layout.fit, 'contain', 'スマホで椅子や店内の端を切らずに見せる');
     assert.deepEqual(layout.declared, layout.actual, '初期HTMLと初期化後の画像寸法を実写真に合わせる');
     assert.ok(Math.abs(layout.photo.width / layout.photo.height - layout.actual.width / layout.actual.height) < 0.001);
@@ -177,19 +177,20 @@ test('スマホの境界をまたいで幅を変えても、写真1点を保ち�
   }
 }));
 
-test('aspect-ratioに非対応でも実写真の寸法から高さを取り、写真名を横に読める', () => withPage('index', async page => {
+test('aspect-ratioに非対応でも実写真の寸法から高さを取り、本文を重ねない', () => withPage('index', async page => {
   const layout = await page.evaluate(() => {
     const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
     const image = document.querySelector('#home-photo img');
     return { photo: bounds('#home-photo'), image: bounds('#home-photo img'), container: bounds('.hero'),
-      caption: bounds('#home-photo figcaption'), copy: bounds('.hero-inner'),
+      copy: bounds('.hero-inner'),
       ratios: [getComputedStyle(document.querySelector('#home-photo')).aspectRatio, getComputedStyle(image).aspectRatio],
       ratio: image.naturalWidth / image.naturalHeight };
   });
   assert.deepEqual(layout.ratios, ['auto', 'auto'], '写真と枠のCSS比率指定を無効にした条件で確認する');
   assert.ok(layout.photo.width >= layout.container.width - 1 && layout.photo.height > 0, '画像が流れの中で高さを確保する');
   assert.ok(Math.abs(layout.image.width / layout.image.height - layout.ratio) < 0.001, 'CSSの比率指定なしでも実写真の全体を見せる');
-  assert.ok(layout.caption.width > layout.caption.height && layout.caption.bottom <= layout.copy.top, '写真名を縦に潰したり本文へ重ねたりしない');
+  assert.ok(layout.image.bottom <= layout.copy.top, '比率指定がなくても実写真と本文を重ねない');
+  assert.equal(await page.locator('#home-photo figcaption').count(), 0, '互換表示でも重複する写真名を作らない');
   assert.equal(await page.locator('.sp-cta a[href="reserve.html"]').isVisible(), true);
 }, {}, context => context.route('**/assets/css/home.css?*', async route => {
   const response = await route.fetch();
@@ -267,11 +268,14 @@ test('文言を整理しても店舗の原文・料金案内・予約と口コ�
   await withPage('index', async page => {
     assert.equal(await page.locator('#hero-desc').innerText(), await page.evaluate(() => SALON.description));
     assert.equal(await page.locator('#home-staff .staff-message > p').innerText(), await page.evaluate(() => SALON.staff[0].message));
-    assert.equal(await page.locator('.notice.is-info').isVisible(), false, '通常受付中に予約ボタンと重複するお知らせを出さない');
+    assert.equal(await page.locator('#shop-notice').isVisible(), false, '通常受付中に予約ボタンと重複するお知らせを出さない');
     assert.doesNotMatch(await page.locator('main').innerText(), /なりたいイメージを探して|来店前の参考に|イタリア発、東京経由/);
-    assert.equal(await page.locator('#home-review-link').isVisible(), true);
-    await page.evaluate(() => { SALON.draft = true; renderHeader(); });
-    assert.equal(await page.locator('.notice.is-info').isVisible(), true, '受付を停止した場合の準備中の案内は残す');
+    assert.equal(await page.locator('#home-reviews a').count(), 1, '同じ口コミの案内を二つ並べない');
+    assert.equal(await page.locator('#home-review-link').isVisible(), true, '投稿方法はスマホでもメニューを開かずに見つかる');
+    assert.equal(await page.locator('#site-main-menu a[href="reviews.html"]').getAttribute('href'), 'reviews.html', 'メインメニューの案内も残す');
+    await page.evaluate(() => { SALON.draft = true; renderHeader(); initHome(); });
+    assert.equal(await page.locator('#shop-notice').isVisible(), true, '受付を停止した場合の準備中の案内は残す');
+    assert.match(await page.locator('#shop-notice').innerText(), /ネット予約は準備中/);
     assert.equal(await page.locator('.hero .booking-active-only').isVisible(), false);
     assert.equal(await page.locator('.hero .booking-paused-only').isVisible(), true);
   });
@@ -360,8 +364,10 @@ test('ダイアログ非対応・JavaScriptなしでも写真と予約導線を�
     assert.ok(await page.locator('.style-thumb img.ph-photo').count() > 0);
     assert.equal(await page.locator('.style-photo-open').count(), 0);
     assert.equal(await page.locator('.style-book').first().isVisible(), true);
-    await page.locator('.style-keywords summary').first().click();
-    assert.match(await page.locator('.style-keywords').first().innerText(), /#メンズヘア/);
+    assert.equal(await page.locator('.style-keywords').count(), 0, 'JavaScriptなしでも重複する関連語を表示しない');
+    const card = page.locator('.style-card').first();
+    assert.ok((await card.locator('.style-meta').innerText()).trim(), 'スタイルの説明は残す');
+    assert.equal(await card.locator('.style-book').getAttribute('data-style'), await card.locator('.style-title').innerText());
   }, { javaScriptEnabled: false });
   await withPage('gallery', async page => {
     await page.evaluate(() => {
@@ -386,20 +392,39 @@ test('写真の名前にHTMLが含まれても実行せず、文字として表�
   assert.equal(await page.evaluate(() => window.写真試験), undefined);
 }));
 
-test('説明文は隠さず、関連キーワードは標準の折りたたみで選んで読める', () => withPage('index', async page => {
-  const card = page.locator('.style-card').first();
-  assert.match(await card.innerText(), /癖毛の方は曲がる縮毛矯正/);
-  const keywords = card.locator('.style-keywords');
-  assert.equal(await keywords.getAttribute('open'), null);
-  const summary = keywords.locator('summary');
-  assert.ok((await summary.boundingBox()).height >= 44);
-  await summary.focus();
-  await summary.press('Enter');
-  assert.match(await keywords.innerText(), /#メンズ縮毛矯正/);
-  await page.evaluate(() => initHome());
-  assert.notEqual(await keywords.getAttribute('open'), null, '同じ初期化では開いたキーワードを閉じない');
-  await summary.press('Space');
-  assert.equal(await keywords.getAttribute('open'), null);
+for (const name of ['index', 'gallery']) {
+  test(`${name}：関連語の重複をなくしても説明・予約先・再描画中の操作位置を保つ`, () => withPage(name, async page => {
+    const card = page.locator('.style-card').first();
+    const title = await card.locator('.style-title').innerText();
+    const source = await page.evaluate(title => SALON.styles.find(style => style.title === title), title);
+    assert.equal(await card.locator('.style-meta').innerText(), source.detail);
+    assert.equal(await card.locator('.ph-label, .style-keywords').count(), 0, '分類や関連語を重複表示しない');
+    const booking = card.locator('.style-book');
+    assert.equal(await booking.getAttribute('href'), 'reserve.html');
+    assert.equal(await booking.getAttribute('data-style'), title, 'スタイルを予約のご要望へ渡す情報を残す');
+    assert.ok((await booking.boundingBox()).height >= 44);
+    await booking.focus();
+    assert.equal(await booking.evaluate((element, name) => {
+      const photo = element.closest('.style-card').querySelector('img');
+      if (name === 'index') initHome(); else initGalleryPage();
+      return element === document.activeElement && photo === element.closest('.style-card').querySelector('img');
+    }, name), true, '同じ初期化で読んでいる写真と操作位置を取り替えない');
+  }));
+}
+
+test('受付停止のお知らせを一つにまとめ、店からの追記と再開時の表示を保つ', () => withPage('index', async page => {
+  for (const notice of ['', '本日は受付時間が異なります。', 'ネット予約は準備中です。お電話ください。']) {
+    await page.evaluate(notice => { SALON.draft = true; SALON.notice = notice; renderHeader(); initHome(); }, notice);
+    const banner = page.locator('#shop-notice');
+    assert.equal(await banner.isVisible(), true);
+    const text = await banner.innerText();
+    assert.equal((text.match(/準備中/g) || []).length, 1, '同じ準備中の説明を重ねない');
+    if (notice) assert.ok(text.includes(notice), '店からのお知らせを削らない');
+    assert.equal(await page.locator('.hero-cta a[href="reserve.html"]').innerText(), '予約方法を見る');
+    await page.evaluate(() => { SALON.draft = false; renderHeader(); initHome(); });
+    assert.equal(await banner.isVisible(), !!notice, '通常受付に戻っても店のお知らせは保持する');
+    if (notice) assert.equal(await page.locator('#shop-notice-text').innerText(), notice);
+  }
 }));
 
 test('絞り込みの選択状態を読み上げへ伝え、失敗した写真の拡大操作は出さない', () => withPage('gallery', async page => {

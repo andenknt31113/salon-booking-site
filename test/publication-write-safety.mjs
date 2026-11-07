@@ -12,7 +12,7 @@ import vm from 'node:vm';
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
   'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html',
-  'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js',
+  'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css',
   'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
 const HTML_FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
   'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];

@@ -8,6 +8,8 @@ export const PUBLICATION_PAGES = Object.freeze(['index.html', 'reviews.html', 'm
   'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html']);
 
 export async function publicHtml(catalogSource) {
+  const assetVersions = await Promise.all(['assets/js/pages.js', 'assets/css/home.css'].map(async asset =>
+    [asset, createHash('sha256').update(await read(asset)).digest('hex')]));
   const context = vm.createContext({ URL, document: { addEventListener() {} } });
   for (const source of [await read('assets/js/data.js'), catalogSource,
     await read('assets/js/common.js'), await read('assets/js/pages.js')]) {
@@ -58,6 +60,10 @@ export async function publicHtml(catalogSource) {
     const script = /(<script\b[^>]*\bsrc=["'])assets\/js\/published-menus\.js(?:\?[^"']*)?(["'][^>]*>)/g;
     if ([...next.matchAll(script)].length !== 1) throw new Error(`${name} の公開データ読込位置を確認できません。ファイルは更新しません。`);
     next = next.replace(script, (_match, start, end) => start + 'assets/js/published-menus.js?v=' + version + end);
+    for (const [asset, assetVersion] of assetVersions) {
+      const reference = new RegExp('((?:src|href)=["\'])' + asset.replaceAll('.', '\\.') + '(?:\\?[^"\']*)?(["\'])', 'g');
+      next = next.replace(reference, (_match, start, end) => start + asset + '?v=' + assetVersion + end);
+    }
     files.push({ name, previous, next });
   }
   return files;

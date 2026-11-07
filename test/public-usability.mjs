@@ -181,15 +181,16 @@ test('メニュー写真の取得に失敗しても壊れた画像や空の列�
 }, {}, context => context.route('**/assets/style11.jpg', route => route.abort())));
 
 for (const dimensions of [{ width: 480, height: 800 }, { width: 800, height: 300 }]) {
-  test(`店内写真が${dimensions.width}×${dimensions.height}でも本文と写真名を重ねない`, () => withPage('index', async page => {
+  test(`店内写真が${dimensions.width}×${dimensions.height}でも本文を重ねない`, () => withPage('index', async page => {
     const layout = await page.evaluate(() => {
       const bounds = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
       return { photo: bounds('#home-photo'), image: bounds('#home-photo img'),
-        caption: bounds('#home-photo figcaption'), copy: bounds('.hero-inner') };
+        copy: bounds('.hero-inner') };
     });
     assert.ok(layout.image.width > 0 && layout.image.height > 0);
     assert.ok(Math.abs(layout.photo.height - layout.image.height) < 1, '実写真の高さに枠を合わせ、余分な空白やはみ出しを作らない');
-    assert.ok(layout.image.bottom <= layout.caption.top && layout.caption.bottom <= layout.copy.top, '写真名や店舗の文章を画像に重ねない');
+    assert.ok(layout.image.bottom <= layout.copy.top, '店舗の文章を画像に重ねない');
+    assert.equal(await page.locator('#home-photo figcaption').count(), 0, '店名を写真の下に重複表示しない');
     assert.ok(Math.abs(layout.image.width / layout.image.height - dimensions.width / dimensions.height) < 0.001, '異なる縦横比でも写真全体を表示する');
   }, {}, context => context.route('**/assets/shop2.jpg', route => route.fulfill({
     contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="${dimensions.width}" height="${dimensions.height}"><rect width="100%" height="100%" fill="#eee"/></svg>`

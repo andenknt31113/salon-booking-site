@@ -60,6 +60,8 @@ for (const javaScriptEnabled of [false, true]) {
       assert.equal(await googleLink.getAttribute('target'), '_blank');
       assert.equal(new URL(await googleLink.getAttribute('href')).hostname, 'www.google.com');
       assert.equal(await page.locator('#home-review-link').getAttribute('href'), 'reviews.html');
+      assert.equal(await page.locator('#home-review-link').innerText(), '口コミの投稿方法', 'Googleで読む操作と投稿方法を区別する');
+      assert.equal(await page.locator('#home-reviews a').count(), 1, '同じ閲覧操作は重複させない');
       await heading.scrollIntoViewIfNeeded();
       assert.equal(await heading.isVisible(), true);
       assert.equal(await googleLink.isVisible(), true);
@@ -75,7 +77,7 @@ for (const javaScriptEnabled of [false, true]) {
   });
 }
 
-test('地図と来店情報が各画面幅で読め、店舗情報の折りたたみをキーボードで開ける', async () => {
+test('地図と来店情報が各画面幅で読め、必要な店舗情報は最初から一つの表で見られる', async () => {
   for (const width of WIDTHS) {
     const { context, page, maps, unexpected, errors } = await openPage({ width });
     try {
@@ -85,11 +87,13 @@ test('地図と来店情報が各画面幅で読め、店舗情報の折りた�
       assert.equal(await map.getAttribute('src'), mapEmbedUrl);
       assert.equal(await map.getAttribute('loading'), 'lazy');
       assert.match(await map.getAttribute('title'), /ZER01.*Googleマップ/);
-      const access = await page.locator('.access-summary').innerText();
-      for (const value of [model.address, model.access, model.parking, model.business.note, model.business.closedNote]) {
+      const access = await page.locator('#salon-info').innerText();
+      for (const value of [model.address, model.access, model.parking, model.business.note, model.business.closedNote, model.payment]) {
         assert.ok(access.includes(value), '確認済みの来店情報を省略せず表示する');
       }
-      assert.equal(await page.locator('.access-tel').getAttribute('href'), 'tel:' + model.tel.replaceAll('-', ''));
+      assert.equal(await page.locator('#salon-info a[href^="tel:"]').getAttribute('href'), 'tel:' + model.tel.replaceAll('-', ''));
+      assert.equal(await page.locator('#salon-info a[href^="tel:"]').count(), 1, '表の中に同じ電話操作を重ねない');
+      assert.equal(await page.locator('.access-summary').count(), 0, '同じ店舗情報を地図の横と表へ重ねて表示しない');
       const route = new URL(await page.locator('#home-access a[href*="/maps/dir/"]').getAttribute('href'));
       assert.equal(route.searchParams.get('destination'), model.mapQuery);
       await map.scrollIntoViewIfNeeded();
@@ -100,18 +104,18 @@ test('地図と来店情報が各画面幅で読め、店舗情報の折りた�
         initHome();
         return original === document.querySelector('#home-access iframe');
       }), true, '初期化し直しても地図を取り外さない');
-      const rectangles = await page.evaluate(() => ['.access-summary', '.access-map'].map(selector => {
+      const rectangles = await page.evaluate(() => ['.access-map', '.access-details'].map(selector => {
         const bounds = document.querySelector(selector).getBoundingClientRect();
         return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom };
       }));
       assert.ok(rectangles[0].right <= rectangles[1].left || rectangles[0].bottom <= rectangles[1].top, '地図と本文を重ねない');
-      assert.equal(await page.locator('.access-details').getAttribute('open'), null);
-      const summary = page.locator('.access-details summary');
-      await summary.focus();
-      await summary.press('Enter');
+      assert.equal(await page.locator('.access-details summary').count(), 0, '住所や支払い方法を探すための展開操作を要求しない');
       assert.equal(await page.locator('#salon-info').isVisible(), true);
       assert.ok((await page.locator('#salon-info').innerText()).includes(model.payment));
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, '詳細を開いても横にはみ出さない');
+      const telephone = page.locator('#salon-info a[href^="tel:"]');
+      await telephone.focus();
+      assert.equal(await telephone.evaluate(element => element === document.activeElement), true, '電話の操作はキーボードからも到達できる');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, '店舗情報も横にはみ出さない');
       assert.deepEqual(unexpected, []);
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
@@ -123,11 +127,17 @@ test('地図が失敗しても住所・電話・経路が残り、JavaScriptな�
     const { context, page, unexpected } = await openPage({ javaScriptEnabled, blockMap: true });
     try {
       await page.locator('#home-access iframe').scrollIntoViewIfNeeded();
-      assert.equal(await page.locator('.access-address').innerText(), model.address);
+      assert.ok((await page.locator('#salon-info').innerText()).includes(model.address));
+      assert.equal(await page.locator('#salon-info').isVisible(), true);
       assert.equal(await page.locator('#home-access a[href*="/maps/dir/"]').isVisible(), true);
-      assert.equal(await page.locator('.access-tel').isVisible(), true);
+      assert.equal(await page.locator('#salon-info a[href^="tel:"]').isVisible(), true);
       assert.equal(await page.locator('#home-reviews a[href*="/maps/search/"]').count(), 1);
-      await page.goto(base + '/reviews.html');
+      await page.locator('#home-review-link').scrollIntoViewIfNeeded();
+      await Promise.all([
+        page.waitForURL(base + '/reviews.html', { waitUntil: 'domcontentloaded' }),
+        page.locator('#home-review-link').click()
+      ]);
+      assert.equal(new URL(page.url()).pathname, '/reviews.html', 'JavaScriptなしでも投稿手順へ実際に移動できる');
       assert.equal(await page.getByRole('link', { name: 'Googleで口コミを見る（別タブ）' }).isVisible(), true);
       assert.equal(await page.locator('.review-steps li').count(), 3);
       assert.equal(await page.locator('.review, #review-form, #review-list').count(), 0);
@@ -146,10 +156,13 @@ test('地図の設定が空・不正なら埋め込まず、文章にHTMLが含�
         SALON.mapEmbedUrl = value;
         SALON.address = '<img src=x onerror=alert(1)>';
         document.querySelector('#home-access').innerHTML = homeAccessHtml();
+        renderSalonInfo(document.querySelector('#salon-info'));
+        const address = [...document.querySelectorAll('#salon-info tr')]
+          .find(row => row.querySelector('th')?.textContent === '住所').querySelector('td');
         return {
           frames: document.querySelectorAll('#home-access iframe').length,
-          images: document.querySelectorAll('#home-access img').length,
-          address: document.querySelector('.access-address').textContent,
+          images: document.querySelectorAll('#info img').length,
+          address: address.textContent,
           links: document.querySelectorAll('#home-access .map-actions a').length
         };
       }, invalid);

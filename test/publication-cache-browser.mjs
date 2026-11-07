@@ -77,3 +77,73 @@ test('長期cacheを残した実ブラウザで、写真・紹介文の更新と
     if (server.listening) await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('長期cacheに古い描画JSとCSSが残っても、新しいHTMLは更新した両方を読み込む', async () => {
+  const previousScriptVersion = '20261020-menu-entry';
+  const previousStyleVersion = '20261020-copy';
+  const scriptPath = '/assets/js/pages.js';
+  const stylePath = '/assets/css/home.css';
+  const currentHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const sources = new Map(await Promise.all([scriptPath, stylePath].map(async path =>
+    [path, await readFile(new URL('..' + path, import.meta.url), 'utf8')])));
+  let updated = false;
+  const requests = [];
+  const writes = [];
+  const errors = [];
+  const server = http.createServer(async (request, response) => {
+    const url = new URL(request.url, 'http://local.invalid');
+    response.setHeader('Content-Security-Policy', SECURITY_POLICY);
+    if (request.method !== 'GET') { writes.push(request.method); response.writeHead(405); response.end(); return; }
+    if (url.pathname === '/index.html') {
+      response.setHeader('Cache-Control', 'no-store');
+      response.setHeader('Content-Type', 'text/html;charset=utf-8');
+      response.end(updated ? currentHtml : currentHtml
+        .replace(/assets\/js\/pages\.js\?[^"']+/, 'assets/js/pages.js?v=' + previousScriptVersion)
+        .replace(/assets\/css\/home\.css\?[^"']+/, 'assets/css/home.css?v=' + previousStyleVersion));
+      return;
+    }
+    if (!url.pathname.startsWith('/assets/')) { response.writeHead(404); response.end(); return; }
+    try {
+      response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      response.setHeader('Content-Type', MIME[url.pathname.split('.').at(-1)] || 'application/octet-stream');
+      if (sources.has(url.pathname)) {
+        requests.push({ path: url.pathname, url: request.url, updated });
+        const revision = updated ? 'current' : 'previous';
+        response.end(sources.get(url.pathname) + (url.pathname === scriptPath
+          ? `\nwindow.publicAssetRevision = '${revision}';\n`
+          : `\nhtml { --public-asset-revision: ${revision}; }\n`));
+      } else response.end(await readFile(new URL('..' + url.pathname, import.meta.url)));
+    } catch { response.writeHead(404); response.end(); }
+  });
+  let browser;
+  try {
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    const base = 'http://127.0.0.1:' + server.address().port;
+    browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    const page = await context.newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    for (const version of ['previous', 'current']) {
+      updated = version === 'current';
+      await page.goto(base + '/index.html');
+      assert.equal(await page.evaluate(() => window.publicAssetRevision), version, '新しいHTMLから古い描画処理へ戻らない');
+      assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--public-asset-revision').trim()),
+        version, '新しいHTMLへ古いレイアウトを混ぜない');
+      assert.equal(await page.locator('#home-photo img').count(), 1);
+      assert.equal(await page.locator('#home-photo figcaption').count(), 0);
+      assert.equal(await page.locator('#home-review-link').innerText(), '口コミの投稿方法');
+    }
+    for (const path of [scriptPath, stylePath]) {
+      const assetRequests = requests.filter(request => request.path === path);
+      assert.equal(assetRequests.length, 2, 'HTML更新時に新しい参照先を取りに行く');
+      assert.notEqual(assetRequests[0].url, assetRequests[1].url, '長期cacheのURLとは区別する');
+      assert.equal(assetRequests[1].updated, true);
+    }
+    assert.deepEqual(writes, [], '紹介ページの閲覧で予約を送信しない');
+    assert.deepEqual(errors, []);
+  } finally {
+    if (browser) await browser.close();
+    server.closeAllConnections();
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+  }
+});
