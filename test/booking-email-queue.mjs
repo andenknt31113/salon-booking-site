@@ -11,9 +11,9 @@ const REQUEST = { type: 'reserve', code: 'LM-QUEUE1', date: '2030-01-05', time: 
   staffId: 'st01', staffName: 'MATTEO', customer: { name: '架空 配送試験', kana: 'カクウハイソウシケン',
     tel: '00000000000', email: 'queue-customer@example.test' } };
 
-function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQueue = false, coerce = false,
+function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQueue = false, coerce = false, snapshot, nativeLedger = false,
   sourcePatch = source => source } = {}) {
-  let clock = Date.parse('2030-01-01T10:00:00+09:00');
+  let clock = snapshot?.clock ?? Date.parse('2030-01-01T10:00:00+09:00');
   class FixedDate extends Date {
     constructor(...values) { super(...(values.length ? values : [clock])); }
     static now() { return clock; }
@@ -27,7 +27,8 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
     if (Array.isArray(value) && value.length === signatureFieldCount) signatureSerializations++;
     return JSON.stringify(value, ...options);
   };
-  const properties = new Map(enabled ? [['BOOKING_EMAIL_QUEUE_ENABLED', 'true'], ['BOOKING_EMAIL_WORKER_AT', String(clock)]] : []);
+  const properties = new Map(snapshot?.properties ?? (enabled
+    ? [['BOOKING_EMAIL_QUEUE_ENABLED', 'true'], ['BOOKING_EMAIL_WORKER_AT', String(clock)]] : []));
   let held = false;
   let onMail;
   let mailFailure = false;
@@ -37,6 +38,7 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
   let badWrite = false;
   let flushes = 0;
   const triggers = [];
+  let backup;
   const makeSheet = (name, headers) => {
     const cells = [Array.from(headers)];
     return { name, cells, getParent: () => spreadsheet,
@@ -83,15 +85,25 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
       } };
   };
   const sheets = new Map();
-  const spreadsheet = { getSheetByName: name => sheets.get(name) || null,
+  const spreadsheet = { getId: () => 'fixture-queue-ledger', getName: () => '架空の配送復旧台帳',
+    getSheetByName: name => sheets.get(name) || null,
     insertSheet: name => { const sheet = makeSheet(name, []); sheet.cells.length = 0; sheets.set(name, sheet); return sheet; } };
   const context = vm.createContext({ Date: FixedDate, JSON: scriptJson,
     console: { log() {}, error() {}, warn() {} },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: key => properties.get(key) || null,
       setProperty: (key, value) => properties.set(key, value), deleteProperty: key => properties.delete(key) }) },
-    LockService: { getScriptLock: () => ({ waitLock() { assert.equal(held, false); held = true; },
+    LockService: { getScriptLock: () => ({ tryLock() { if (held) return false; held = true; return true; },
+      waitLock() { assert.equal(held, false); held = true; },
       releaseLock() { assert.equal(held, true); held = false; } }) },
+    DriveApp: { getFileById(id) {
+      assert.equal(id, spreadsheet.getId());
+      return { makeCopy() {
+        assert.equal(held, true);
+        backup = { clock, sheets: Array.from(sheets, ([name, sheet]) => [name, structuredClone(sheet.cells)]) };
+        return { getId: () => 'fixture-queue-backup' };
+      } };
+    } },
     SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {
       assert.equal(held, true);
       flushes++;
@@ -119,7 +131,15 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
   const queue = makeSheet(QUEUE_NAME, ['通知ID', '予約照合', '配送内容']);
   sheets.set('予約一覧', booking);
   if (!missingQueue) sheets.set(QUEUE_NAME, queue);
-  context.getSheet_ = () => booking;
+  if (snapshot) {
+    sheets.clear();
+    for (const [name, cells] of snapshot.sheets) {
+      const sheet = name === '予約一覧' ? booking : name === QUEUE_NAME ? queue : makeSheet(name, []);
+      sheet.cells.splice(0, sheet.cells.length, ...structuredClone(cells));
+      sheets.set(name, sheet);
+    }
+  }
+  if (!nativeLedger) context.getSheet_ = () => booking;
   context.draftMode_ = () => false;
   context.verifyReservationMenus_ = () => '';
   context.readBookingSettings_ = () => ({ 通知先メール: 'queue-shop@example.test' });
@@ -129,6 +149,9 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
   const change = overrides => send({ type: 'change', tel: REQUEST.customer.tel, date: '2030-01-06', time: '14:00', ...overrides });
   const cancel = overrides => send({ type: 'cancel', tel: REQUEST.customer.tel, ...overrides });
   return { context, properties, sheets, booking, queue, headers, effects, sent, triggers, send, change, cancel,
+    backup: () => structuredClone(backup),
+    snapshot: () => ({ clock, properties: Array.from(properties),
+      sheets: Array.from(sheets, ([name, sheet]) => [name, structuredClone(sheet.cells)]) }),
     signatureSerializations: () => signatureSerializations,
     resetSignatureSerializations: () => { signatureSerializations = 0; },
     jobs: () => queue.cells.slice(1).map(values => JSON.parse(values[2])),
@@ -140,6 +163,118 @@ function fixture({ enabled = true, queueFault = '', bookingFault = '', missingQu
     summary: () => context.withLedgerLock_(() => context.applyBookingEmailSummary_(
       booking.cells.slice(1).map(values => context.adminReservation_(values, header => headers.indexOf(header))),
       context.bookingEmailSummary_(booking))) };
+}
+
+test('別実行へ再起動しても配送待ちを引き継ぎ、一度送った通知は再配送しない', () => {
+  const source = fixture();
+  assert.equal(source.send().ok, true);
+  const snapshot = source.snapshot();
+  const restored = fixture({ snapshot, nativeLedger: true });
+  assert.equal(restored.context.deliverBookingEmails().processed, 2);
+  assert.equal(restored.sent.length, 2);
+  assert.equal(restored.context.deliverBookingEmails().processed, 0);
+  assert.equal(restored.sent.length, 2);
+  assert.deepEqual(source.snapshot(), snapshot, '復旧側の操作で元の台帳を変更しない');
+  const again = fixture({ snapshot: restored.snapshot(), nativeLedger: true });
+  again.properties.set('BOOKING_EMAIL_WORK_PENDING', 'true');
+  assert.equal(again.context.deliverBookingEmails().processed, 0);
+  assert.equal(again.sent.length, 0, '再起動後の全件監査でも受付済みを再送しない');
+  assert.equal(again.jobs()[0].messages.shop.status, '送信処理受付');
+  assert.equal(again.jobs()[0].messages.customer.status, '送信処理受付');
+});
+
+test('外部送信後の状態保存が途切れて再起動しても、同じ通知を再送しない', () => {
+  const source = fixture();
+  source.send();
+  source.failStatus();
+  assert.throws(() => source.context.deliverBookingEmails(), /配送の記録/);
+  assert.equal(source.sent.length, 1);
+  const restored = fixture({ snapshot: source.snapshot(), nativeLedger: true });
+  restored.advance(11 * 60 * 1000);
+  assert.equal(restored.context.deliverBookingEmails().processed, 1);
+  assert.equal(restored.sent[0].to, REQUEST.customer.email);
+  assert.equal(restored.jobs()[0].messages.shop.status, '送信結果不明');
+  assert.equal(restored.jobs()[0].messages.customer.status, '送信処理受付');
+  assert.match(restored.summary()[0].shopMailStatus, /送信結果不明/);
+});
+
+test('結果不明を記録した台帳へ復旧しても、通知成功へ変えたり自動再送したりしない', () => {
+  const source = fixture();
+  source.send();
+  source.mailFailure();
+  source.context.deliverBookingEmails();
+  const restored = fixture({ snapshot: source.snapshot(), nativeLedger: true });
+  restored.properties.set('BOOKING_EMAIL_WORK_PENDING', 'true');
+  restored.advance(11 * 60 * 1000);
+  assert.equal(restored.context.deliverBookingEmails().processed, 0);
+  assert.equal(restored.sent.length, 0);
+  assert.match(restored.summary()[0].customerMailStatus, /結果不明/);
+  assert.equal(restored.jobs()[0].messages.shop.status, '送信結果不明');
+});
+
+for (const action of ['日時変更', 'キャンセル']) {
+  test(`配送前の${action}を別実行へ復旧し、成立した最新の通知だけを配送する`, () => {
+    const source = fixture();
+    source.send();
+    const result = action === '日時変更' ? source.change() : source.cancel();
+    assert.equal(result.ok, true);
+    const restored = fixture({ snapshot: source.snapshot(), nativeLedger: true });
+    assert.equal(restored.context.deliverBookingEmails().processed, 2);
+    assert.equal(restored.sent.length, 2);
+    assert.ok(restored.sent.every(message => !/ご予約を承りました/.test(message.subject)));
+    assert.ok(restored.sent.every(message => action === '日時変更' ? /変更/.test(message.subject) : /キャンセル/.test(message.subject)));
+    assert.equal(restored.jobs()[0].messages.shop.status, '配送待ち', '成立済みの旧依頼は配送対象にしない');
+    assert.equal(restored.jobs()[1].messages.shop.status, '送信処理受付');
+  });
+}
+
+test('実際のバックアップ関数で全シートの控えを作り、別の保存先にだけ復元する', () => {
+  const source = fixture();
+  source.send();
+  source.cancel();
+  source.sheets.set('架空の施術控え', { cells: [['項目', '内容'], ['数式', '=1+1'], ['メモ', '架空の控え']] });
+  const before = source.snapshot();
+  source.context.dailyBackup();
+  const backup = source.backup();
+  assert.deepEqual(backup.sheets, before.sheets);
+  const restored = fixture({ snapshot: { ...backup, properties: [] }, nativeLedger: true });
+  assert.deepEqual(restored.snapshot().sheets, before.sheets);
+  assert.equal(restored.context.deliverBookingEmails().disabled, true);
+  assert.equal(restored.sent.length, 0);
+  assert.throws(() => restored.context.enableBookingEmailQueue(), /既存の配送記録/);
+  assert.equal(restored.triggers.length, 0, '復元した記録の照合前に配送を起動しない');
+  assert.deepEqual(source.snapshot().sheets, before.sheets);
+});
+
+test('送信前の古い控えを復元しただけでは、控え作成後に届いた通知を再送しない', () => {
+  const source = fixture();
+  source.send();
+  source.context.dailyBackup();
+  const backup = source.backup();
+  source.context.deliverBookingEmails();
+  assert.equal(source.sent.length, 2);
+  const restored = fixture({ snapshot: { ...backup, properties: [] }, nativeLedger: true });
+  assert.equal(restored.jobs()[0].messages.customer.status, '配送待ち', '控え作成後の配送結果は控えに含まれない');
+  assert.equal(restored.context.deliverBookingEmails().disabled, true);
+  assert.throws(() => restored.context.enableBookingEmailQueue(), /既存の配送記録/);
+  assert.equal(restored.sent.length, 0);
+  assert.equal(source.jobs()[0].messages.customer.status, '送信処理受付');
+});
+
+for (const fault of ['missing-queue', 'broken-queue', 'missing-ledger']) {
+  test(`復旧データが${fault}なら予約や通知を新規作成せず停止する`, () => {
+    const source = fixture();
+    source.send();
+    const snapshot = source.snapshot();
+    if (fault === 'broken-queue') snapshot.sheets.find(([name]) => name === QUEUE_NAME)[1][1][2] = '{broken';
+    else snapshot.sheets = snapshot.sheets.filter(([name]) => name !== (fault === 'missing-queue' ? QUEUE_NAME : '予約一覧'));
+    const restored = fixture({ snapshot, nativeLedger: true });
+    const before = restored.snapshot();
+    assert.throws(() => restored.context.deliverBookingEmails());
+    assert.equal(restored.sent.length, 0);
+    assert.deepEqual(restored.snapshot().sheets, before.sheets);
+    assert.equal(restored.held(), false);
+  });
 }
 
 test('予約応答をメール待ちから切り離し、配送依頼を予約保存より前に永続化する', () => {

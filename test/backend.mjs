@@ -1858,8 +1858,10 @@ console.log('\n【守り】台帳の毎日バックアップ');
     const b = admin('doAdminData_', {});
     const acts = [];
     let attempted = false;
+    const backupLedger = makeSheet([row()]);
     b.ctx.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
-    b.ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getName: () => '予約台帳', getId: () => 'ssid' }) };
+    b.ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getName: () => '予約台帳', getId: () => 'ssid',
+      getSheetByName: name => name === '予約一覧' ? backupLedger : null }) };
     let backupId = 'old-copy';
     b.ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => backupId,
       setProperty: (_key, value) => { backupId = value; acts.push('記録'); } }) };

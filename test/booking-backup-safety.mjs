@@ -15,11 +15,13 @@ class FixedDate extends Date {
 }
 
 function fixture(options = {}) {
-  const { oldId = OLD_ID, fault = '', busy = false, onCopy } = options;
+  const { oldId = OLD_ID, fault = '', busy = false, onCopy, ledger = 'ready', queue = 'absent', enabled = false } = options;
   const copyId = Object.hasOwn(options, 'copyId') ? options.copyId : NEW_ID;
   const effects = [];
   const properties = new Map(oldId == null ? [] : [[SLOT, oldId]]);
+  if (enabled) properties.set('BOOKING_EMAIL_QUEUE_ENABLED', 'true');
   const files = new Map([[SOURCE_ID, { trashed: false }], [OLD_ID, { trashed: false }]]);
+  const sheets = new Map();
   let held = false;
   let releases = 0;
   let copies = 0;
@@ -39,7 +41,7 @@ function fixture(options = {}) {
     SpreadsheetApp: { getActiveSpreadsheet() {
       assert.equal(held, true);
       if (fault === 'spreadsheet') throw new Error('架空の台帳取得障害');
-      return { getId: () => SOURCE_ID, getName: () => '架空予約台帳' };
+      return { getId: () => SOURCE_ID, getName: () => '架空予約台帳', getSheetByName: name => sheets.get(name) || null };
     } },
     PropertiesService: { getScriptProperties: () => ({
       getProperty(key) {
@@ -87,6 +89,29 @@ function fixture(options = {}) {
     }
   });
   vm.runInContext(SOURCE, context);
+  const headers = Array.from(vm.runInContext('HEADERS', context));
+  const makeSheet = cells => ({
+    getLastRow: () => cells.length,
+    getLastColumn: () => Math.max(0, ...cells.map(row => row.length)),
+    getRange(row, column, height = 1, width = 1) {
+      return { getValues() {
+        assert.equal(held, true);
+        if (fault === 'ledger-read') throw new Error('架空の台帳読込障害');
+        return Array.from({ length: height }, (_, offset) => Array.from({ length: width }, (_value, index) =>
+          cells[row - 1 + offset]?.[column - 1 + index] ?? ''));
+      } };
+    }
+  });
+  if (ledger !== 'missing') {
+    const head = ledger === 'blank' ? [''] : ledger === 'duplicate' ? [...headers, '開始']
+      : ledger === 'missing-date' ? headers.filter(header => header !== '来店日') : headers;
+    sheets.set('予約一覧', makeSheet(ledger === 'empty' ? [] : [head]));
+  }
+  if (queue !== 'absent') {
+    const head = queue === 'wrong-header' ? ['通知ID', '予約照合', '不明な列'] : ['通知ID', '予約照合', '配送内容'];
+    sheets.set('予約メール配送', makeSheet(queue === 'empty' ? [] : queue === 'broken-job'
+      ? [head, ['fixture-broken-notification', '[]', '{broken']] : [head]));
+  }
   return { context, properties, files, effects, copies: () => copies, held: () => held, releases: () => releases };
 }
 
@@ -192,3 +217,48 @@ test('コピー処理中の別のバックアップは同じロックへ入れ�
   assert.equal(app.held(), false);
   assert.equal(app.releases(), 1);
 });
+
+for (const ledger of ['missing', 'empty', 'blank', 'duplicate', 'missing-date']) {
+  test(`予約台帳が${ledger}なら壊れた写しで有効な控えを置き換えない`, () => {
+    const app = fixture({ ledger });
+    assert.throws(() => app.context.dailyBackup(), /台帳|バックアップ/);
+    assert.equal(app.properties.get(SLOT), OLD_ID);
+    assert.equal(app.copies(), 0);
+    assertRetained(app);
+  });
+}
+
+for (const queue of ['absent', 'empty', 'wrong-header', 'broken-job']) {
+  test(`配送が有効で記録が${queue}なら復旧に必要な控えを捨てない`, () => {
+    const app = fixture({ enabled: true, queue });
+    assert.throws(() => app.context.dailyBackup(), /配送|バックアップ/);
+    assert.equal(app.properties.get(SLOT), OLD_ID);
+    assert.equal(app.copies(), 0);
+    assertRetained(app);
+  });
+}
+
+test('配送を止めていても壊れた配送記録を正常なバックアップへ繰り上げない', () => {
+  const app = fixture({ queue: 'broken-job' });
+  assert.throws(() => app.context.dailyBackup(), /配送|バックアップ/);
+  assert.equal(app.copies(), 0);
+  assertRetained(app);
+});
+
+test('台帳読込の失敗は古い控えを保持し、台帳を初期化せずに終わる', () => {
+  const app = fixture({ fault: 'ledger-read' });
+  assert.throws(() => app.context.dailyBackup(), /台帳読込障害/);
+  assert.equal(app.copies(), 0);
+  assertRetained(app);
+});
+
+for (const enabled of [false, true]) {
+  test(`見出しだけの正常な空台帳と配送記録はenabled=${enabled}でも控えを更新できる`, () => {
+    const app = fixture({ enabled, queue: 'ready' });
+    app.context.dailyBackup();
+    assert.equal(app.copies(), 1);
+    assert.equal(app.files.get(OLD_ID).trashed, true);
+    assert.equal(app.properties.get(SLOT), NEW_ID);
+    assert.equal(app.held(), false);
+  });
+}

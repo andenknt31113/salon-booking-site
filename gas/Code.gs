@@ -4437,6 +4437,7 @@ function testReserve() {
    最大7日前までの姿に戻せるようにしておきます。
    ============================================================ */
 const BACKUP_RECORD_ERROR = '新しいバックアップの記録を確認できません。古い控えは削除していません。';
+const BACKUP_SOURCE_ERROR = '予約台帳を確認できません。古いバックアップは削除していません。制作担当者へ連絡してください。';
 
 function dailyBackup() {
   const lock = LockService.getScriptLock();
@@ -4445,6 +4446,13 @@ function dailyBackup() {
     const sheet = SpreadsheetApp.getActiveSpreadsheet();
     const day = ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
     const properties = PropertiesService.getScriptProperties();
+    const ledger = sheet.getSheetByName(SHEET_NAME);
+    if (!ledger || !ledger.getLastRow() || !validBookingHeaders_(sheetHeader_(ledger, []), { requireCode: true })) {
+      throw userFacingError_(BACKUP_SOURCE_ERROR);
+    }
+    if (properties.getProperty(BOOKING_EMAIL_ENABLED) === 'true' || sheet.getSheetByName(BOOKING_EMAIL_SHEET)) {
+      readBookingEmailJobs_(bookingEmailSheet_(sheet));
+    }
     const key = 'BACKUP_' + sheet.getId() + '_' + day;
     const oldId = properties.getProperty(key);
     const copy = DriveApp.getFileById(sheet.getId()).makeCopy(sheet.getName() + ' バックアップ（' + day + '）');
