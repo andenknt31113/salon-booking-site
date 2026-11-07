@@ -1731,8 +1731,8 @@ console.log('\n【シート】隠したいときの書き方');
 function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
   const made = {};
   const mk = name => {
-    const d = [];
-    return { getName: () => name, getLastRow: () => d.length, getLastColumn: () => 3,
+    const d = name === '予約一覧' ? [HEAD.slice()] : [];
+    return { getName: () => name, getLastRow: () => d.length, getLastColumn: () => d[0]?.length || 0,
       appendRow: r => d.push(r),
       /* 別の端末から保存されていないかを見る「印」を作るのに使います
          （Code.gs の sheetStamp_）。無いと、管理ページの読み込みごと落ちます。 */
@@ -1742,6 +1742,7 @@ function admin(fnName, payload, store = { ADMIN_PASSWORD: 'himitsu' }) {
         setFontLine: () => ({ setFontColor: () => {} }) }),
       setFrozenRows(){}, setColumnWidth(){}, clear(){}, deleteRows(){}, _data: d };
   };
+  made['予約一覧'] = mk('予約一覧');
   const ss = { getSheetByName: n => (made[n] = made[n] || null), insertSheet: n => (made[n] = mk(n)) };
   const ctx = {
     console: { log(){}, warn(){}, error(){} },
@@ -1973,6 +1974,7 @@ function shop(sheetsInit = {}, source = srcLive) {
       _head: () => (head ? head.slice() : [])
     };
   };
+  sheets['予約一覧'] = mk('予約一覧', { head: HEAD.slice(), rows: [] });
   Object.keys(sheetsInit).forEach(n => { sheets[n] = mk(n, sheetsInit[n]); });
   const ss = { getSheetByName: n => sheets[n] || null, insertSheet: n => (sheets[n] = mk(n)) };
   const ctx = {

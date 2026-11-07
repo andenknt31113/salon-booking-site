@@ -9,6 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { BOOKING_CHECKS, verifyBooking } from '../tools/verify-booking.mjs';
 
+test('旧受け口試験も途中終了と失敗を検出し、単独更新を継続検査する', async () => {
+  assert.ok(BOOKING_CHECKS.includes('test/backend.mjs'));
+  const workflow = await readFile(new URL('../.github/workflows/verify-backend.yml', import.meta.url), 'utf8');
+  assert.equal(workflow.split("- 'test/backend.mjs'").length - 1, 2);
+});
+
 test('入力上限と保存時の切り詰めの不一致を予約の一括検査から外さない', () => {
   assert.ok(BOOKING_CHECKS.includes('test/booking-input-limits.mjs'));
 });
