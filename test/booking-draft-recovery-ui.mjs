@@ -16,7 +16,12 @@ const cases = [
   ['文字列ではない保存済み連絡先', { profile: { name: {}, tel: '00000000000', email: [] } }]
 ];
 
-test('要望を入力済みでも選んだスタイルを残留させず、次の予約へ混ぜない', async () => {
+for (const [label, request, expected, warning] of [
+  ['入力済みの要望', '前髪の長さを相談したいです', '前髪の長さを相談したいです\n「架空のスタイル」のようなイメージでお願いします。', false],
+  ['既に同じスタイルを含む要望', '架空のスタイルを希望します', '架空のスタイルを希望します', false],
+  ['文字数いっぱいの要望', 'あ'.repeat(1000), 'あ'.repeat(1000) + '\n「架空のスタイル」のようなイメージでお願いします。', true],
+  ['空の要望', '', '「架空のスタイル」のようなイメージでお願いします。', false]
+]) test(`${label}を保持してスタイルの反映を確認でき、次の予約へ混ぜない`, async () => {
   const server = http.createServer();
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -37,7 +42,7 @@ test('要望を入力済みでも選んだスタイルを残留させず、次�
     await context.addInitScript(draft => {
       sessionStorage.setItem('salon.reserveDraft.v1', JSON.stringify(draft));
       localStorage.setItem('salon.styleRequest.v1', '架空のスタイル');
-    }, { ...DRAFT, customer: { ...DRAFT.customer, request: '前髪の長さを相談したいです' } });
+    }, { ...DRAFT, customer: { ...DRAFT.customer, request } });
     const page = await context.newPage();
     await page.goto(`${base}/reserve.html`);
     await page.waitForFunction(() => typeof Catalog !== 'undefined' && Catalog.loaded);
@@ -45,7 +50,14 @@ test('要望を入力済みでも選んだスタイルを残留させず、次�
     await page.locator('[data-next="2"]').first().click();
     await page.locator('button[data-date][data-time]:not([disabled])').first().click();
     await page.locator('[data-next="4"]').first().click();
-    assert.equal(await page.locator('#f-request').inputValue(), '前髪の長さを相談したいです');
+    assert.equal(await page.locator('#f-request').inputValue(), expected);
+    assert.equal(await page.locator('#f-request-error').isVisible(), warning);
+    if (warning) {
+      assert.match(await page.locator('#f-request-error').innerText(), /1000文字以内/);
+      assert.equal(await page.locator('#f-request').getAttribute('aria-invalid'), 'true');
+      await page.locator('#f-request').fill('架空のスタイルを希望します');
+      assert.equal(await page.locator('#f-request-error').isVisible(), false);
+    }
     assert.equal(await page.evaluate(() => localStorage.getItem('salon.styleRequest.v1')), null);
     assert.ok(requests.every(request => ['menu', 'availability'].includes(request.type)));
   } finally {

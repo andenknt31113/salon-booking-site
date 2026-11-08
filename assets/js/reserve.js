@@ -568,8 +568,12 @@ function fillForm() {
      ご要望欄に入れておきます。すでに書いてある内容は消しません
      （下書きを復元した人の文章を、こちらの都合で上書きしないため）。 */
   const wanted = takeStyleRequest();
-  if (wanted && !c.request) c.request = `「${wanted}」のようなイメージでお願いします。`;
+  if (wanted && !c.request.includes(wanted)) {
+    const text = `「${wanted}」のようなイメージでお願いします。`;
+    c.request = c.request ? `${c.request}\n${text}` : text;
+  }
   form.request.value = c.request;
+  if (wanted && !VALIDATORS.request(c.request)) setFieldError($('[data-field="request"]'), true);
   form.agree.checked = !!c.agree;
   if (c.visit) {
     const radio = form.querySelector(`input[name="visit"][value="${CSS.escape(c.visit)}"]`);
