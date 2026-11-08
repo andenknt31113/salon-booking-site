@@ -588,10 +588,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // この端末で取った予約
     const mine = Store.find(code);
-    if (mine) { startChange(mine); return; }
+    const fromLookup = !!btn.closest('#lookup-result');
+    const lookupMatches = lastLookup && normalizeCode(lastLookup.code) === normalizeCode(code);
+    const ownTel = normalizeTel(mine?.customer?.tel || '').replace(/\D/g, '');
+    const lookupTel = normalizeTel(lastLookup?.lookupTel || '').replace(/\D/g, '');
+    if (mine && (!fromLookup || (lookupMatches && ownTel && ownTel === lookupTel))) { startChange(mine); return; }
 
     // 予約番号＋電話番号で照会した予約
-    if (lastLookup && lastLookup.code === code) {
+    if (fromLookup && lookupMatches) {
       startChange({
         code: lastLookup.code,
         date: lastLookup.date,

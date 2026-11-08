@@ -287,6 +287,54 @@ test('日時変更を控えに反映し、別のお客様の控えや保存し�
   }
 });
 
+test('電話番号が違う古い控えより、照会した予約の日時と電話番号を変更画面へ渡す', async () => {
+  const other = { ...localRecord, customer: { ...localRecord.customer, tel: '00000000001' } };
+  const page = await openLookup([other]);
+  try {
+    await interceptLookup(page, route => answer(route, latest));
+    await page.locator('#lookup-btn').click();
+    await page.locator('#lookup-result [data-change]').click();
+    await page.waitForURL(/reserve\.html\?change=1/);
+    await page.waitForFunction(() => typeof changing !== 'undefined' && changing !== null);
+    const target = await page.evaluate(() => changing);
+    assert.equal(target.date, latest.date);
+    assert.equal(target.time, latest.time);
+    assert.equal(target.lookupTel, localRecord.customer.tel);
+    assert.equal(target.customer, undefined);
+  } finally { await page.context().close(); }
+});
+
+test('電話番号が一致する控えは最新日時に更新してからメニュー情報も引き継ぐ', async () => {
+  const page = await openLookup([localRecord]);
+  try {
+    await interceptLookup(page, route => answer(route, latest));
+    await page.locator('#lookup-btn').click();
+    await page.locator('#lookup-result [data-change]').click();
+    await page.waitForURL(/reserve\.html\?change=1/);
+    await page.waitForFunction(() => typeof changing !== 'undefined' && changing !== null);
+    const target = await page.evaluate(() => changing);
+    assert.equal(target.date, latest.date);
+    assert.equal(target.time, latest.time);
+    assert.equal(target.customer.tel, localRecord.customer.tel);
+    assert.deepEqual(target.menus, localRecord.menus);
+  } finally { await page.context().close(); }
+});
+
+test('別の電話番号の予約を照会した後でも、端末の控えからはその控えを変更できる', async () => {
+  const other = { ...localRecord, customer: { ...localRecord.customer, tel: '00000000001' } };
+  const page = await openLookup([other]);
+  try {
+    await interceptLookup(page, route => answer(route, latest));
+    await page.locator('#lookup-btn').click();
+    await page.locator('#upcoming-list [data-change]').click();
+    await page.waitForURL(/reserve\.html\?change=1/);
+    await page.waitForFunction(() => typeof changing !== 'undefined' && changing !== null);
+    const target = await page.evaluate(() => changing);
+    assert.equal(target.date, other.date);
+    assert.equal(target.customer.tel, other.customer.tel);
+  } finally { await page.context().close(); }
+});
+
 test('照会中の連打は一件だけ送り、失敗時に前の予約を復活させない', async () => {
   const page = await openLookup();
   let release;
