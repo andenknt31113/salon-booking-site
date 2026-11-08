@@ -45,6 +45,7 @@ async function withAdmin(design, run) {
     return route.continue();
   });
   const page = await context.newPage();
+  await page.clock.setFixedTime(new Date('2026-10-08T09:00:00+09:00'));
   page.on('pageerror', error => errors.push(error.message));
   page.on('dialog', dialog => dialog.dismiss());
   try {

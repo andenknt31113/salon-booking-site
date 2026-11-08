@@ -567,8 +567,8 @@ function fillForm() {
   /* スタイル一覧から「このスタイルで予約」で来た場合、そのスタイル名を
      ご要望欄に入れておきます。すでに書いてある内容は消しません
      （下書きを復元した人の文章を、こちらの都合で上書きしないため）。 */
-  const wanted = c.request ? '' : takeStyleRequest();
-  if (wanted) c.request = `「${wanted}」のようなイメージでお願いします。`;
+  const wanted = takeStyleRequest();
+  if (wanted && !c.request) c.request = `「${wanted}」のようなイメージでお願いします。`;
   form.request.value = c.request;
   form.agree.checked = !!c.agree;
   if (c.visit) {

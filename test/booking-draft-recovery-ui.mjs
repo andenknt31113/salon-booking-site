@@ -16,6 +16,46 @@ const cases = [
   ['文字列ではない保存済み連絡先', { profile: { name: {}, tel: '00000000000', email: [] } }]
 ];
 
+test('要望を入力済みでも選んだスタイルを残留させず、次の予約へ混ぜない', async () => {
+  const server = http.createServer();
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const port = server.address().port;
+  server.on('request', createMockHandler({ port }));
+  const base = `http://127.0.0.1:${port}`;
+  const browser = await engines.chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+  const context = await browser.newContext({ locale: 'ja-JP', timezoneId: 'Asia/Tokyo' });
+  const requests = [];
+  try {
+    await context.route('**/*', route => {
+      const request = route.request();
+      if (new URL(request.url()).origin !== base) return route.abort();
+      if (request.method() === 'POST') requests.push(JSON.parse(request.postData()));
+      return route.continue();
+    });
+    await mockBookingState(context, { approved: true, draft: false });
+    await context.addInitScript(draft => {
+      sessionStorage.setItem('salon.reserveDraft.v1', JSON.stringify(draft));
+      localStorage.setItem('salon.styleRequest.v1', '架空のスタイル');
+    }, { ...DRAFT, customer: { ...DRAFT.customer, request: '前髪の長さを相談したいです' } });
+    const page = await context.newPage();
+    await page.goto(`${base}/reserve.html`);
+    await page.waitForFunction(() => typeof Catalog !== 'undefined' && Catalog.loaded);
+    await page.locator('#coupon-choices .selectable').first().click();
+    await page.locator('[data-next="2"]').first().click();
+    await page.locator('button[data-date][data-time]:not([disabled])').first().click();
+    await page.locator('[data-next="4"]').first().click();
+    assert.equal(await page.locator('#f-request').inputValue(), '前髪の長さを相談したいです');
+    assert.equal(await page.evaluate(() => localStorage.getItem('salon.styleRequest.v1')), null);
+    assert.ok(requests.every(request => ['menu', 'availability'].includes(request.type)));
+  } finally {
+    await context.close();
+    await browser.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 for (const [label, stored] of cases) {
   test(`${label}でも入力を始められ、予約を自動送信しない`, async () => {
     const server = http.createServer();
