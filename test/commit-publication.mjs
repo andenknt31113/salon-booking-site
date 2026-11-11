@@ -32,7 +32,8 @@ async function fixture(run, { realContent = false } = {}) {
     }
     await mkdir(join(root, 'tools'));
     for (const file of ['tools/commit-publication.mjs', 'tools/public-content.mjs',
-      'tools/publication-site.mjs', 'tools/publish-menus.mjs', 'assets/js/data.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css']) {
+      'tools/publication-site.mjs', 'tools/publish-menus.mjs', 'assets/js/data.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css', 'assets/css/style.css', 'assets/css/public.css', 'assets/css/design-a.css',
+  'assets/js/public-read.js', 'assets/js/reserve.js', 'assets/js/mypage.js', 'assets/js/privacy.js', 'assets/js/design-a.js']) {
       await mkdir(dirname(join(root, file)), { recursive: true });
       await copyFile(new URL('../' + file, import.meta.url), join(root, file));
     }

@@ -1,0 +1,37 @@
+# 公開サイトの外形監視（読取だけ）
+#
+# 公開ページ・参照ファイルが開けること、内部ファイルが配信されていないことを定期的に確認する。
+# 失敗するとこのworkflowが失敗になり、GitHubの通知設定に従ってリポジトリの所有者へ知らせる。
+# 予約・取消・管理保存・メール送信はしない。使い方と止め方は tools/monitor-site.md。
+name: Monitor public site
+
+on:
+  schedule:
+    # 毎時17分と47分（UTC）。GitHubの混雑で遅れる・飛ぶことがある。
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor-site
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - run: node --test test/monitor-site.mjs
+      - run: node tools/monitor-site.mjs
+        env:
+          # リポジトリ変数を true にした場合だけ、予約の受け口へ読取を一回送る。未設定なら送らない。
+          MONITOR_BACKEND_READ: ${{ vars.MONITOR_BACKEND_READ }}

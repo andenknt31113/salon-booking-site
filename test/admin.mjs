@@ -133,7 +133,12 @@ async function saveSettings(p) {
 async function visitorText(page, file) {
   await page.goto(B + '/' + file);
   await page.waitForTimeout(1200);
-  if (file === 'index.html') await page.locator('.access-details > summary').click();
+  /* 店舗情報は最初から見える表になった（折りたたみは廃止）。地図は遅延読込なので、
+     その場所まで送ってから本文を読みます。 */
+  if (file === 'index.html') {
+    await page.locator('.access-details').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+  }
   return page.locator('body').innerText();
 }
 

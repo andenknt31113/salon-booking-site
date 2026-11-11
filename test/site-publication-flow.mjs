@@ -12,7 +12,8 @@ import { PUBLICATION_SETTING_KEYS, parsePublishedMenus } from '../tools/publicat
 const execute = promisify(execFile);
 const FILES = ['index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
   'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html',
-  'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css',
+  'assets/js/data.js', 'assets/js/published-menus.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css', 'assets/css/style.css', 'assets/css/public.css', 'assets/css/design-a.css',
+  'assets/js/public-read.js', 'assets/js/reserve.js', 'assets/js/mypage.js', 'assets/js/privacy.js', 'assets/js/design-a.js',
   'tools/public-content.mjs', 'tools/publish-menus.mjs', 'tools/publication-site.mjs'];
 const GENERATED = ['assets/js/published-menus.js', 'index.html', 'menu.html', 'staff.html', 'gallery.html', 'reviews.html',
   'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html'];

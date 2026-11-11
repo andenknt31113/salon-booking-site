@@ -37,7 +37,8 @@ try {
   await copyFile(new URL('../tools/public-content.mjs', import.meta.url), join(root, 'tools/public-content.mjs'));
   await copyFile(new URL('../tools/publication-site.mjs', import.meta.url), join(root, 'tools/publication-site.mjs'));
   for (const name of ['index.html', 'menu.html', 'staff.html', 'reviews.html', 'gallery.html',
-    'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html', 'assets/js/data.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css']) {
+    'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html', 'assets/js/data.js', 'assets/js/common.js', 'assets/js/pages.js', 'assets/css/home.css', 'assets/css/style.css', 'assets/css/public.css', 'assets/css/design-a.css',
+  'assets/js/public-read.js', 'assets/js/reserve.js', 'assets/js/mypage.js', 'assets/js/privacy.js', 'assets/js/design-a.js']) {
     await copyFile(new URL('../' + name, import.meta.url), join(root, name));
   }
   await writeFile(output, 'const PUBLISHED_MENUS = null;\n');

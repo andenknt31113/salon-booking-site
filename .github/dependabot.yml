@@ -1,0 +1,9 @@
+# workflowで使うactionは版を固定しているため、放置すると古い実行環境のまま止まる。
+# 月に一度、更新があればPull Requestで知らせる。自動ではmainへ入らない。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

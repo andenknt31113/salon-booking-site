@@ -7,9 +7,23 @@ const read = name => readFile(new URL(name, ROOT), 'utf8');
 export const PUBLICATION_PAGES = Object.freeze(['index.html', 'reviews.html', 'menu.html', 'staff.html', 'gallery.html',
   'privacy.html', 'reserve.html', 'mypage.html', 'design-a.html']);
 
+// 公開データは内容がメニュー更新で変わるため、publicHtml が別に版を付ける。
+const CATALOG_ASSET = 'assets/js/published-menus.js';
+const ASSET_REFERENCE = /((?:src|href)=["'])(assets\/(?:js|css)\/[A-Za-z0-9._-]+\.(?:js|css))(?:\?[^"']*)?(["'])/g;
+
+// HTMLが読み込むこのサイトのJS・CSSへ、ファイル内容のSHA-256を版として付ける。
+// 中身を変えれば読込URLも変わるので、版の文字列を手で書き換える必要がない。
+export async function syncAssetVersions(html, readAsset = read) {
+  const versions = new Map();
+  for (const match of html.matchAll(ASSET_REFERENCE)) {
+    if (match[2] === CATALOG_ASSET || versions.has(match[2])) continue;
+    versions.set(match[2], createHash('sha256').update(await readAsset(match[2])).digest('hex'));
+  }
+  return html.replace(ASSET_REFERENCE, (whole, start, asset, end) =>
+    versions.has(asset) ? start + asset + '?v=' + versions.get(asset) + end : whole);
+}
+
 export async function publicHtml(catalogSource) {
-  const assetVersions = await Promise.all(['assets/js/pages.js', 'assets/css/home.css'].map(async asset =>
-    [asset, createHash('sha256').update(await read(asset)).digest('hex')]));
   const context = vm.createContext({ URL, document: { addEventListener() {} } });
   for (const source of [await read('assets/js/data.js'), catalogSource,
     await read('assets/js/common.js'), await read('assets/js/pages.js')]) {
@@ -60,10 +74,7 @@ export async function publicHtml(catalogSource) {
     const script = /(<script\b[^>]*\bsrc=["'])assets\/js\/published-menus\.js(?:\?[^"']*)?(["'][^>]*>)/g;
     if ([...next.matchAll(script)].length !== 1) throw new Error(`${name} の公開データ読込位置を確認できません。ファイルは更新しません。`);
     next = next.replace(script, (_match, start, end) => start + 'assets/js/published-menus.js?v=' + version + end);
-    for (const [asset, assetVersion] of assetVersions) {
-      const reference = new RegExp('((?:src|href)=["\'])' + asset.replaceAll('.', '\\.') + '(?:\\?[^"\']*)?(["\'])', 'g');
-      next = next.replace(reference, (_match, start, end) => start + asset + '?v=' + assetVersion + end);
-    }
+    next = await syncAssetVersions(next);
     files.push({ name, previous, next });
   }
   return files;

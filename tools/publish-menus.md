@@ -20,6 +20,19 @@ node tools/publish-menus.mjs --check-local
 
 公開データを読む九ページのscript URLには、ファイル内容のSHA-256を付けます。内容が変わった場合だけURLを変え、以前のブラウザcacheで新しい初期HTMLを巻き戻さないようにします。五ページの初期表示と、九ページの読込URLを同じ更新・復旧処理へ含めます。生成位置の欠落・重複は更新前に拒否します。
 
+## JS・CSSを変えたとき
+
+お客様向けの全HTML（上の九ページと`404.html`）は、読み込むこのサイトのJS・CSSにもファイル内容のSHA-256を版として付けます。`?v=20261006-…`のような日付の版を手で書き換える必要はありません。JS・CSSを変えたら、外部へ接続しない次のコマンドで揃えます。
+
+```sh
+node tools/sync-asset-versions.mjs --write
+node --test test/asset-versions.mjs
+```
+
+揃え忘れは`test/asset-versions.mjs`と配信前の`--check-local`が検出し、公開を止めます。`--write-local`でも九ページの版は揃います。
+
+管理画面（`admin.html`・`admin-google.html`）は対象外です。入口・管理HTML・管理JSを一つの版に揃えて読む設計で、iframeのURLにも同じ版を書くためです。従来どおり手で版を揃え、`test/final-release-static.mjs`が一致を検査します。
+
 ## 保存済みメニューを公開する
 
 GitHub Actionsの「Update saved menus and publish」を開き、`main`を選んで`confirm_publication`を有効にして実行します。制作担当者がリポジトリの既存権限で操作する手順です。既定値は無効で、別branchや確認なしの実行は取得・commitより前に停止します。
