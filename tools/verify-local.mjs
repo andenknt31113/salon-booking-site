@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const MOCK_KEYS = ['MOCK_ADMIN_PASSWORD', 'MOCK_ADMIN_TOKEN'];
+export const BACKEND_TIME_ZONE = 'Asia/Tokyo';
 const EXCLUDED_ENV = [...MOCK_KEYS, 'GAS_SOURCE', 'GAS_BASELINE_SOURCE', 'ADMIN_SOURCE',
   'ADMIN_BASELINE_SOURCE', 'BASE', 'ADMIN_PW', 'TEST_BROWSER', 'TEST_SCREENSHOT_DIR',
   'SCREENSHOT_DIR', 'TEST_ARTIFACT_DIR', 'NODE_TEST_CONTEXT', 'NODE_OPTIONS'];
@@ -25,6 +26,9 @@ export async function verifyLocalChecks({ root, checks, output = process.stdout,
   const secrets = MOCK_KEYS.map(() => randomBytes(32).toString('hex'));
   const environment = { ...process.env };
   for (const key of EXCLUDED_ENV) delete environment[key];
+  // 受け口（GAS）は gas/appsscript.json の timeZone で動く。受付期限などの日付判定を本番と同じ条件で
+  // 検査するため、実行する機械の時刻帯（CIはUTC）に関係なく固定する。
+  environment.TZ = BACKEND_TIME_ZONE;
   const counts = {};
   try {
     const envFile = join(directory, '.env');
