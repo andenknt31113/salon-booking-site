@@ -1164,32 +1164,33 @@ await group('管22 「準備中」の帯を店主が下ろせる', async () => {
    ============================================================ */
 await group('管23 店舗情報とスタッフ紹介を書き換えられる', async () => {
   const p = await newAdmin('管23');
+  const before = (await post({ type: 'adminData', password: PW })).settings || {};
 
   await openSettingGroup(p, '場所・行き方');
   await p.locator('[data-setting="住所"]').fill('茨城県龍ケ崎市引越しました2-2-2');
   await p.locator('[data-setting="アクセス"]').fill('新しい最寄りはテスト駅から徒歩3分');
   await openSettingGroup(p, '店内・お支払い');
   await p.locator('[data-setting="支払い方法"]').fill('現金／PayPay／各種カード');
-  await p.locator('[data-setting="席数"]').fill('セット面3席');
-  await openSettingGroup(p, 'お店の紹介');
-  /* こだわり条件に「PayPay」を入れないのは、下で支払い方法を空にしたとき、
-     消えたかどうかを別の欄の文字で確かめてしまわないためです。 */
-  await p.locator('[data-setting="こだわり条件"]').fill('駐車場あり\n完全予約制\nテスト条件です');
+  /* 席数・こだわり条件は公開ページの表から外したので、入力欄も出しません。 */
+  check('管23', 'サイトに出ない席数の入力欄は出さない',
+    await p.locator('[data-setting="席数"]').count(), 0);
+  check('管23', 'サイトに出ないこだわり条件の入力欄は出さない',
+    await p.locator('[data-setting="こだわり条件"]').count(), 0);
   await openSettingGroup(p, 'スタッフ紹介');
   await p.locator('[data-setting="スタッフの経験年数"]').fill('7');
   await p.locator('[data-setting="スタッフの得意分野"]').fill('メンズカット\nテスト技術');
   await p.locator('[data-setting="スタッフの紹介文"]').fill('入れ替えた紹介文です。');
   const saved = await saveSettings(p);
   check('管23', '住所がシートに入る', saved['住所'], '茨城県龍ケ崎市引越しました2-2-2');
-  check('管23', 'こだわり条件がシートに入る（1行1件）',
-    /テスト条件です/.test(String(saved['こだわり条件'])), true);
+  check('管23', '入力欄のない席数・こだわり条件は、保存しても元の値のまま残る',
+    String(saved['席数'] ?? '') === String(before['席数'] ?? '')
+      && String(saved['こだわり条件'] ?? '') === String(before['こだわり条件'] ?? ''), true);
 
   const v = await newPhone('管23-お客様');
   const beforePublication = await visitorText(v, 'index.html');
   check('管23', '保存だけで公開データを変更しない', /引越しました2-2-2/.test(beforePublication), false);
   const publication = {
-    address: saved['住所'], access: saved['アクセス'], payment: saved['支払い方法'], seats: saved['席数'],
-    features: String(saved['こだわり条件']).split('\n')
+    address: saved['住所'], access: saved['アクセス'], payment: saved['支払い方法']
   };
   const staffPublication = {
     years: Number(saved['スタッフの経験年数']), message: saved['スタッフの紹介文'],
@@ -1205,8 +1206,6 @@ await group('管23 店舗情報とスタッフ紹介を書き換えられる', a
   check('管23', '新しい住所がサイトに出る', /引越しました2-2-2/.test(text), true);
   check('管23', '新しいアクセスが出る', /テスト駅から徒歩3分/.test(text), true);
   check('管23', 'PayPay が支払い方法に出る', /PayPay/.test(text), true);
-  check('管23', '席数が出る', /セット面3席/.test(text), true);
-  check('管23', 'こだわり条件が出る（1行1件で並ぶ）', /テスト条件です/.test(text), true);
   check('管23', '経験年数が出る', /経験7年/.test(text), true);
   check('管23', 'スタッフの紹介文が出る', /入れ替えた紹介文です/.test(text), true);
   check('管23', '得意分野の札が出る', /テスト技術/.test(text), true);
@@ -1272,7 +1271,8 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
   const noBreak = 'https://example.com/' + 'x'.repeat(500);
   await openSettingGroup(p, 'お店の紹介');
   await p.locator('[data-setting="店の紹介文"]').fill(long);
-  await p.locator('[data-setting="こだわり条件"]').fill(
+  await openSettingGroup(p, '店内・お支払い');
+  await p.locator('[data-setting="支払い方法"]').fill(
     ['<script>alert(1)</script>', '＆＜＞"\'', '　', '', '★'.repeat(200)].join('\n'));
   await openSettingGroup(p, '場所・行き方');
   await p.locator('[data-setting="住所"]').fill(noBreak);
@@ -1289,7 +1289,7 @@ await group('管25 壊れた値でも画面が壊れない', async () => {
   const v = await newPhone('管25-お客様');
   const publishedInput = {
     description: long, address: noBreak,
-    features: ['<script>alert(1)</script>', '＆＜＞"\'', '★'.repeat(200)]
+    payment: ['<script>alert(1)</script>', '＆＜＞"\'', '★'.repeat(200)].join('\n')
   };
   await v.route(/\/assets\/js\/data\.js(?:\?.*)?$/, async route => {
     const response = await route.fetch();

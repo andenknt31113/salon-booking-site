@@ -137,9 +137,9 @@ const SETTING_SECTIONS = [
       { key: 'キャッチコピー', type: 'textarea', blank: 'keep',
         hint: 'トップの大見出しに出ます。' },
       { key: '店の紹介文', type: 'textarea', blank: 'clear',
-        hint: 'キャッチコピーの下に出る、お店の紹介です。' },
-      { key: 'こだわり条件', type: 'textarea', blank: 'clear', rows: 8,
-        hint: '1行に1つずつ書いてください。店舗情報の表に「／」でつないで出ます。' }
+        hint: 'キャッチコピーの下に出る、お店の紹介です。' }
+      /* 「こだわり条件」と「席数」は、公開ページの表から外したため入力欄を出しません。
+         シートの値は保存時にそのまま送り返すので、消えません。 */
     ]
   },
   {
@@ -159,9 +159,7 @@ const SETTING_SECTIONS = [
     title: '店内・お支払い',
     fields: [
       { key: '支払い方法', type: 'textarea', blank: 'clear',
-        hint: 'PayPay を入れたときなどは、ここに書き足してください。' },
-      { key: '席数', type: 'text', blank: 'clear',
-        hint: '店舗情報の表に出る文字です。同時にお受けできる人数は変わりません。' }
+        hint: 'PayPay を入れたときなどは、ここに書き足してください。' }
     ]
   },
   {
