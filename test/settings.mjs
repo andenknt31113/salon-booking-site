@@ -251,7 +251,14 @@ const sheetSettings = gasSettings();
   } else {
     const sheetKeys = sheetSettings.map(r => r[0]);
     const missing = adminKeys.filter(k => sheetKeys.indexOf(k) < 0);
-    const extra = sheetKeys.filter(k => adminKeys.indexOf(k) < 0);
+    /* 公開ページの表から外した項目。シートには値を残し、管理ページには入力欄を出しません。
+       ここに無い項目がシートにだけあれば、これまでどおり食い違いとして止めます。 */
+    const HIDDEN_FROM_ADMIN = ['こだわり条件', '席数'];
+    const extra = sheetKeys.filter(k => adminKeys.indexOf(k) < 0 && HIDDEN_FROM_ADMIN.indexOf(k) < 0);
+    const staleHidden = HIDDEN_FROM_ADMIN.filter(k => adminKeys.indexOf(k) >= 0 || sheetKeys.indexOf(k) < 0);
+    if (staleHidden.length) {
+      problems.push('入力欄を出さない項目の一覧が古い：' + staleHidden.join('／'));
+    }
     console.log(`  ${!missing.length ? '✅' : '❌'} 管理ページの項目が、すべてシートにある（${adminKeys.length}件）`);
     if (missing.length) {
       problems.push('シートに無い項目が管理ページにある：' + missing.join('／')
