@@ -1121,8 +1121,8 @@ function sendReservationEmails_(d, c, menuText, calendarWarning, settings) {
     '───────────────',
     '',
     '【ご予約の確認・キャンセル】',
-    `${SITE_URL}mypage.html`,
-    'ご予約番号と電話番号を入力すると、どの端末からでもご確認いただけます。',
+    reservationPageUrl_(d.code),
+    'リンクを開いてお電話番号を入力すると、どの端末からでもご確認・変更・キャンセルができます。',
     /* 期限は設定シートから読みます。ここに「前日18時」と書いていたころは、
        店が期限を変えても、このメールだけが古い締切を案内し続けていました。 */
     deadlineLabel_(settings) + 'を過ぎてからのご変更・キャンセルは、お手数ですが店舗までご連絡ください。',
@@ -1960,6 +1960,16 @@ function doChange_(sheet, d) {
   return { ok: true, calendarWarning: calendarWarning };
 }
 
+/* メールから予約確認ページを開くリンク。
+   メールアプリの中の画面は、予約したブラウザの控えを読めません。リンクに予約番号を
+   付けておくと、ページが番号の欄を埋め、お客様は電話番号だけ入れれば確認できます。
+   電話番号は本人確認なので付けません。番号として読めないものは付けません。 */
+function reservationPageUrl_(code) {
+  const text = String(code == null ? '' : code).trim();
+  const valid = /^(?=.*[A-Za-z0-9])[A-Za-z0-9-]{1,20}$/.test(text);
+  return SITE_URL + 'mypage.html' + (valid ? '?code=' + encodeURIComponent(text) : '');
+}
+
 function sendChangeEmails_(code, name, email, menuText, oldDate, oldTime, newDate, newTime, calendarWarning, settings) {
   const customerMailStatus = mailCustomer_(email, `ご予約の日時を変更しました（${newDate} ${newTime}）`, [
     `${name} 様`,
@@ -1972,7 +1982,7 @@ function sendChangeEmails_(code, name, email, menuText, oldDate, oldTime, newDat
     `メニュー　：${menuText}`,
     '',
     'お気をつけてお越しくださいませ。',
-    `ご予約の確認： ${SITE_URL}mypage.html`,
+    `ご予約の確認： ${reservationPageUrl_(code)}`,
     '',
     `${SALON_NAME}`,
     salonSignature_({ address: false }, settings)

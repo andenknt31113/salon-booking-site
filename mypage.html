@@ -55,11 +55,12 @@
              キャンセルするとカードは下の「過去・キャンセル」へ移るため、
              押した場所から消えただけに見えてしまいます -->
         <div class="notice is-info" id="flash" style="display:none;"></div>
-        <div class="notice is-warn" id="store-warning" role="status" hidden>この端末の控えの一部を読み込めません。店舗の予約が取り消されたわけではありません。予約し直さず、<a href="#lookup-box">予約番号と電話番号で最新の状態を確認してください</a>。</div>
+        <div class="notice is-warn" id="store-warning" role="status" hidden>この端末の控えの一部を読み込めません。店舗の予約が取り消されたわけではありません。予約し直さず、<a href="#lookup-box">予約番号と電話番号でご予約を確認してください</a>。</div>
 
         <h2 class="section-title" id="saved-bookings-title" style="font-size:17px;margin:0 0 14px;">これからのご予約</h2>
         <div id="upcoming-list"></div>
-        <p class="section-desc" style="margin:12px 0;font-size:13px;">一覧はこの端末の控えです。お電話や別の端末で変更した場合は、<a href="#lookup-box">予約番号で最新の状態をご確認ください</a>。</p>
+        <!-- 記録が1件も無い方には出しません。空の一覧に「控えです」と添えても読む理由がありません -->
+        <p class="section-desc" id="saved-bookings-note" style="margin:12px 0;font-size:13px;">一覧はこの端末の控えです。お電話や別の端末で変更した場合は、<a href="#lookup-box">予約番号で確認すると、最新の内容が表示されます</a>。</p>
 
         <!-- 件数が少ないうちは絞り込む理由がありません。
              mypage.js が、2件以上あるときだけ出します -->
@@ -72,15 +73,21 @@
 
         <!-- キャンセル済みのご予約は、ご来店日が先でもこちらに入ります。
              「過去」とだけ書くと、来週のキャンセル分が並んだときに読めません -->
-        <h2 class="section-title" style="font-size:17px;margin:36px 0 14px;">過去・キャンセルのご予約</h2>
-        <div id="past-list"></div>
+        <!-- 記録が1件も無い方には、この欄ごと出しません（mypage.js）。
+             「ありません」の箱が2つ続くと、確認する欄が埋もれます -->
+        <div id="past-bookings">
+          <h2 class="section-title" style="font-size:17px;margin:36px 0 14px;">過去・キャンセルのご予約</h2>
+          <div id="past-list"></div>
+        </div>
 
         <!-- 予約番号 + 電話番号での照会（別の端末からでも確認できます） -->
         <section id="lookup-box" aria-labelledby="lookup-title">
-          <h2 class="section-title" id="lookup-title" style="font-size:16px;margin-bottom:6px;">予約番号で最新の状態を確認する</h2>
+          <h2 class="section-title" id="lookup-title" style="font-size:16px;margin-bottom:6px;">予約番号で予約を確認する</h2>
           <p class="section-desc" style="margin:0 0 18px;font-size:13px;">
-            この端末に記録がない予約も、予約番号と電話番号で確認できます。
+            この端末に記録がない予約も、予約番号と電話番号で確認できます。確認のあと、そのまま変更・キャンセルもできます。
           </p>
+          <!-- メールのリンクから開いた方へ。文面は mypage.js が入れます -->
+          <p class="section-desc" id="lookup-prefill-note" role="status" style="margin:0 0 18px;font-size:13px;" hidden></p>
           <div class="form-field" style="margin-bottom:14px;">
             <label for="lookup-code">ご予約番号</label>
             <!-- 番号は英大文字と数字だけです。自動大文字化と自動修正を切らないと、
@@ -117,6 +124,6 @@
 <script src="assets/js/published-menus.js?v=9128053ef54b80337eaafe418d80a039cb002f346a8c1ae2708ba29f36d2f586"></script>
   <script src="assets/js/public-read.js?v=c2b0146919f699a3654dcea3b34516af118847275b7b30779a5bef64493d859a"></script>
 <script src="assets/js/common.js?v=68d5f671ebee34dd3aab139ba4ec0175d72f3d145c1d417bf741c0d73bc682ba"></script>
-  <script src="assets/js/mypage.js?v=87b636aaa938d9ec93295e142e4cd5e5c74f9a1662e10a2b75e15d83364c7485"></script>
+  <script src="assets/js/mypage.js?v=4c70b856cfcc3a71f57525110da672541d7870b59a1608359bca46c16ae9d556"></script>
 </body>
 </html>

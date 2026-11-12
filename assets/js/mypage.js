@@ -228,6 +228,15 @@ function render() {
      絞り込み中は、解除できるように必ず出したままにします。 */
   const box = $('#search-box');
   if (box) box.hidden = !filterCode && list.length < 2;
+  /* この端末に記録が1件も無い方には、「過去・キャンセル」の欄と一覧の但し書きを
+     出しません。「ありません」の箱が2つ続き、同じ案内が3回並ぶと、
+     いちばん使ってほしい確認の欄が埋もれます。
+     控えを読めなかったときは、無いのか読めないのかを伝えるために残します。 */
+  const noRecords = !list.length && !filterCode && !Store.readProblem;
+  const pastSection = $('#past-bookings');
+  if (pastSection) pastSection.hidden = noRecords;
+  const savedNote = $('#saved-bookings-note');
+  if (savedNote) savedNote.hidden = noRecords;
   if (filterCode) {
     list = list.filter(r => normalizeCode(r.code).includes(normalizeCode(filterCode)));
   }
@@ -243,6 +252,7 @@ function render() {
          ${filterCode
            ? 'ご指定の予約番号は、この端末の記録の中には見つかりませんでした。'
            : Store.readProblem ? 'この端末の控えを確認できません。'
+           : noRecords ? 'この端末に、ご予約の記録はありません。'
            : 'この端末に、これからのご予約の記録はありません。'}
          <br />${noRecordHint()}
        </div>`;
@@ -397,7 +407,7 @@ async function doLookup() {
   }
 
   btn.disabled = true;
-  btn.textContent = '照会中…';
+  btn.textContent = '確認中…';
   const version = ++lookupVersion;
   const res = await lookupReservation(code, tel);
   btn.disabled = false;
@@ -424,12 +434,42 @@ async function doLookup() {
   refreshView(true);
 }
 
+/* メールのリンク（mypage.html?code=LM-8F3K2）から開いた方の予約番号。
+   メールアプリの中の画面は、予約したブラウザの控えを読めません。
+   同じスマホでも「記録はありません」になり、メールへ戻って番号を写すことになります。
+   番号だけ受け取って欄へ入れておきます。電話番号は本人確認なので、URLでは受け取りません。
+   番号として読めないものは使いません。 */
+const LINKED_CODE_PATTERN = /^(?=.*[A-Za-z0-9])[A-Za-z0-9-]{1,20}$/;
+function linkedCode(search) {
+  let value = '';
+  try { value = new URLSearchParams(search || '').get('code') || ''; } catch (e) { return ''; }
+  value = toHalfWidth(value).trim().toUpperCase();
+  return LINKED_CODE_PATTERN.test(value) ? value : '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   refreshView(true);
+  const linked = linkedCode(location.search);
+  /* 番号はアドレス欄と履歴に残しません。画面を人に見せたり、
+     アドレスを写して送ったりしたときに、番号まで渡さないためです。 */
+  if (linked) {
+    try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* noop */ }
+  }
+  /* この端末に同じご予約の控えがあれば、一覧にもう出ています。欄へは入れません。 */
+  const known = Store.all().some(reservation => normalizeCode(reservation.code) === normalizeCode(linked));
+  const needsLookup = !!linked && !known && !!SALON.reservationEndpoint;
   const hasUpcoming = Store.all().some(reservation => !isPast(reservation) && !isCancelled(reservation));
-  if (!hasUpcoming && $('#saved-bookings-title') && $('#lookup-box')) {
+  if ((!hasUpcoming || needsLookup) && $('#saved-bookings-title') && $('#lookup-box')) {
     $('#saved-bookings-title').before($('#lookup-box'));
     document.body.classList.add('lookup-first');
+  }
+  if (needsLookup) {
+    $('#lookup-code').value = linked;
+    const note = $('#lookup-prefill-note');
+    if (note) {
+      note.textContent = `メールの予約番号 ${linked} を入力しました。ご予約時のお電話番号を入れて、確認してください。`;
+      note.hidden = false;
+    }
   }
 
   /* 受付期限の案内。期限も連絡先も設定で変わるので、まるごとここで組み立てます。

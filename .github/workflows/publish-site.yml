@@ -17,6 +17,7 @@ on:
       - 'tools/sync-asset-versions.mjs'
       - 'test/asset-versions.mjs'
       - 'test/directions-layout.mjs'
+      - 'test/reservation-link.mjs'
       - 'test/prepare-site.mjs'
       - 'test/publication-gate.mjs'
       - 'test/publication-write-safety.mjs'
@@ -72,7 +73,7 @@ jobs:
       - run: node --test test/commit-publication.mjs test/publication-workflow.mjs
       - run: node test/publish-menus.mjs
       - run: node tools/publish-menus.mjs --check-local
-      - run: node --test test/asset-versions.mjs test/directions-layout.mjs
+      - run: node --test test/asset-versions.mjs test/directions-layout.mjs test/reservation-link.mjs
       - run: node --test test/prepare-site.mjs
       - run: node tools/prepare-site.mjs "$RUNNER_TEMP/public-site"
       - run: FINAL_RELEASE_ROOT="$RUNNER_TEMP/public-site" node --test test/final-release-static.mjs
