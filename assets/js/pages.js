@@ -299,6 +299,12 @@ function renderFaq(host) {
 }
 
 /* ---------- 店舗情報 ---------- */
+/* 道案内は「◯お車で…※駐車場…◯公共機関…」と一続きの文で届きます。
+   文言は変えず、見出しの記号（◯・※）の前で改行して、行き方ごとに読めるようにします。 */
+function directionsLines(text) {
+  return String(text || '').replace(/[ \t\u3000]*(?=[◯○●※])/g, '\n').replace(/^\n+/, '');
+}
+
 function renderSalonInfo(host) {
   if (!host) return;
   const b = SALON.business;
@@ -320,7 +326,7 @@ function renderSalonInfo(host) {
       SALON.tel ? `<a href="tel:${esc(SALON.tel.replace(/-/g, ''))}">${esc(SALON.tel)}</a>` : ''],
     ['住所', SALON.address],
     ['アクセス', SALON.access],
-    ['道案内', SALON.directions],
+    ['道案内', directionsLines(SALON.directions)],
     ['営業時間', hours],
     ['定休日', closed],
     ['駐車場', SALON.parking],
